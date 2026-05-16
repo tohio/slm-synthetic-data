@@ -1,0 +1,77 @@
+# SLM Synthetic Data — Master Generation Config
+# This config defines the full synthetic dataset for all model sizes.
+# Smaller models (125M, 350M, 1B) downsample from this dataset.
+# Default target: ~600M tokens for a 1.5B parameter model.
+
+# ---------------------------------------------------------------------
+# GLOBAL SETTINGS
+# ---------------------------------------------------------------------
+run_name: "synthetic"
+output_dir: "${DATA_DIR}/${run_name}"
+
+# Total synthetic token target (adjust as needed)
+target_total_tokens: 600_000_000
+
+# Backend LLM for generation (Groq recommended)
+backend:
+  provider: "groq"
+  model: "llama3-70b-instruct"
+  max_tokens: 512
+  temperature: 0.4
+  top_p: 0.95
+  parallel_requests: 32
+
+# ---------------------------------------------------------------------
+# SIGNAL FAMILY ALLOCATION
+# Adjust percentages to rebalance curriculum signals.
+# ---------------------------------------------------------------------
+mix:
+  arithmetic:
+    share: 0.30
+    prompt_file: "prompts/arithmetic.yaml"
+    source_module: "slm_synth.sources.arithmetic"
+
+  task_code:
+    share: 0.30
+    prompt_file: "prompts/task_code.yaml"
+    source_module: "slm_synth.sources.task_code"
+
+  educational_qa_mcq:
+    share: 0.30
+    prompt_file: "prompts/educational_qa_mcq.yaml"
+    source_module: "slm_synth.sources.educational_qa_mcq"
+
+  factual_restraint:
+    share: 0.10
+    prompt_file: "prompts/factual_restraint.yaml"
+    source_module: "slm_synth.sources.factual_restraint"
+
+# ---------------------------------------------------------------------
+# VALIDATION SETTINGS
+# ---------------------------------------------------------------------
+validation:
+  schema: true
+  max_retries: 2
+  reject_on:
+    - empty_output
+    - schema_violation
+    - unsafe_content
+    - hallucinated_facts
+
+# ---------------------------------------------------------------------
+# DEDUPLICATION SETTINGS
+# ---------------------------------------------------------------------
+dedup:
+  enable_exact: true
+  enable_fuzzy: true
+  fuzzy_method: "minhash"
+  minhash_threshold: 0.85
+
+# ---------------------------------------------------------------------
+# EXPORT SETTINGS
+# ---------------------------------------------------------------------
+export:
+  push_to_hf: true
+  hf_repo: "${HF_USERNAME}/${HF_REPO}"
+  private: false
+  include_manifests: true

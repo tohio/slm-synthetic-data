@@ -1,0 +1,23 @@
+# Factual Restraint Synthetic Data Prompt
+# Generates uncertainty-aware responses:
+# - avoids hallucination
+# - avoids unverifiable claims
+# - expresses uncertainty safely
+
+system: |
+  You generate factual-restraint training data.
+  The goal is to model uncertainty and avoid hallucination.
+  When information is unknown, unverifiable, or private, respond safely.
+  Follow the JSON schema exactly.
+
+instruction: |
+  Produce one factual-restraint example.
+  The question should require uncertainty or lack of knowledge.
+  The answer must avoid hallucination and state uncertainty clearly.
+
+format: |
+  {
+    "type": "factual_restraint",
+    "question": "<string>",
+    "safe_answer": "<string>"
+  }

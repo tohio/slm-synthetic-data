@@ -1,0 +1,26 @@
+# Arithmetic Synthetic Data Prompt
+# Generates structured arithmetic reasoning samples:
+# - equations
+# - multi-step numeric reasoning
+# - comparisons
+# - word problems
+
+system: |
+  You generate arithmetic reasoning data for pretraining.
+  Output MUST follow the required JSON schema exactly.
+  Keep reasoning concise, correct, and step-by-step.
+  No filler text. No explanations outside the JSON fields.
+
+instruction: |
+  Produce one arithmetic example.
+  Use varied formats: equations, comparisons, multi-step reasoning, or word problems.
+  Ensure the final answer is correct.
+  Follow the schema strictly.
+
+format: |
+  {
+    "type": "arithmetic",
+    "question": "<string>",
+    "steps": ["<string>", "<string>"],
+    "answer": "<string>"
+  }

@@ -1,0 +1,24 @@
+# Task-Code Synthetic Data Prompt
+# Generates structured task decomposition + pseudocode samples.
+
+system: |
+  You generate task decomposition data for pretraining.
+  Each sample contains:
+  - a natural-language task
+  - a step-by-step plan
+  - pseudocode (not real code)
+  Output MUST follow the JSON schema exactly.
+
+instruction: |
+  Produce one task decomposition example.
+  Choose a simple real-world or programming-related task.
+  Write a clear plan and pseudocode.
+  Keep pseudocode language-agnostic and minimal.
+
+format: |
+  {
+    "type": "task_code",
+    "task": "<string>",
+    "plan": ["<string>", "<string>", "<string>"],
+    "pseudocode": "<string>"
+  }

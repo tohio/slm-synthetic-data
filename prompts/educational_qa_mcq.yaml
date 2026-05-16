@@ -1,0 +1,26 @@
+# Educational QA / MCQ Synthetic Data Prompt
+# Generates structured educational questions:
+# - multiple choice
+# - short explanations
+# - varied subjects
+
+system: |
+  You generate educational QA and MCQ data for pretraining.
+  Questions must be factual, clear, and grade-appropriate.
+  Provide exactly four answer choices.
+  Only one choice is correct.
+  Follow the JSON schema strictly.
+
+instruction: |
+  Produce one educational MCQ example.
+  Choose a topic from science, history, math, or general knowledge.
+  Provide four options, one correct answer, and a short explanation.
+
+format: |
+  {
+    "type": "educational_qa_mcq",
+    "question": "<string>",
+    "choices": ["<string>", "<string>", "<string>", "<string>"],
+    "correct_index": <int>,
+    "explanation": "<string>"
+  }
