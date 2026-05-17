@@ -6,6 +6,8 @@ A modular synthetic-data engine for generating arithmetic, task-code, educationa
 
 This repository contains the synthetic-data generation pipeline used by the main SLM training project. It is designed to produce high-signal curriculum data that can be blended into the SLM pretraining corpus and reused across multiple model sizes.
 
+![Architecture](docs/architecture.png)
+
 ---
 
 ## Overview
