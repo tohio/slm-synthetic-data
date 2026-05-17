@@ -1,12 +1,18 @@
 import json
 import re
 import time
-import random
-from typing import Optional
+from typing import Any, Optional
 
 
 class LLMBackend:
-    def __init__(self, provider: str, model: str, max_tokens: int, temperature: float, top_p: float):
+    def __init__(
+        self,
+        provider: Any,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+    ):
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
@@ -18,9 +24,17 @@ class LLMBackend:
     # ------------------------------------------------------------
     def _call_llm(self, prompt: str) -> str:
         """
-        Replace this with your actual provider call.
-        Must return a raw string from the model.
+        Call the configured provider.
+
+        The provider object must expose a generate(...) method that returns
+        the raw string response from the model.
         """
+        if not hasattr(self.provider, "generate"):
+            raise TypeError(
+                "LLM provider must expose a generate(...) method. "
+                f"Got provider={self.provider!r}."
+            )
+
         return self.provider.generate(
             model=self.model,
             prompt=prompt,
@@ -35,14 +49,18 @@ class LLMBackend:
     @staticmethod
     def _extract_json_array(text: str) -> str:
         """
-        Extract the first JSON array from the text.
-        Handles cases where the model adds prose, markdown, etc.
+        Extract the first JSON array from model output.
+
+        Handles responses wrapped in prose or markdown fences, such as:
+
+            ```json
+            [{...}, {...}]
+            ```
+
+        This intentionally extracts arrays only, because generation expects
+        batched JSONL-style records to be returned as a JSON array.
         """
-        match = re.search(r"
-
-\[\s*{.*}\s*\]
-
-", text, flags=re.DOTALL)
+        match = re.search(r"\[\s*\{.*?\}\s*\]", text, flags=re.DOTALL)
         if not match:
             raise ValueError("No JSON array found in model output")
         return match.group(0)
@@ -58,13 +76,18 @@ class LLMBackend:
         max_retries: int = 3,
     ):
         """
+        Generate text or a parsed JSON array.
+
         If expect_array=True:
             - enforce JSON array output
-            - extract array if wrapped in junk
+            - extract array if wrapped in prose or markdown
             - validate array length if expected_length is provided
+
         Otherwise:
-            - return raw string
+            - return the raw model string
         """
+        last_error: Optional[Exception] = None
+
         for attempt in range(max_retries):
             raw = self._call_llm(prompt)
 
@@ -72,28 +95,35 @@ class LLMBackend:
                 return raw
 
             try:
-                # Try direct parse
                 arr = json.loads(raw)
 
                 if not isinstance(arr, list):
                     raise ValueError("Model returned non-array JSON")
 
-            except Exception:
-                # Try extracting array from messy output
+            except Exception as exc:
+                last_error = exc
+
                 try:
                     cleaned = self._extract_json_array(raw)
                     arr = json.loads(cleaned)
-                except Exception:
-                    # Retry
+
+                    if not isinstance(arr, list):
+                        raise ValueError("Extracted JSON was not an array")
+
+                except Exception as extract_exc:
+                    last_error = extract_exc
                     time.sleep(0.2 * (attempt + 1))
                     continue
 
-            # Validate batch size
             if expected_length is not None and len(arr) != expected_length:
-                # Retry if wrong length
+                last_error = ValueError(
+                    f"Expected {expected_length} records, got {len(arr)}"
+                )
                 time.sleep(0.2 * (attempt + 1))
                 continue
 
             return arr
 
-        raise RuntimeError("LLM failed to produce a valid JSON array after retries")
+        raise RuntimeError(
+            "LLM failed to produce a valid JSON array after retries"
+        ) from last_error
