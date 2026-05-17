@@ -10,12 +10,12 @@ run_name: "synthetic"
 output_dir: "${DATA_DIR}/${run_name}"
 
 # Total synthetic token target (adjust as needed)
-target_total_tokens: 000
+target_total_tokens: 200000
 
 # Backend LLM for generation (Groq recommended)
 backend:
   provider: "groq"
-  model: "llama3-70b-instruct"
+  model: "openai/gpt-oss-20b"
   max_tokens: 512
   temperature: 0.4
   top_p: 0.95
@@ -97,6 +97,6 @@ rate_limit:
 # ---------------------------------------------------------------------
 
 generation:
-  batch_size: 8
+  batch_size: 32
 
 
