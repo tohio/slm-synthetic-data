@@ -1,10 +1,11 @@
-import os
-import requests
+import json
+import re
+import time
+import random
+from typing import Optional
 
 
 class LLMBackend:
-    """Unified interface for Groq or HF text generation."""
-
     def __init__(self, provider: str, model: str, max_tokens: int, temperature: float, top_p: float):
         self.provider = provider
         self.model = model
@@ -12,38 +13,87 @@ class LLMBackend:
         self.temperature = temperature
         self.top_p = top_p
 
-        if provider == "groq":
-            self.api_key = os.getenv("GROQ_API_KEY")
-            self.url = "https://api.groq.com/openai/v1/chat/completions"
+    # ------------------------------------------------------------
+    # Low-level raw call (provider-specific)
+    # ------------------------------------------------------------
+    def _call_llm(self, prompt: str) -> str:
+        """
+        Replace this with your actual provider call.
+        Must return a raw string from the model.
+        """
+        return self.provider.generate(
+            model=self.model,
+            prompt=prompt,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            top_p=self.top_p,
+        )
 
-        elif provider == "hf":
-            self.api_key = os.getenv("HF_TOKEN")
-            self.url = f"https://api-inference.huggingface.co/models/{model}"
+    # ------------------------------------------------------------
+    # Extract JSON array from messy output
+    # ------------------------------------------------------------
+    @staticmethod
+    def _extract_json_array(text: str) -> str:
+        """
+        Extract the first JSON array from the text.
+        Handles cases where the model adds prose, markdown, etc.
+        """
+        match = re.search(r"
 
-        else:
-            raise ValueError(f"Unknown provider: {provider}")
+\[\s*{.*}\s*\]
 
-    def generate(self, prompt: str) -> str:
-        if self.provider == "groq":
-            return self._generate_groq(prompt)
-        return self._generate_hf(prompt)
+", text, flags=re.DOTALL)
+        if not match:
+            raise ValueError("No JSON array found in model output")
+        return match.group(0)
 
-    def _generate_groq(self, prompt: str) -> str:
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-        }
-        headers = {"Authorization": f"Bearer {self.api_key}"}
-        r = requests.post(self.url, json=payload, headers=headers)
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+    # ------------------------------------------------------------
+    # High-level generate() with optional batch enforcement
+    # ------------------------------------------------------------
+    def generate(
+        self,
+        prompt: str,
+        expect_array: bool = False,
+        expected_length: Optional[int] = None,
+        max_retries: int = 3,
+    ):
+        """
+        If expect_array=True:
+            - enforce JSON array output
+            - extract array if wrapped in junk
+            - validate array length if expected_length is provided
+        Otherwise:
+            - return raw string
+        """
+        for attempt in range(max_retries):
+            raw = self._call_llm(prompt)
 
-    def _generate_hf(self, prompt: str) -> str:
-        headers = {"Authorization": f"Bearer {self.api_key}"}
-        payload = {"inputs": prompt}
-        r = requests.post(self.url, json=payload, headers=headers)
-        r.raise_for_status()
-        return r.json()[0]["generated_text"]
+            if not expect_array:
+                return raw
+
+            try:
+                # Try direct parse
+                arr = json.loads(raw)
+
+                if not isinstance(arr, list):
+                    raise ValueError("Model returned non-array JSON")
+
+            except Exception:
+                # Try extracting array from messy output
+                try:
+                    cleaned = self._extract_json_array(raw)
+                    arr = json.loads(cleaned)
+                except Exception:
+                    # Retry
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+
+            # Validate batch size
+            if expected_length is not None and len(arr) != expected_length:
+                # Retry if wrong length
+                time.sleep(0.2 * (attempt + 1))
+                continue
+
+            return arr
+
+        raise RuntimeError("LLM failed to produce a valid JSON array after retries")

@@ -1,74 +1,121 @@
-# ------------------------------------------------------------
-# SLM Synthetic Data — Makefile
-# ------------------------------------------------------------
+# ============================================================
+# SLM Synthetic Data Pipeline — Makefile
+# ============================================================
 
-ENV_FILE := .env
-CONFIG := configs/synthetic.yaml
+# -----------------------------
+# Global Variables
+# -----------------------------
+PYTHON := python
+VENV := .venv
+ACTIVATE := source $(VENV)/bin/activate
 
-# Load environment variables
-include $(ENV_FILE)
-export $(shell sed 's/=.*//' $(ENV_FILE))
+MODEL ?= openai/gpt-oss-20b
+TOKENS ?= 200000
+BATCH ?=
+CONFIG_FILE ?= configs/synthetic.yaml
 
-# ------------------------------------------------------------
-# Core Pipeline Commands
-# ------------------------------------------------------------
+DATA_DIR ?= data
+HF_USERNAME ?=
+HF_REPO ?=
 
-generate:
-    python -m slm_synth.generate $(CONFIG)
-
-validate:
-    python -m slm_synth.validate data/runs/synthetic/raw
-
-dedup:
-    python -m slm_synth.dedup data/runs/synthetic/validated
-
-push:
-    python -m slm_synth.push_hf data/runs/synthetic/deduped
-
-# ------------------------------------------------------------
-# Full Pipeline
-# ------------------------------------------------------------
-
-all: generate validate dedup push
-
-# ------------------------------------------------------------
-# Testing
-# ------------------------------------------------------------
-
-test:
-    pytest -q
-
-# ------------------------------------------------------------
-# Utility
-# ------------------------------------------------------------
-
-clean:
-    rm -rf data/runs/synthetic
-
-# ── Help ──────────────────────────────────────────────────────────────────────
-
+# -----------------------------
+# Help
+# -----------------------------
 help:
     @echo ""
     @echo "SLM Synthetic Data Pipeline"
     @echo "==========================="
     @echo ""
-    @echo "Usage: make <target>"
+    @echo "Usage: make <target> [MODEL=name] [TOKENS=N] [BATCH=N]"
     @echo ""
-    @echo "Core Pipeline:"
-    @echo "  [generate](ca://s?q=Run_synthetic_data_generation)        Run LLM sampling and write raw JSONL outputs"
-    @echo "  [validate](ca://s?q=Run_synthetic_data_validation)        Validate raw samples against schemas"
-    @echo "  [dedup](ca://s?q=Run_synthetic_data_deduplication)        Deduplicate validated samples (exact + MinHash)"
-    @echo "  [push](ca://s?q=Push_synthetic_dataset_to_HuggingFace)    Upload deduped dataset to Hugging Face"
-    @echo "  [all](ca://s?q=Run_full_synthetic_pipeline)               Run generate → validate → dedup → push"
+    @echo "Configuration:"
+    @echo "  configure              Update configs/synthetic.yaml using Groq model profiles"
+    @echo "  list-models            List available Groq models"
+    @echo ""
+    @echo "Pipeline:"
+    @echo "  generate               Run synthetic data generation"
+    @echo "  validate               Validate generated samples"
+    @echo "  dedup                  Deduplicate dataset"
+    @echo "  push                   Push dataset to Hugging Face"
     @echo ""
     @echo "Testing:"
-    @echo "  [test](ca://s?q=Run_pytest_for_slm_synth)                 Run all unit tests"
+    @echo "  test                   Run all tests"
     @echo ""
-    @echo "Utility:"
-    @echo "  [clean](ca://s?q=Clean_synthetic_run_directory)           Remove the current run directory"
+    @echo "Utilities:"
+    @echo "  clean                  Remove generated data"
     @echo ""
-    @echo "Config:"
-    @echo "  CONFIG=$(CONFIG)"
-    @echo "  DATA_DIR=$(DATA_DIR)"
-    @echo "  RUN_NAME=$(RUN_NAME)"
-    @echo ""
+
+# -----------------------------
+# Configuration Helper
+# -----------------------------
+configure:
+ifeq ($(BATCH),)
+    $(PYTHON) configs/configure_synthetic.py \
+        --model "$(MODEL)" \
+        --tokens $(TOKENS) \
+        --config $(CONFIG_FILE)
+else
+    $(PYTHON) configs/configure_synthetic.py \
+        --model "$(MODEL)" \
+        --tokens $(TOKENS) \
+        --batch-size $(BATCH) \
+        --config $(CONFIG_FILE)
+endif
+
+# -----------------------------
+# List available Groq models
+# -----------------------------
+list-models:
+    @echo "Fetching available Groq models..."
+    @$(PYTHON) - << 'EOF'
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+api_key = os.environ.get("GROQ_API_KEY")
+if not api_key:
+    print("ERROR: GROQ_API_KEY not found in environment or .env file.")
+    raise SystemExit(1)
+
+url = "https://api.groq.com/openai/v1/models"
+headers = {"Authorization": f"Bearer {api_key}"}
+
+resp = requests.get(url, headers=headers)
+resp.raise_for_status()
+
+data = resp.json()
+models = [m["id"] for m in data.get("data", [])]
+
+print("\nAvailable Groq Models:")
+for m in models:
+    print(" -", m)
+print()
+EOF
+
+# -----------------------------
+# Pipeline Targets
+# -----------------------------
+generate:
+    $(PYTHON) generate.py --config $(CONFIG_FILE)
+
+validate:
+    $(PYTHON) validate.py --config $(CONFIG_FILE)
+
+dedup:
+    $(PYTHON) dedup.py --config $(CONFIG_FILE)
+
+push:
+    $(PYTHON) push_to_hf.py --config $(CONFIG_FILE)
+
+# -----------------------------
+# Testing
+# -----------------------------
+test:
+    pytest -q
+
+# -----------------------------
+# Utilities
+# -----------------------------
+clean:
+    rm -rf $(DATA_DIR)/synthetic

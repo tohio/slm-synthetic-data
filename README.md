@@ -2,8 +2,6 @@
 
 A modular synthetic-data engine for generating arithmetic, task-code, educational MCQ, and factual-restraint signals for SLM pretraining.
 
-**Status:** Active development
-
 This repository contains the synthetic-data generation pipeline used by the main SLM training project. It is designed to produce high-signal curriculum data that can be blended into the SLM pretraining corpus and reused across multiple model sizes.
 
 ![Architecture](docs/architecture.png)
@@ -52,7 +50,13 @@ Dataset sizing is controlled by:
 configs/synthetic.yaml
 ```
 
-The default target is intended to support the largest configured SLM model, currently assumed to be in the **1B–1.5B+** range.
+The active token-budget field is:
+
+```yaml
+target_total_tokens: 200000
+```
+
+The default checked-in value is intentionally small and is suitable for smoke testing. For larger runs, update the token budget through the configuration helper.
 
 Recommended synthetic token budget:
 
@@ -80,6 +84,8 @@ slm-synthetic-data/
 ├── pytest.ini
 │
 ├── configs/
+│   ├── README.md
+│   ├── configure_synthetic.py
 │   └── synthetic.yaml
 │
 ├── docs/
@@ -93,8 +99,9 @@ slm-synthetic-data/
 │
 ├── slm_synth/
 │   ├── schemas.py
-│   ├── prompt_loader.py 
+│   ├── prompt_loader.py
 │   ├── llm.py
+│   ├── rate_limit.py
 │   ├── generate.py
 │   ├── validate.py
 │   ├── dedup.py
@@ -112,7 +119,7 @@ slm-synthetic-data/
 │   └── test_schemas.py
 │
 └── data/
-    └── runs/<date>/
+    └── synthetic/
         ├── raw/
         ├── validated/
         ├── deduped/
@@ -133,12 +140,14 @@ git clone https://github.com/<you>/slm-synthetic-data.git
 cd slm-synthetic-data
 ```
 
-Create a virtual environment
-```python
+Create a virtual environment:
+
+```bash
 python3 -m venv .venv
 ```
 
-Activate it (macOS / Linux)
+Activate it on macOS or Linux:
+
 ```bash
 source .venv/bin/activate
 ```
@@ -161,6 +170,14 @@ Example:
 
 ```bash
 GROQ_API_KEY=your_groq_api_key_here
+HF_USERNAME=your_hf_username
+HF_REPO=your_dataset_repo
+```
+
+Install Make if it is not already available:
+
+```bash
+sudo apt install -y make
 ```
 
 ---
@@ -175,31 +192,102 @@ configs/synthetic.yaml
 
 This file controls:
 
-- Backend provider
-- Backend model
-- Sampling temperature
-- Maximum tokens per sample
-- Number of samples per signal type
-- Output schema
-- Validation rules
-- Deduplication settings
-- Total target token budget
+- backend provider and model
+- sampling parameters
+- batch size and request concurrency
+- total synthetic token budget
+- rate-limit behavior
+- signal-family allocation
+- validation behavior
+- deduplication behavior
+- export behavior
 
-Example settings include:
+Model-dependent values should normally be updated through the configuration helper instead of being edited manually.
 
-```yaml
-target_tokens: 600000000
+The helper script is:
 
-backend:
-  provider: groq
-  model: llama-3.3-70b-versatile
-
-sampling:
-  temperature: 0.7
-  max_tokens: 2048
+```text
+configs/configure_synthetic.py
 ```
 
-Adjusting the total dataset size should usually require changing only the target token budget and, if needed, the per-signal allocation.
+The helper updates the existing `configs/synthetic.yaml` file in place.
+
+---
+
+### Configure with the Default Model
+
+The default model is:
+
+```text
+openai/gpt-oss-20b
+```
+
+Configure the token budget:
+
+```bash
+make configure TOKENS=600000000
+```
+
+This updates `configs/synthetic.yaml` using the default model and the model profile inferred by `configs/configure_synthetic.py`.
+
+---
+
+### Configure with a Specific Groq Model
+
+```bash
+make configure \
+  MODEL=llama-3.3-70b-versatile \
+  TOKENS=300000000
+```
+
+---
+
+### Override Batch Size
+
+```bash
+make configure \
+  MODEL=llama-3.1-8b-instant \
+  TOKENS=200000 \
+  BATCH=8
+```
+
+---
+
+### List Available Groq Models
+
+The helper validates the requested model against Groq using `GROQ_API_KEY`.
+
+List available models:
+
+```bash
+make list-models
+```
+
+---
+
+### Fields Updated by the Helper
+
+The helper patches only model-dependent and budget-dependent fields:
+
+```text
+target_total_tokens
+backend.provider
+backend.model
+backend.max_tokens
+backend.temperature
+backend.top_p
+backend.parallel_requests
+rate_limit.max_concurrency
+generation.batch_size
+```
+
+Other configuration sections remain unchanged.
+
+For more details, see:
+
+```text
+configs/README.md
+```
 
 ---
 
@@ -231,96 +319,136 @@ The synthetic-data pipeline has four main stages:
 
 ## Running the Pipeline
 
-### 1. Generate Synthetic Data
+The pipeline is normally run through the Makefile.
 
-```bash
-python -m slm_synth.generate --config configs/synthetic.yaml
-```
-
-Raw outputs are written to:
+The default config is:
 
 ```text
-data/runs/<date>/raw/
+configs/synthetic.yaml
+```
+
+Supported signals:
+
+- `arithmetic`
+- `task_code`
+- `educational_qa_mcq`
+- `factual_restraint`
+
+---
+
+### 1. Configure the Pipeline
+
+Before a large run, update the config for the target token budget and Groq model:
+
+```bash
+make configure TOKENS=600000000
+```
+
+For a small smoke test:
+
+```bash
+make configure TOKENS=200000
+```
+
+For a specific model:
+
+```bash
+make configure \
+  MODEL=llama-3.3-70b-versatile \
+  TOKENS=300000000
 ```
 
 ---
 
-### 2. Validate Generated Data
+### 2. Generate Synthetic Data
+
+Generate all signals:
 
 ```bash
-python -m slm_synth.validate data/runs/<date>/raw/
+make generate
 ```
 
-Validated outputs are written to:
+Generate only one signal:
 
-```text
-data/runs/<date>/validated/
+```bash
+make generate SIGNAL=arithmetic
 ```
 
-Rejected records are written to:
+Raw outputs are written under the configured output directory.
+
+With the default config, the output directory is derived from:
+
+```yaml
+run_name: "synthetic"
+output_dir: "${DATA_DIR}/${run_name}"
+```
+
+With `DATA_DIR=data`, this resolves to:
 
 ```text
-data/runs/<date>/rejected/
+data/synthetic/
 ```
 
 ---
 
-### 3. Deduplicate
+### 3. Validate Generated Data
 
 ```bash
-python -m slm_synth.dedup data/runs/<date>/validated/
+make validate
 ```
 
-Deduplicated outputs are written to:
-
-```text
-data/runs/<date>/deduped/
-```
+Validated records are written under the configured output directory.
 
 ---
 
-### 4. Export to Hugging Face
+### 4. Deduplicate
 
 ```bash
-python -m slm_synth.push_hf data/runs/<date>/deduped/
+make dedup
+```
+
+Deduplicated records are written under the configured output directory.
+
+---
+
+### 5. Export to Hugging Face
+
+```bash
+make push
 ```
 
 The exported dataset can then be consumed by the main SLM curation pipeline.
 
+The Hugging Face target is controlled by:
+
+```yaml
+export:
+  push_to_hf: true
+  hf_repo: "${HF_USERNAME}/${HF_REPO}"
+  private: false
+  include_manifests: true
+```
+
+Set these values in `.env` or export them in the shell:
+
+```bash
+export HF_USERNAME=<your_hf_username>
+export HF_REPO=<your_dataset_repo>
+```
+
 ---
 
-## Integration with the Main SLM Project
+### Run the Full Pipeline
 
-The generated synthetic dataset plugs into the main SLM curation pipeline through the synthetic source modules:
-
-```text
-curator/sources/synthetic_arithmetic.py
-curator/sources/synthetic_task_code.py
-curator/sources/educational_qa_mcq.py
-curator/sources/factual_restraint.py
+```bash
+make all
 ```
 
-The main SLM curator treats synthetic data like any other source:
-
-- Downloaded or loaded
-- Quality filtered
-- Deduplicated
-- Blended
-- Tokenized
-- Split into train and validation sets
-
-Synthetic-source deficits should route to higher-signal fallback sources first.
-
-Recommended fallback order:
+This runs:
 
 ```text
-Synthetic source
-  -> Nemotron Specialized
-  -> FineWeb-Edu
-  -> FineWeb
+generate -> validate -> dedup -> push
 ```
-
-This keeps the final corpus from underfilling while preserving signal quality as much as possible.
 
 ---
 
@@ -411,7 +539,7 @@ Purpose:
 Run the full test suite:
 
 ```bash
-pytest -q
+make test
 ```
 
 Tests cover:
@@ -422,27 +550,17 @@ Tests cover:
 - Deduplication behavior
 - Backend integration boundaries
 
-Recommended before large generation runs:
+Recommended smoke test before a large generation run:
 
 ```bash
-pytest -q
-python -m slm_synth.generate --config configs/synthetic.yaml --dry-run
+make configure TOKENS=200000
+make test
+make generate SIGNAL=arithmetic
+make validate
+make dedup
 ```
 
----
-
-## Development Principles
-
-This repository follows the same development approach as the main SLM project:
-
-- Keep sources modular.
-- Keep schemas explicit.
-- Validate before deduplication.
-- Preserve rejected records for debugging.
-- Make every stage resumable.
-- Avoid regenerating expensive data unnecessarily.
-- Prefer small validation runs before scaling.
-- Keep generated data compatible with the main SLM curation pipeline.
+Use a small signal run first to confirm credentials, prompt loading, schema validation, and backend connectivity before scaling to a full generation run.
 
 ---
 
@@ -466,14 +584,12 @@ Planned improvements:
 
 ---
 
-## License
+## Related Projects
 
-TBD.
+- [slm](https://github.com/tohio/slm) — GPT-style LLM trained from scratch — data curation, pretraining, SFT, and DPO alignment
 
 ---
 
-## Notes
+## License
 
-This repository is intended to generate reusable synthetic pretraining data for SLM. The full dataset should be generated once for the largest target model and then subset during downstream curation for smaller models.
-
-The synthetic dataset should not replace natural data sources. It should act as a compact curriculum layer inside the broader pretraining corpus.
+MIT.

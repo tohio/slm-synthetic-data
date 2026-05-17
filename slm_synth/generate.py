@@ -1,13 +1,15 @@
 import os
 import json
 from pathlib import Path
+import yaml
+
 from slm_synth.llm import LLMBackend
 from slm_synth.rate_limit import RateLimiter
+
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
-import yaml
 
 
 def load_config(path: str):
@@ -23,14 +25,70 @@ GENERATOR_MAP = {
 }
 
 
-def main(config_path: str):
-    cfg = load_config(config_path)
+# ------------------------------------------------------------
+# Run ONE signal family (batched)
+# ------------------------------------------------------------
+def run_one_signal(name: str, cfg, llm, output_dir: Path):
+    spec = cfg["mix"][name]
+    share = spec["share"]
 
-    output_dir = Path(cfg["output_dir"])
+    total_tokens = cfg["target_total_tokens"]
+    target_tokens = int(total_tokens * share)
+
+    batch_size = cfg.get("generation", {}).get("batch_size", 8)
+
+    generator_cls = GENERATOR_MAP[name]
+    generator = generator_cls(llm, spec["prompt_file"])
+
     raw_dir = output_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    # LLM backend
+    out_file = raw_dir / f"{name}.jsonl"
+
+    rate = RateLimiter(cfg)
+
+    tokens_generated = 0
+    attempt = 0
+
+    with open(out_file, "w", encoding="utf-8") as f:
+        while tokens_generated < target_tokens:
+            try:
+                batch = generator.generate_batch(batch_size)
+
+                for obj in batch:
+                    text = json.dumps(obj, ensure_ascii=False)
+                    f.write(text + "\n")
+                    tokens_generated += len(text.split())
+
+                    if tokens_generated >= target_tokens:
+                        break
+
+                attempt = 0
+                rate.sleep_with_jitter()
+
+            except Exception:
+                rate.backoff(attempt)
+                attempt += 1
+                continue
+
+
+# ------------------------------------------------------------
+# Run ALL signals sequentially
+# ------------------------------------------------------------
+def run_all_signals(cfg, llm, output_dir: Path):
+    for name in cfg["mix"].keys():
+        run_one_signal(name, cfg, llm, output_dir)
+
+
+# ------------------------------------------------------------
+# Main entrypoint
+# ------------------------------------------------------------
+def main(config_path: str, signal_override: str | None = None):
+    cfg = load_config(config_path)
+
+    output_dir = Path(cfg["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     backend_cfg = cfg["backend"]
     llm = LLMBackend(
         provider=backend_cfg["provider"],
@@ -40,38 +98,18 @@ def main(config_path: str):
         top_p=backend_cfg["top_p"],
     )
 
-    # Compute per-signal token budgets
-    total_tokens = cfg["target_total_tokens"]
-
-    for name, spec in cfg["mix"].items():
-        share = spec["share"]
-        target_tokens = int(total_tokens * share)
-
-        generator_cls = GENERATOR_MAP[name]
-        generator = generator_cls(llm, spec["prompt_file"])
-
-        out_file = raw_dir / f"{name}.jsonl"
-        with open(out_file, "w", encoding="utf-8") as f:
-            tokens_generated = 0
-
-            rate = RateLimiter(cfg) 
-
-            while tokens_generated < target_tokens:
-                try:
-                    obj = generator.generate()
-                    text = json.dumps(obj, ensure_ascii=False)
-                    f.write(text + "\n")
-                    tokens_generated += len(text.split())
-
-                    rate.sleep_with_jitter()
-
-                except Exception:
-
-                    rate.backoff(attempt=0)
-
-                    continue
+    if signal_override:
+        if signal_override not in cfg["mix"]:
+            raise ValueError(f"Unknown signal: {signal_override}")
+        run_one_signal(signal_override, cfg, llm, output_dir)
+    else:
+        run_all_signals(cfg, llm, output_dir)
 
 
 if __name__ == "__main__":
     import sys
-    main(sys.argv[1])
+
+    if len(sys.argv) == 3:
+        main(sys.argv[1], signal_override=sys.argv[2])
+    else:
+        main(sys.argv[1])

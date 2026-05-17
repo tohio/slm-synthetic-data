@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from slm_synth.schemas import validate_educational_qa_mcq
 from slm_synth.prompt_loader import load_prompt
 
@@ -17,8 +16,40 @@ class EducationalQAMCQGenerator:
         )
 
     def generate(self):
-        prompt = self.build_prompt()
-        raw = self.llm.generate(prompt)
+        raw = self.llm.generate(self.build_prompt())
         obj = json.loads(raw)
         validate_educational_qa_mcq(obj)
         return obj
+
+    def build_batched_prompt(self, batch_size: int):
+        schema = self.prompt["format"]
+        instruction = self.prompt["instruction"]
+
+        header = (
+            f"You are a data generator. Produce EXACTLY {batch_size} independent samples.\n\n"
+            f"Each sample must follow this JSON schema:\n\n"
+            f"{schema}\n\n"
+            f"Return ONLY a JSON array of length {batch_size}.\n"
+            f"No explanations. No prose. No comments.\n\n"
+        )
+
+        blocks = [
+            f"### SAMPLE {i+1} INSTRUCTION\n{instruction}\n"
+            for i in range(batch_size)
+        ]
+
+        return header + "\n".join(blocks)
+
+    def generate_batch(self, batch_size: int):
+        arr = self.llm.generate(
+            self.build_batched_prompt(batch_size),
+            expect_array=True,
+            expected_length=batch_size
+        )
+
+        validated = []
+        for obj in arr:
+            validate_educational_qa_mcq(obj)
+            validated.append(obj)
+
+        return validated
