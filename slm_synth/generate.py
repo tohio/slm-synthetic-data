@@ -2,6 +2,7 @@ import os
 import json
 from pathlib import Path
 from slm_synth.llm import LLMBackend
+from slm_synth.rate_limit import RateLimiter
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
@@ -53,13 +54,21 @@ def main(config_path: str):
         with open(out_file, "w", encoding="utf-8") as f:
             tokens_generated = 0
 
+            rate = RateLimiter(cfg) 
+
             while tokens_generated < target_tokens:
                 try:
                     obj = generator.generate()
                     text = json.dumps(obj, ensure_ascii=False)
                     f.write(text + "\n")
                     tokens_generated += len(text.split())
+
+                    rate.sleep_with_jitter()
+
                 except Exception:
+
+                    rate.backoff(attempt=0)
+
                     continue
 
 

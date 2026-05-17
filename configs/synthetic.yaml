@@ -10,7 +10,7 @@ run_name: "synthetic"
 output_dir: "${DATA_DIR}/${run_name}"
 
 # Total synthetic token target (adjust as needed)
-target_total_tokens: 600_000_000
+target_total_tokens: 000
 
 # Backend LLM for generation (Groq recommended)
 backend:
