@@ -2,6 +2,9 @@ import os
 import json
 from pathlib import Path
 import yaml
+import traceback
+import sys
+import time
 
 from slm_synth.llm import LLMBackend
 from slm_synth.rate_limit import RateLimiter
@@ -10,6 +13,10 @@ from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
+
+
+def log(msg: str):
+    print(f"[generate] {msg}", flush=True)
 
 
 def load_config(path: str):
@@ -29,6 +36,8 @@ GENERATOR_MAP = {
 # Run ONE signal family (batched)
 # ------------------------------------------------------------
 def run_one_signal(name: str, cfg, llm, output_dir: Path):
+    log(f"Starting signal: {name}")
+
     spec = cfg["mix"][name]
     share = spec["share"]
 
@@ -63,13 +72,24 @@ def run_one_signal(name: str, cfg, llm, output_dir: Path):
                     if tokens_generated >= target_tokens:
                         break
 
+                log(f"{name}: {tokens_generated}/{target_tokens} tokens")
+
                 attempt = 0
                 rate.sleep_with_jitter()
 
-            except Exception:
-                rate.backoff(attempt)
+            except Exception as e:
+                log(f"ERROR in signal '{name}': {e}")
+                traceback.print_exc()
                 attempt += 1
+
+                if attempt > 5:
+                    log(f"FATAL: Too many failures in '{name}'. Aborting.")
+                    raise
+
+                rate.backoff(attempt)
                 continue
+
+    log(f"Completed signal: {name}")
 
 
 # ------------------------------------------------------------
@@ -84,12 +104,23 @@ def run_all_signals(cfg, llm, output_dir: Path):
 # Main entrypoint
 # ------------------------------------------------------------
 def main(config_path: str, signal_override: str | None = None):
+    log(f"Loading config: {config_path}")
     cfg = load_config(config_path)
 
-    output_dir = Path(cfg["output_dir"])
+    # Resolve output directory
+    output_dir_raw = cfg["output_dir"]
+    output_dir = Path(os.path.expandvars(output_dir_raw))
+    log(f"Resolved output_dir: {output_dir}")
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     backend_cfg = cfg["backend"]
+    log(f"Backend provider: {backend_cfg['provider']}")
+    log(f"Backend model: {backend_cfg['model']}")
+    log(f"Max tokens per call: {backend_cfg['max_tokens']}")
+    log(f"Temperature: {backend_cfg['temperature']}")
+    log(f"Top-p: {backend_cfg['top_p']}")
+
     llm = LLMBackend(
         provider=backend_cfg["provider"],
         model=backend_cfg["model"],
@@ -98,12 +129,18 @@ def main(config_path: str, signal_override: str | None = None):
         top_p=backend_cfg["top_p"],
     )
 
+    log(f"Target total tokens: {cfg['target_total_tokens']}")
+
     if signal_override:
         if signal_override not in cfg["mix"]:
             raise ValueError(f"Unknown signal: {signal_override}")
+        log(f"Running only signal: {signal_override}")
         run_one_signal(signal_override, cfg, llm, output_dir)
     else:
+        log("Running all signals...")
         run_all_signals(cfg, llm, output_dir)
+
+    log("Generation complete.")
 
 
 # ------------------------------------------------------------
