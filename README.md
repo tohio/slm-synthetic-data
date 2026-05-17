@@ -133,6 +133,16 @@ git clone https://github.com/<you>/slm-synthetic-data.git
 cd slm-synthetic-data
 ```
 
+Create a virtual environment
+```python
+python3 -m venv .venv
+```
+
+Activate it (macOS / Linux)
+```bash
+source .venv/bin/activate
+```
+
 Create the environment file:
 
 ```bash
