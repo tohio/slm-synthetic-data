@@ -106,10 +106,15 @@ def main(config_path: str, signal_override: str | None = None):
         run_all_signals(cfg, llm, output_dir)
 
 
+# ------------------------------------------------------------
+# CLI
+# ------------------------------------------------------------
 if __name__ == "__main__":
-    import sys
+    import argparse
 
-    if len(sys.argv) == 3:
-        main(sys.argv[1], signal_override=sys.argv[2])
-    else:
-        main(sys.argv[1])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True, help="Path to synthetic.yaml")
+    parser.add_argument("--signal", required=False, help="Run only one signal family")
+    args = parser.parse_args()
+
+    main(args.config, signal_override=args.signal)
