@@ -1,405 +1,221 @@
-# Configuration Files
+# Configuration
 
-This directory contains configuration files for the SLM synthetic-data generation pipeline.
+This directory contains configuration helpers and templates for the SLM synthetic-data pipeline.
 
-The main configuration file is:
-
-```text
-configs/synthetic.yaml
-```
-
-This file controls:
-
-- backend provider and model selection
-- sampling parameters
-- batch size and request concurrency
-- total synthetic token budget
-- rate-limit behavior
-- signal-family allocation
-- validation behavior
-- deduplication behavior
-- export behavior
-
-Model-dependent values should not be edited manually. Use the configuration helper instead.
-
----
-
-# `configure_synthetic.py`
-
-`configs/configure_synthetic.py` updates the existing `configs/synthetic.yaml` file in place.
-
-It automatically adjusts model-dependent fields based on:
-
-- the selected Groq model
-- the inferred model size
-- nearest-bucket profile mapping
-- recommended batch size
-- recommended max output tokens
-- recommended temperature
-- recommended top-p
-- recommended request concurrency
-- the requested target token budget
-
-This keeps the synthetic pipeline configuration valid, reproducible, and aligned with the selected Groq model.
-
----
-
-## Default Model
-
-If no model is provided, the Makefile uses:
-
-```text
-openai/gpt-oss-20b
-```
-
-This model is used as the default balance point for generation quality and throughput.
-
----
-
-## Main Configuration File
-
-The main config file is:
+The generated runtime config is:
 
 ```text
 configs/synthetic.yaml
 ```
 
-The current default values are intended for a small smoke-test run:
-
-```yaml
-target_total_tokens: 200000
-
-backend:
-  provider: "groq"
-  model: "openai/gpt-oss-20b"
-  max_tokens: 512
-  temperature: 0.4
-  top_p: 0.95
-  parallel_requests: 32
-
-rate_limit:
-  max_concurrency: 2
-
-generation:
-  batch_size: 32
-```
-
-For larger runs, update the config through `make configure`.
-
----
-
-## Usage
-
-### Configure with the default model
-
-```bash
-make configure TOKENS=600000000
-```
-
-This updates `configs/synthetic.yaml` using the default model:
+`configs/synthetic.yaml` is produced from:
 
 ```text
-openai/gpt-oss-20b
+configs/synthetic_template.yaml
 ```
 
----
-
-### Configure with a specific Groq model
-
-```bash
-make configure \
-  MODEL=llama-3.3-70b-versatile \
-  TOKENS=300000000
-```
-
----
-
-### Override batch size
-
-```bash
-make configure \
-  MODEL=llama-3.1-8b-instant \
-  TOKENS=200000 \
-  BATCH=8
-```
-
----
-
-## Direct Script Usage
-
-The helper can also be called directly:
-
-```bash
-python configs/configure_synthetic.py \
-  --model openai/gpt-oss-20b \
-  --tokens 200000 \
-  --config configs/synthetic.yaml
-```
-
-With a batch-size override:
-
-```bash
-python configs/configure_synthetic.py \
-  --model llama-3.1-8b-instant \
-  --tokens 200000 \
-  --batch-size 8 \
-  --config configs/synthetic.yaml
-```
-
----
-
-## Model Discovery
-
-The helper validates the requested model against the list of models available from Groq.
-
-It reads the Groq API key from `.env`:
+using:
 
 ```text
-GROQ_API_KEY=your_groq_api_key_here
-```
-
-You can list available Groq models with:
-
-```bash
-make list-models
-```
-
-Example output:
-
-```text
-Available Groq Models:
- - llama-3.1-8b-instant
- - llama-3.3-70b-versatile
- - openai/gpt-oss-20b
- - openai/gpt-oss-120b
+configs/configure_synthetic.py
 ```
 
 ---
 
-## Fields Updated by the Helper
+## Recommended Configuration Flow
 
-The helper patches only model-dependent and budget-dependent fields:
+Generate a config with:
+
+```bash
+make configure PROFILE=balanced TOKENS=200000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
+```
+
+For a full 5M-token validation run:
+
+```bash
+make configure PROFILE=balanced TOKENS=5000000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
+```
+
+Then bootstrap the run directory:
+
+```bash
+python bootstrap_dirs.py
+```
+
+---
+
+## Profiles
+
+| Profile | Model | Use Case |
+|---|---|---|
+| `speed` | `llama-3.1-8b-instant` | Faster bulk generation. |
+| `balanced` | `llama-3.1-8b-instant` | Recommended default. |
+| `quality` | `llama-3.3-70b-versatile` | Higher-quality smaller runs or audit generation. |
+
+The codebase is validated for two Groq-hosted Llama models:
 
 ```text
+llama-3.1-8b-instant
+llama-3.3-70b-versatile
+```
+
+Other Groq models may work experimentally, but they are not treated as production-supported. Models that do not reliably produce JSON object batches are not suitable for large synthetic runs without additional prompt/parser work.
+
+---
+
+## Important Generated Fields
+
+`configure_synthetic.py` updates:
+
+```text
+run_name
+output_dir
 target_total_tokens
-backend.provider
 backend.model
 backend.max_tokens
 backend.temperature
 backend.top_p
 backend.parallel_requests
+backend.service_tier
+mix.<signal>.batch_size
+mix.<signal>.parallel_requests
+mix.<signal>.max_tokens
 rate_limit.max_concurrency
 generation.batch_size
+generation.avg_tokens_per_sample
 ```
 
-All other configuration sections remain unchanged.
-
----
-
-## Model Profile Mapping
-
-The helper infers model size from the model name.
-
-Examples:
+The active run writes to:
 
 ```text
-llama-3.1-8b-instant      -> 8B profile
-openai/gpt-oss-20b        -> 20B profile
-llama-3.3-70b-versatile   -> 70B profile
-openai/gpt-oss-120b       -> extra-large fallback profile
+${DATA_DIR}/<run_name>
 ```
 
-Current profile behavior:
+If `DATA_DIR` is not exported, the shared path resolver uses:
 
-| Model Size | Batch Size | Max Tokens | Temperature | Top-p | Concurrency |
-|---:|---:|---:|---:|---:|---:|
-| `<= 10B` | 16 | 384 | 0.3 | 0.90 | 4 |
-| `<= 30B` | 32 | 512 | 0.4 | 0.95 | 2 |
-| `<= 80B` | 64 | 768 | 0.2 | 0.95 | 1 |
-| `> 80B` | 64 | 768 | 0.2 | 0.95 | 1 |
-
-For models larger than 80B, the helper uses the conservative 70B-style profile.
+```text
+data/runs/<run_name>
+```
 
 ---
 
-## Signal Allocation
+## Backend Settings
 
-Signal-family allocation is controlled by the `mix` section:
+The backend section controls Groq generation:
+
+```yaml
+backend:
+  provider: "groq"
+  model: "llama-3.1-8b-instant"
+  max_tokens: 1536
+  temperature: 0.45
+  top_p: 0.95
+  parallel_requests: 8
+  json_mode: true
+  service_tier: "flex"
+```
+
+`json_mode: true` is important. The prompt wrapper asks for:
+
+```json
+{"items": [...]}
+```
+
+rather than a top-level JSON array.
+
+---
+
+## Retry and Backoff Settings
+
+The generated config includes request-level retries:
+
+```yaml
+backend:
+  request_timeout_seconds: 120
+  retries:
+    max_request_retries: 12
+    retry_backoff_initial_seconds: 1.0
+    retry_backoff_max_seconds: 45.0
+    retry_backoff_multiplier: 2.0
+    retry_jitter_ratio: 0.35
+```
+
+This is used to handle transient capacity, timeout, rate-limit, and server errors from Groq, especially when using `SERVICE_TIER=flex`.
+
+---
+
+## Signal Mix
+
+The default mix is:
 
 ```yaml
 mix:
   arithmetic:
     share: 0.30
-    prompt_file: "prompts/arithmetic.yaml"
-    source_module: "slm_synth.sources.arithmetic"
-
   task_code:
     share: 0.30
-    prompt_file: "prompts/task_code.yaml"
-    source_module: "slm_synth.sources.task_code"
-
   educational_qa_mcq:
     share: 0.30
-    prompt_file: "prompts/educational_qa_mcq.yaml"
-    source_module: "slm_synth.sources.educational_qa_mcq"
-
   factual_restraint:
     share: 0.10
-    prompt_file: "prompts/factual_restraint.yaml"
-    source_module: "slm_synth.sources.factual_restraint"
 ```
 
-The current default mix is:
-
-| Signal | Share |
-|---|---:|
-| `arithmetic` | 30% |
-| `task_code` | 30% |
-| `educational_qa_mcq` | 30% |
-| `factual_restraint` | 10% |
-
-These values may be edited manually when intentionally rebalancing the curriculum.
+Each signal has its own model, batch size, max token budget, and average tokens-per-sample estimate. This allows `task_code` to stay more conservative while shorter signals can use larger batches.
 
 ---
 
-## Output Location
+## Deduplication Settings
 
-The config defines:
+Synthetic data should use exact deduplication by default:
 
 ```yaml
-run_name: "synthetic"
-output_dir: "${DATA_DIR}/${run_name}"
+dedup:
+  mode: "exact"
+  enable_exact: true
+  enable_fuzzy: false
+  fuzzy_enabled: false
 ```
 
-With the default `DATA_DIR=data`, outputs are written under:
-
-```text
-data/synthetic
-```
-
-If the pipeline code expands the run directory differently, keep this README aligned with the implementation.
+Fuzzy MinHash deduplication is intentionally disabled. It can remove useful synthetic variation because generated records often share schemas, phrasing, and reasoning structure.
 
 ---
 
-## Export Settings
+## Hugging Face Export Settings
 
-Hugging Face export is controlled by:
+The export section controls HF push:
 
 ```yaml
 export:
   push_to_hf: true
-  hf_repo: "${HF_USERNAME}/${HF_REPO}"
+  hf_repo: "tohio/slm-synthetic"
   private: false
   include_manifests: true
 ```
 
-Set these environment variables before running `make push`:
-
-```bash
-export HF_USERNAME=<your_hf_username>
-export HF_REPO=<your_dataset_repo>
-```
-
-Or define them in `.env`.
-
----
-
-## What Should Be Edited Manually?
-
-Avoid manually editing model-dependent fields:
+`push_hf.py` loads credentials from `.env`:
 
 ```text
-target_total_tokens
-backend.provider
-backend.model
-backend.max_tokens
-backend.temperature
-backend.top_p
-backend.parallel_requests
-rate_limit.max_concurrency
-generation.batch_size
-```
-
-Use:
-
-```bash
-make configure TOKENS=<token_budget>
+HF_TOKEN=...
 ```
 
 or:
 
-```bash
-make configure MODEL=<groq_model> TOKENS=<token_budget>
+```text
+HUGGINGFACE_HUB_TOKEN=...
 ```
 
-Manual edits are acceptable for:
-
-- signal-family shares
-- prompt file paths
-- source module paths
-- validation settings
-- deduplication settings
-- export settings
-- output path settings
+The push command uploads deduped JSONL files and a generated dataset card.
 
 ---
 
-## Related Makefile Targets
-
-### Configure the pipeline
+## Useful Commands
 
 ```bash
-make configure TOKENS=600000000
-```
-
-### Configure with a specific model
-
-```bash
-make configure \
-  MODEL=llama-3.3-70b-versatile \
-  TOKENS=300000000
-```
-
-### List available Groq models
-
-```bash
-make list-models
-```
-
-### Run generation
-
-```bash
+make configure PROFILE=balanced TOKENS=200000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
+python bootstrap_dirs.py
 make generate
-```
-
-### Run validation
-
-```bash
+python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
 make validate
-```
-
-### Run deduplication
-
-```bash
 make dedup
-```
-
-### Push to Hugging Face
-
-```bash
 make push
 ```
-
----
-
-## Summary
-
-`configure_synthetic.py` ensures that `configs/synthetic.yaml` stays:
-
-- valid
-- reproducible
-- optimized for the selected model profile
-- consistent with Groq model availability
-- aligned with the requested token budget
-
-Use `make configure` before large generation runs.
