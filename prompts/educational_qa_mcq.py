@@ -1,6 +1,6 @@
 from .wrapper import WRAPPER_TEMPLATE
 
-EDU_QA_MCQ_SCHEMA = r"""
+EDUCATIONAL_QA_MCQ_TASK = r"""
 {
   "type": "object",
   "properties": {
