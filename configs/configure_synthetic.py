@@ -17,7 +17,7 @@ DEFAULT_MODEL = "openai/gpt-oss-20b"
 # -----------------------------
 def fetch_groq_models():
     # Ensure .env is loaded even if called standalone
-    load_dotenv(ROOT / ".env")
+    load_dotenv()
 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
@@ -105,9 +105,14 @@ def update_config(config_path, model_name, tokens):
     cfg["backend"]["max_tokens"] = profile["max_tokens"]
     cfg["backend"]["temperature"] = profile["temperature"]
     cfg["backend"]["top_p"] = profile["top_p"]
-    cfg["backend"]["parallel_requests"] = profile["concurrency"]
 
-    cfg["rate_limit"]["max_concurrency"] = profile["concurrency"]
+    # -----------------------------
+    # Option A: enforce consistency
+    # -----------------------------
+    concurrency = profile["concurrency"]
+    cfg["backend"]["parallel_requests"] = concurrency
+    cfg["rate_limit"]["max_concurrency"] = concurrency
+    # -----------------------------
 
     # Remove batch_size if present
     if "generation" in cfg and "batch_size" in cfg["generation"]:
