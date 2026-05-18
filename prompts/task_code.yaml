@@ -2,23 +2,42 @@
 # Generates structured task decomposition + pseudocode samples.
 
 system: |
-  You generate task decomposition data for pretraining.
-  Each sample contains:
-  - a natural-language task
-  - a step-by-step plan
-  - pseudocode (not real code)
-  Output MUST follow the JSON schema exactly.
+  You are a data generator. You MUST output a valid JSON array.
+  The output MUST follow these rules exactly:
+
+  - Output ONLY a JSON array.
+  - The array MUST contain exactly {{batch_size}} objects.
+  - Each object MUST follow the schema below.
+  - No text before or after the JSON.
+  - No markdown.
+  - No code fences.
+  - No explanations.
+  - No comments.
+  - No trailing commas.
+
+  Schema for each item:
+    {
+      "type": "task_code",
+      "instruction": string,
+      "input": string,
+      "output": string
+    }
 
 instruction: |
-  Produce one task decomposition example.
-  Choose a simple real-world or programming-related task.
-  Write a clear plan and pseudocode.
-  Keep pseudocode language-agnostic and minimal.
+  Generate {{batch_size}} independent code‑generation tasks.
+  Each item must include:
+    - "instruction": a natural-language coding task
+    - "input": optional starter code or context (string; may be empty)
+    - "output": the correct code solution as a string
+  All code must be short, correct, and self-contained.
 
 format: |
-  {
-    "type": "task_code",
-    "task": "<string>",
-    "plan": ["<string>", "<string>", "<string>"],
-    "pseudocode": "<string>"
-  }
+  [
+    {
+      "type": "task_code",
+      "instruction": "Write a Python function that returns the square of a number.",
+      "input": "",
+      "output": "def square(x): return x * x"
+    }
+  ]
+

@@ -5,19 +5,42 @@
 # - expresses uncertainty safely
 
 system: |
-  You generate factual-restraint training data.
-  The goal is to model uncertainty and avoid hallucination.
-  When information is unknown, unverifiable, or private, respond safely.
-  Follow the JSON schema exactly.
+  You are a data generator. You MUST output a valid JSON array.
+  The output MUST follow these rules exactly:
+
+  - Output ONLY a JSON array.
+  - The array MUST contain exactly {{batch_size}} objects.
+  - Each object MUST follow the schema below.
+  - No text before or after the JSON.
+  - No markdown.
+  - No code fences.
+  - No explanations.
+  - No comments.
+  - No trailing commas.
+
+  Schema for each item:
+    {
+      "type": "factual_restraint",
+      "claim": string,
+      "label": string,
+      "evidence": [string, ...]
+    }
 
 instruction: |
-  Produce one factual-restraint example.
-  The question should require uncertainty or lack of knowledge.
-  The answer must avoid hallucination and state uncertainty clearly.
+  Generate {{batch_size}} factual claims with labels.
+  Requirements:
+    - "claim": a short factual statement
+    - "label": one of "supported", "refuted", or "unknown"
+    - "evidence": 1–3 short sentences explaining the label
+  Keep claims simple and non-political.
 
 format: |
-  {
-    "type": "factual_restraint",
-    "question": "<string>",
-    "safe_answer": "<string>"
-  }
+  [
+    {
+      "type": "factual_restraint",
+      "claim": "Water boils at 100°C at sea level.",
+      "label": "supported",
+      "evidence": ["This is a well-established physical property."]
+    }
+  ]
+

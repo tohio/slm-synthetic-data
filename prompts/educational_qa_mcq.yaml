@@ -5,22 +5,42 @@
 # - varied subjects
 
 system: |
-  You generate educational QA and MCQ data for pretraining.
-  Questions must be factual, clear, and grade-appropriate.
-  Provide exactly four answer choices.
-  Only one choice is correct.
-  Follow the JSON schema strictly.
+  You are a data generator. You MUST output a valid JSON array.
+  The output MUST follow these rules exactly:
+
+  - Output ONLY a JSON array.
+  - The array MUST contain exactly {{batch_size}} objects.
+  - Each object MUST follow the schema below.
+  - No text before or after the JSON.
+  - No markdown.
+  - No code fences.
+  - No explanations.
+  - No comments.
+  - No trailing commas.
+
+  Schema for each item:
+    {
+      "type": "educational_qa_mcq",
+      "question": string,
+      "choices": [string, string, string, string],
+      "answer": string
+    }
 
 instruction: |
-  Produce one educational MCQ example.
-  Choose a topic from science, history, math, or general knowledge.
-  Provide four options, one correct answer, and a short explanation.
+  Generate {{batch_size}} independent multiple-choice educational questions.
+  Requirements:
+    - "question": a clear educational question
+    - "choices": exactly 4 answer options
+    - "answer": must be one of the choices
+    - Difficulty: basic to intermediate
 
 format: |
-  {
-    "type": "educational_qa_mcq",
-    "question": "<string>",
-    "choices": ["<string>", "<string>", "<string>", "<string>"],
-    "correct_index": <int>,
-    "explanation": "<string>"
-  }
+  [
+    {
+      "type": "educational_qa_mcq",
+      "question": "What is the capital of France?",
+      "choices": ["Paris", "Berlin", "Madrid", "Rome"],
+      "answer": "Paris"
+    }
+  ]
+
