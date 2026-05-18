@@ -1,4 +1,4 @@
-EDUCATIONAL_QA_MCQ_TASK = r"""
+EDU_QA_MCQ_SCHEMA = r"""
 {
   "type": "object",
   "properties": {
@@ -17,18 +17,30 @@ EDUCATIONAL_QA_MCQ_TASK = r"""
 }
 """
 
-EDU_QA_MCQ_TASK = """Generate a single multiple-choice educational question.
+# Backward-compatible alias for older imports.
+EDUCATIONAL_QA_MCQ_SCHEMA = EDU_QA_MCQ_SCHEMA
 
-The JSON object MUST have:
+EDU_QA_MCQ_TASK = """Generate independent educational multiple-choice records.
+
+Each item must have:
 - "type": "educational_qa_mcq"
-- "question": the question text
-- "choices": an array of exactly 4 answer options (strings)
-- "correct_index": an integer index 0–3 pointing into "choices"
-- "explanation": a short explanation of why the correct choice is correct
+- "question": one clear educational question
+- "choices": exactly 4 short answer choices
+- "correct_index": an integer from 0 to 3
+- "explanation": one short sentence explaining the correct answer
+
+Use general topics: math, science, history, technology, language, or reasoning.
+Keep each question self-contained.
 """
 
+# Backward-compatible alias for older imports. This is the task text, not schema.
+EDUCATIONAL_QA_MCQ_TASK = EDU_QA_MCQ_TASK
+
+
 def build_educational_qa_mcq_prompt() -> str:
-    return WRAPPER_TEMPLATE.format(
+    from prompts.wrapper import BATCHED_WRAPPER_TEMPLATE
+    return BATCHED_WRAPPER_TEMPLATE.format(
+        batch_size=1,
         schema=EDU_QA_MCQ_SCHEMA,
         task_instruction=EDU_QA_MCQ_TASK,
     )

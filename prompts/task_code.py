@@ -14,17 +14,28 @@ TASK_CODE_SCHEMA = r"""
 }
 """
 
-TASK_CODE_TASK = """Generate a single programming task with a solution.
+TASK_CODE_TASK = """Generate independent beginner programming task records.
 
-The JSON object MUST have:
+Each item must have:
 - "type": "task_code"
-- "task": a natural language description of the coding task
-- "plan": an array of short strings, each describing one step in the solution plan
-- "code": a code snippet solving the task
+- "task": a short programming task
+- "plan": 2 to 4 short solution steps
+- "code": a short Python code snippet solving the task
+
+Rules for "code":
+- Use Python only.
+- Keep code under 20 lines.
+- Do not use markdown fences.
+- Do not include triple backticks.
+- Avoid very long strings.
+- JSON must escape newline characters correctly inside the code string.
 """
 
+
 def build_task_code_prompt() -> str:
-    return WRAPPER_TEMPLATE.format(
+    from prompts.wrapper import BATCHED_WRAPPER_TEMPLATE
+    return BATCHED_WRAPPER_TEMPLATE.format(
+        batch_size=1,
         schema=TASK_CODE_SCHEMA,
         task_instruction=TASK_CODE_TASK,
     )

@@ -10,24 +10,51 @@ backend:
   temperature: __TEMPERATURE__
   top_p: __TOP_P__
   parallel_requests: __CONCURRENCY__
+  json_mode: true
+  service_tier: "__SERVICE_TIER__"
+  request_timeout_seconds: 120
+  retries:
+    max_request_retries: 3
+    retry_sleep_seconds: 0.5
 
 mix:
   arithmetic:
     share: 0.30
     prompt_file: "prompts/arithmetic.yaml"
     source_module: "slm_synth.sources.arithmetic"
+    model: "llama-3.1-8b-instant"
+    batch_size: __ARITHMETIC_BATCH_SIZE__
+    parallel_requests: __CONCURRENCY__
+    max_tokens: __ARITHMETIC_MAX_TOKENS__
+    avg_tokens_per_sample: 60
   task_code:
     share: 0.30
     prompt_file: "prompts/task_code.yaml"
     source_module: "slm_synth.sources.task_code"
+    model: "llama-3.1-8b-instant"
+    batch_size: __TASK_CODE_BATCH_SIZE__
+    parallel_requests: __CONCURRENCY__
+    max_tokens: __TASK_CODE_MAX_TOKENS__
+    avg_tokens_per_sample: 160
+    max_rejected_batches: 2000
   educational_qa_mcq:
     share: 0.30
     prompt_file: "prompts/educational_qa_mcq.yaml"
     source_module: "slm_synth.sources.educational_qa_mcq"
+    model: "llama-3.1-8b-instant"
+    batch_size: __EDUCATIONAL_QA_MCQ_BATCH_SIZE__
+    parallel_requests: __CONCURRENCY__
+    max_tokens: __EDUCATIONAL_QA_MCQ_MAX_TOKENS__
+    avg_tokens_per_sample: 100
   factual_restraint:
     share: 0.10
     prompt_file: "prompts/factual_restraint.yaml"
     source_module: "slm_synth.sources.factual_restraint"
+    model: "llama-3.1-8b-instant"
+    batch_size: __FACTUAL_RESTRAINT_BATCH_SIZE__
+    parallel_requests: __CONCURRENCY__
+    max_tokens: __FACTUAL_RESTRAINT_MAX_TOKENS__
+    avg_tokens_per_sample: 90
 
 validation:
   schema: true
@@ -60,5 +87,7 @@ rate_limit:
     multiplier: 2.0
 
 generation:
-  samples_per_signal: __SAMPLES_PER_SIGNAL__
   batch_size: __BATCH_SIZE__
+  min_batch_size: 1
+  avg_tokens_per_sample: __AVG_TOKENS_PER_SAMPLE__
+  max_rejected_batches: 1000

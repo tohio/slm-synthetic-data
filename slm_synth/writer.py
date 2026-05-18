@@ -15,6 +15,7 @@ class JSONLWriter:
     def write(self, obj: dict):
         line = json.dumps(obj, ensure_ascii=False)
         self.f.write(line + "\n")
+        self.f.flush()
 
     def close(self):
         self.f.close()

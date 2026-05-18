@@ -1,6 +1,6 @@
 from prompts.wrapper import build_batched_prompt
 from slm_synth.schemas import EDUCATIONAL_QA_MCQ_SCHEMA
-from prompts.educational_qa_mcq import EDUCATIONAL_QA_MCQ_TASK
+from prompts.educational_qa_mcq import EDU_QA_MCQ_TASK
 from slm_synth.repair import repair_educational_qa_mcq
 
 class EducationalQAMCQGenerator:
@@ -11,7 +11,7 @@ class EducationalQAMCQGenerator:
     def generate_batch(self):
         prompt = build_batched_prompt(
             schema=EDUCATIONAL_QA_MCQ_SCHEMA,
-            task_instruction=EDUCATIONAL_QA_MCQ_TASK,
+            task_instruction=EDU_QA_MCQ_TASK,
             batch_size=self.batch_size,
         )
         objs = self.llm.generate_batch(prompt, self.batch_size)

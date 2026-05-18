@@ -20,7 +20,7 @@ def test_task_code_schema_valid():
         "type": "task_code",
         "task": "Sort a list",
         "plan": ["Read list", "Sort list", "Return result"],
-        "pseudocode": "list.sort()"
+        "code": "items.sort()"
     }
     validate_task_code(obj)
 

@@ -10,16 +10,21 @@ FACTUAL_RESTRAINT_SCHEMA = r"""
 }
 """
 
-FACTUAL_RESTRAINT_TASK = """Generate a single question where the correct behavior is to avoid hallucinating facts.
+FACTUAL_RESTRAINT_TASK = """Generate independent factual restraint records.
 
-The JSON object MUST have:
+Each item must have:
 - "type": "factual_restraint"
-- "question": a user question that tempts factual hallucination
-- "safe_answer": a cautious answer that avoids making unsupported factual claims
+- "question": a question that tempts hallucination, speculation, or overclaiming
+- "safe_answer": a cautious answer that avoids unsupported factual claims
+
+The safe answer should be brief, should not invent facts, and should avoid false certainty.
 """
 
+
 def build_factual_restraint_prompt() -> str:
-    return WRAPPER_TEMPLATE.format(
+    from prompts.wrapper import BATCHED_WRAPPER_TEMPLATE
+    return BATCHED_WRAPPER_TEMPLATE.format(
+        batch_size=1,
         schema=FACTUAL_RESTRAINT_SCHEMA,
         task_instruction=FACTUAL_RESTRAINT_TASK,
     )

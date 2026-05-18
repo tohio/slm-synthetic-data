@@ -10,9 +10,9 @@ ARITHMETIC_SCHEMA = {
         "type": {"const": "arithmetic"},
         "question": {"type": "string"},
         "steps": {"type": "array", "items": {"type": "string"}},
-        "answer": {"type": "string"}
+        "answer": {"type": "string"},
     },
-    "required": ["type", "question", "steps", "answer"]
+    "required": ["type", "question", "steps", "answer"],
 }
 
 
@@ -25,9 +25,9 @@ TASK_CODE_SCHEMA = {
         "type": {"const": "task_code"},
         "task": {"type": "string"},
         "plan": {"type": "array", "items": {"type": "string"}},
-        "pseudocode": {"type": "string"}
+        "code": {"type": "string"},
     },
-    "required": ["type", "task", "plan", "pseudocode"]
+    "required": ["type", "task", "plan", "code"],
 }
 
 
@@ -43,12 +43,12 @@ EDUCATIONAL_QA_MCQ_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
             "minItems": 4,
-            "maxItems": 4
+            "maxItems": 4,
         },
-        "correct_index": {"type": "integer"},
-        "explanation": {"type": "string"}
+        "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
+        "explanation": {"type": "string"},
     },
-    "required": ["type", "question", "choices", "correct_index", "explanation"]
+    "required": ["type", "question", "choices", "correct_index", "explanation"],
 }
 
 
@@ -60,9 +60,9 @@ FACTUAL_RESTRAINT_SCHEMA = {
     "properties": {
         "type": {"const": "factual_restraint"},
         "question": {"type": "string"},
-        "safe_answer": {"type": "string"}
+        "safe_answer": {"type": "string"},
     },
-    "required": ["type", "question", "safe_answer"]
+    "required": ["type", "question", "safe_answer"],
 }
 
 

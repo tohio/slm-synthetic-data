@@ -14,6 +14,9 @@ ACTIVATE := source $(VENV)/bin/activate
 PROFILE ?= balanced
 TOKENS ?= 200000
 MODEL ?=
+BATCH ?=
+CONCURRENCY ?=
+SERVICE_TIER ?= flex
 CONFIG_FILE ?= configs/synthetic.yaml
 
 DATA_DIR ?= data
@@ -33,7 +36,7 @@ help:
 > @echo "SLM Synthetic Data Pipeline"
 > @echo "==========================="
 > @echo ""
-> @echo "Usage: make <target> [PROFILE=name] [TOKENS=N] [MODEL=name] [SIGNAL=name]"
+> @echo "Usage: make <target> [PROFILE=name] [TOKENS=N] [MODEL=name] [SIGNAL=name] [BATCH=N] [CONCURRENCY=N]"
 > @echo ""
 > @echo "Configuration:"
 > @echo "  configure              Generate configs/synthetic.yaml using profile presets"
@@ -66,7 +69,10 @@ configure:
 > $(PYTHON) configs/configure_synthetic.py \
 >   --profile "$(PROFILE)" \
 >   --tokens $(TOKENS) \
->   $(if $(MODEL),--model $(MODEL),)
+>   --service-tier "$(SERVICE_TIER)" \
+>   $(if $(MODEL),--model $(MODEL),) \
+>   $(if $(BATCH),--batch-size $(BATCH),) \
+>   $(if $(CONCURRENCY),--concurrency $(CONCURRENCY),)
 
 # -----------------------------
 # List available Groq models

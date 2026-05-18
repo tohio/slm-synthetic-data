@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 import argparse
-import yaml
+import os
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+import yaml
 from dotenv import load_dotenv
-load_dotenv()
 
 from slm_synth.llm import LLMBackend
-from slm_synth.writer import JSONLWriter
-from slm_synth.prompt_loader import load_prompt
 from slm_synth.sources.arithmetic import ArithmeticGenerator
-from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
+from slm_synth.sources.task_code import TaskCodeGenerator
+from slm_synth.writer import JSONLWriter
+
+load_dotenv()
 
 GENERATOR_MAP = {
     "arithmetic": ArithmeticGenerator,
@@ -21,15 +25,128 @@ GENERATOR_MAP = {
     "factual_restraint": FactualRestraintGenerator,
 }
 
-def run_signal(name, cfg, llm, output_dir, batch_size):
-    share = cfg["mix"][name]["share"]
-    prompt_file = cfg["mix"][name]["prompt_file"]
-    module = cfg["mix"][name]["source_module"]
 
-    total_tokens = cfg["target_total_tokens"]
-    samples = int(total_tokens * share / 10)  # ~10 tokens per sample avg
+def _expand_path(path: str) -> Path:
+    return Path(os.path.expandvars(os.path.expanduser(path)))
 
-    print(f"[generate] Starting signal: {name} ({samples} samples)")
+
+def _int_cfg(*values: Any, default: int) -> int:
+    for value in values:
+        if value is not None:
+            return int(value)
+    return int(default)
+
+
+def _float_cfg(*values: Any, default: float) -> float:
+    for value in values:
+        if value is not None:
+            return float(value)
+    return float(default)
+
+
+def _bool_cfg(*values: Any, default: bool) -> bool:
+    for value in values:
+        if value is not None:
+            return bool(value)
+    return bool(default)
+
+
+def build_llm(base_cfg: Dict[str, Any], signal_cfg: Optional[Dict[str, Any]] = None) -> LLMBackend:
+    signal_cfg = signal_cfg or {}
+    retry_cfg = base_cfg.get("retries", {}) or {}
+
+    return LLMBackend(
+        provider=base_cfg.get("provider", "groq"),
+        model=signal_cfg.get("model", base_cfg["model"]),
+        max_tokens=_int_cfg(signal_cfg.get("max_tokens"), base_cfg.get("max_tokens"), default=1024),
+        temperature=_float_cfg(signal_cfg.get("temperature"), base_cfg.get("temperature"), default=0.2),
+        top_p=_float_cfg(signal_cfg.get("top_p"), base_cfg.get("top_p"), default=0.95),
+        json_mode=_bool_cfg(signal_cfg.get("json_mode"), base_cfg.get("json_mode"), default=True),
+        service_tier=signal_cfg.get("service_tier", base_cfg.get("service_tier")),
+        request_timeout=base_cfg.get("request_timeout_seconds"),
+        max_request_retries=int(retry_cfg.get("max_request_retries", 3)),
+        retry_sleep_seconds=float(retry_cfg.get("retry_sleep_seconds", 0.5)),
+    )
+
+
+def signal_sample_target(name: str, cfg: Dict[str, Any], signal_cfg: Dict[str, Any]) -> int:
+    generation_cfg = cfg.get("generation", {}) or {}
+
+    explicit_signal_samples = signal_cfg.get("samples")
+    if explicit_signal_samples is not None:
+        return int(explicit_signal_samples)
+
+    # Backward compatible escape hatch for tiny tests.
+    samples_per_signal = generation_cfg.get("samples_per_signal")
+    if samples_per_signal is not None and int(samples_per_signal) > 0:
+        share = float(signal_cfg.get("share", 1.0))
+        return max(1, int(int(samples_per_signal) * share))
+
+    target_tokens = int(cfg["target_total_tokens"])
+    share = float(signal_cfg.get("share", 0.0))
+    avg_tokens = int(signal_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 80)))
+    return max(1, int(target_tokens * share / avg_tokens))
+
+
+def generate_with_split(generator: Any, batch_size: int, min_batch_size: int) -> List[Dict[str, Any]]:
+    """
+    Generate a batch. If a larger batch fails after request-level retries,
+    split it recursively rather than aborting the whole signal.
+    """
+    original_batch_size = generator.batch_size
+    try:
+        generator.batch_size = batch_size
+        return generator.generate_batch()
+    except Exception:
+        if batch_size <= min_batch_size:
+            raise
+        left = max(min_batch_size, batch_size // 2)
+        right = batch_size - left
+        if right <= 0:
+            raise
+        return generate_with_split(generator, left, min_batch_size) + generate_with_split(
+            generator, right, min_batch_size
+        )
+    finally:
+        generator.batch_size = original_batch_size
+
+
+def submit_next(
+    executor: ThreadPoolExecutor,
+    GenClass: Any,
+    llm: LLMBackend,
+    prompt_file: Optional[str],
+    batch_size: int,
+    min_batch_size: int,
+):
+    generator = GenClass(llm, prompt_file, batch_size=batch_size)
+    return executor.submit(generate_with_split, generator, batch_size, min_batch_size)
+
+
+def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
+    mix_cfg = cfg["mix"][name]
+    generation_cfg = cfg.get("generation", {}) or {}
+    backend_cfg = cfg.get("backend", {}) or {}
+    rate_cfg = cfg.get("rate_limit", {}) or {}
+
+    batch_size = int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 1)))
+    min_batch_size = int(mix_cfg.get("min_batch_size", generation_cfg.get("min_batch_size", 1)))
+    parallel_requests = int(
+        mix_cfg.get(
+            "parallel_requests",
+            backend_cfg.get("parallel_requests", rate_cfg.get("max_concurrency", 1)),
+        )
+    )
+    max_rejected_batches = int(
+        mix_cfg.get("max_rejected_batches", generation_cfg.get("max_rejected_batches", 1000))
+    )
+    prompt_file = mix_cfg.get("prompt_file")
+    samples = signal_sample_target(name, cfg, mix_cfg)
+
+    print(
+        f"[generate] Starting signal: {name} "
+        f"({samples} samples, batch_size={batch_size}, parallel_requests={parallel_requests})"
+    )
 
     raw_path = output_dir / "raw" / f"{name}.jsonl"
     rejected_path = output_dir / "rejected" / f"{name}.jsonl"
@@ -38,64 +155,84 @@ def run_signal(name, cfg, llm, output_dir, batch_size):
     reject_writer = JSONLWriter(rejected_path)
 
     GenClass = GENERATOR_MAP[name]
-    generator = GenClass(llm, prompt_file, batch_size=batch_size)
+    llm = build_llm(backend_cfg, mix_cfg)
 
     generated = 0
-    failures = 0
-    max_failures = cfg["validation"]["max_retries"]
+    rejected_batches = 0
+    submitted = 0
+    pending = set()
 
-    while generated < samples:
-        try:
-            batch = generator.generate_batch()
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, parallel_requests)) as executor:
+            while len(pending) < parallel_requests and submitted * batch_size < samples:
+                pending.add(submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size))
+                submitted += 1
 
-            for obj in batch:
-                if generated >= samples:
-                    break
-                writer.write(obj)
-                generated += 1
+            last_log = time.time()
+            while pending and generated < samples:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
 
-            if generated % 100 == 0:
-                print(f"[generate] {name}: {generated}/{samples}")
+                for future in done:
+                    try:
+                        batch = future.result()
+                        for obj in batch:
+                            if generated >= samples:
+                                break
+                            writer.write(obj)
+                            generated += 1
+                    except Exception as exc:
+                        rejected_batches += 1
+                        reject_writer.write(
+                            {
+                                "signal": name,
+                                "batch_size": batch_size,
+                                "error": str(exc),
+                            }
+                        )
+                        print(f"[generate] ERROR in {name}: {exc}")
+                        if rejected_batches >= max_rejected_batches:
+                            raise RuntimeError(
+                                f"Too many rejected batches in '{name}' ({rejected_batches})."
+                            ) from exc
 
-        except Exception as e:
-            failures += 1
-            reject_writer.write({"error": str(e)})
-            print(f"[generate] ERROR in {name}: {e}")
+                    while len(pending) < parallel_requests and generated + len(pending) * batch_size < samples:
+                        pending.add(
+                            submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size)
+                        )
+                        submitted += 1
 
-            if failures >= max_failures:
-                print(f"[generate] FATAL: Too many failures in '{name}'. Aborting.")
-                break
+                now = time.time()
+                if generated % 100 == 0 or now - last_log >= 10:
+                    print(
+                        f"[generate] {name}: {generated}/{samples} "
+                        f"accepted, rejected_batches={rejected_batches}"
+                    )
+                    last_log = now
+    finally:
+        writer.close()
+        reject_writer.close()
 
-            time.sleep(0.2)
+    print(
+        f"[generate] Completed signal: {name} "
+        f"accepted={generated}, rejected_batches={rejected_batches}"
+    )
 
-    writer.close()
-    reject_writer.close()
 
-    print(f"[generate] Completed signal: {name}")
-
-def main(config_path, signal_override=None):
+def main(config_path: str, signal_override: Optional[str] = None) -> None:
     cfg = yaml.safe_load(Path(config_path).read_text())
 
-    gen_cfg = cfg.get("generation", {})
-    batch_size = int(gen_cfg.get("batch_size", 1))
-
-    output_dir = Path(cfg["output_dir"])
+    output_dir = _expand_path(cfg["output_dir"])
     (output_dir / "raw").mkdir(parents=True, exist_ok=True)
     (output_dir / "rejected").mkdir(parents=True, exist_ok=True)
 
-    llm = LLMBackend(
-        provider=cfg["backend"]["provider"],
-        model=cfg["backend"]["model"],
-        max_tokens=cfg["backend"]["max_tokens"],
-        temperature=cfg["backend"]["temperature"],
-        top_p=cfg["backend"]["top_p"],
-    )
-
     if signal_override:
-        run_signal(signal_override, cfg, llm, output_dir, batch_size)
+        if signal_override not in cfg["mix"]:
+            raise ValueError(f"Unknown signal: {signal_override}")
+        run_signal(signal_override, cfg, output_dir)
     else:
         for name in cfg["mix"].keys():
-            run_signal(name, cfg, llm, output_dir, batch_size)
+            run_signal(name, cfg, output_dir)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
