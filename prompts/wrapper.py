@@ -1,48 +1,33 @@
-import json
-
 # -------------------------------------------------------------------
-# Unified wrapper template (no YAML parsing, no external loading)
+# Batched wrapper template (JSON array of N objects)
 # -------------------------------------------------------------------
 
-WRAPPER_TEMPLATE = """You are a JSON-only generator.
+BATCHED_WRAPPER_TEMPLATE = """You are a JSON-only generator.
 
-You MUST output a single JSON object that strictly follows this JSON Schema:
+Produce EXACTLY {batch_size} JSON objects in a SINGLE JSON array.
+Each element MUST strictly follow this JSON Schema:
 
 {schema}
 
 Rules:
-- Output ONLY valid JSON.
+- Output ONLY a JSON array.
 - No explanations.
 - No prose.
 - No markdown.
 - No code fences.
 - No comments.
 - No natural language outside JSON.
-- Arrays MUST be arrays, never strings.
-- All required fields MUST be present.
-- All fields MUST match the schema types.
-- If unsure, output an empty array or empty string, but NEVER omit fields.
+- Every element MUST match the schema.
+- If unsure, output an empty string or empty array, but NEVER omit fields.
 
-Now follow this task description and produce ONE JSON object:
-
+Task:
 {task_instruction}
 """
 
-# -------------------------------------------------------------------
-# Unified prompt builder (schema + task text only)
-# -------------------------------------------------------------------
-
-def build_prompt(schema: dict, task_instruction: str, prompt_name: str | None = None) -> str:
-    """
-    Build the final LLM prompt.
-
-    - schema: Python dict (will be JSON-encoded)
-    - task_instruction: plain text describing what to generate
-    - prompt_name: ignored (kept for compatibility with generators)
-    """
+def build_batched_prompt(schema: dict, task_instruction: str, batch_size: int) -> str:
     schema_json = json.dumps(schema, indent=2)
-
-    return WRAPPER_TEMPLATE.format(
+    return BATCHED_WRAPPER_TEMPLATE.format(
+        batch_size=batch_size,
         schema=schema_json,
         task_instruction=task_instruction.strip(),
     )
