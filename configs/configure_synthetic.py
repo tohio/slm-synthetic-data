@@ -9,8 +9,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
-
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 
 
@@ -18,7 +16,8 @@ DEFAULT_MODEL = "openai/gpt-oss-20b"
 # 1. Fetch models from Groq API
 # -----------------------------
 def fetch_groq_models():
-    load_dotenv()
+    # Ensure .env is loaded even if called standalone
+    load_dotenv(ROOT / ".env")
 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
@@ -38,12 +37,6 @@ def fetch_groq_models():
 # 2. Infer model size from name
 # -----------------------------
 def infer_model_size(model_name: str) -> float:
-    """
-    Extracts model size in billions from patterns like:
-    - 7b, 8b, 17b, 20b, 32b, 70b, 120b
-    - 22m, 86m → treated as tiny → 0.1B
-    """
-
     b_match = re.search(r"(\d+)\s*b", model_name.lower())
     if b_match:
         return float(b_match.group(1))
@@ -59,12 +52,6 @@ def infer_model_size(model_name: str) -> float:
 # 3. Model-size → profile mapping
 # -----------------------------
 def select_profile(size_b: float):
-    """
-    JSONL version:
-    Only selects max_tokens, temperature, top_p, concurrency.
-    No batch size.
-    """
-
     if size_b <= 10:
         return {
             "max_tokens": 384,
@@ -111,7 +98,6 @@ def update_config(config_path, model_name, tokens):
     size_b = infer_model_size(model_name)
     profile = select_profile(size_b)
 
-    # Patch fields
     cfg["target_total_tokens"] = tokens
 
     cfg["backend"]["provider"] = "groq"
@@ -127,7 +113,6 @@ def update_config(config_path, model_name, tokens):
     if "generation" in cfg and "batch_size" in cfg["generation"]:
         del cfg["generation"]["batch_size"]
 
-    # Write back
     cfg_path.write_text(yaml.dump(cfg, sort_keys=False))
     print(f"Updated config written to {cfg_path}")
 

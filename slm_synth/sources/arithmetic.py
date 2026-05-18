@@ -16,7 +16,7 @@ class ArithmeticGenerator:
         )
 
     def generate_one(self):
-        raw = self.llm.generate_one(self.build_prompt())
-        obj = json.loads(raw)
+        obj = self.llm.generate_one(self.build_prompt())  # already a dict
         validate_arithmetic(obj)
         return obj
+

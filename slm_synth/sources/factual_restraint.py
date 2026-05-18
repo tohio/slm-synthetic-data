@@ -16,7 +16,7 @@ class FactualRestraintGenerator:
         )
 
     def generate_one(self):
-        raw = self.llm.generate_one(self.build_prompt())
-        obj = json.loads(raw)
+        obj = self.llm.generate_one(self.build_prompt())  # dict
         validate_factual_restraint(obj)
         return obj
+
