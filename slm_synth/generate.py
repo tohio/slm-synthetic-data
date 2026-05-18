@@ -10,6 +10,7 @@ import yaml
 from dotenv import load_dotenv
 
 from slm_synth.llm import LLMBackend
+from slm_synth.rate_limit import RateLimiter
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
@@ -66,6 +67,10 @@ def build_llm(base_cfg: Dict[str, Any], signal_cfg: Optional[Dict[str, Any]] = N
         request_timeout=base_cfg.get("request_timeout_seconds"),
         max_request_retries=int(retry_cfg.get("max_request_retries", 3)),
         retry_sleep_seconds=float(retry_cfg.get("retry_sleep_seconds", 0.5)),
+        retry_backoff_initial_seconds=float(retry_cfg.get("retry_backoff_initial_seconds", 1.0)),
+        retry_backoff_max_seconds=float(retry_cfg.get("retry_backoff_max_seconds", 30.0)),
+        retry_backoff_multiplier=float(retry_cfg.get("retry_backoff_multiplier", 2.0)),
+        retry_jitter_ratio=float(retry_cfg.get("retry_jitter_ratio", 0.30)),
     )
 
 
@@ -123,11 +128,19 @@ def submit_next(
     return executor.submit(generate_with_split, generator, batch_size, min_batch_size)
 
 
+
+
+def _submit_delay(rate_limiter: RateLimiter) -> None:
+    # Small launch pacing prevents synchronized bursts across worker threads.
+    # Request-level backoff in LLMBackend handles 429/498/5xx after submission.
+    rate_limiter.sleep_with_jitter()
+
 def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     mix_cfg = cfg["mix"][name]
     generation_cfg = cfg.get("generation", {}) or {}
     backend_cfg = cfg.get("backend", {}) or {}
     rate_cfg = cfg.get("rate_limit", {}) or {}
+    rate_limiter = RateLimiter(cfg)
 
     batch_size = int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 1)))
     min_batch_size = int(mix_cfg.get("min_batch_size", generation_cfg.get("min_batch_size", 1)))
@@ -165,6 +178,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     try:
         with ThreadPoolExecutor(max_workers=max(1, parallel_requests)) as executor:
             while len(pending) < parallel_requests and submitted * batch_size < samples:
+                _submit_delay(rate_limiter)
                 pending.add(submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size))
                 submitted += 1
 
@@ -196,6 +210,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
                             ) from exc
 
                     while len(pending) < parallel_requests and generated + len(pending) * batch_size < samples:
+                        _submit_delay(rate_limiter)
                         pending.add(
                             submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size)
                         )

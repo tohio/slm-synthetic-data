@@ -13,6 +13,7 @@ class RateLimiter:
         self.backoff_initial = backoff.get("initial_ms", 500)
         self.backoff_max = backoff.get("max_ms", 4000)
         self.backoff_multiplier = backoff.get("multiplier", 2.0)
+        self.backoff_jitter_ratio = backoff.get("jitter_ratio", 0.30)
 
     def sleep_with_jitter(self):
         """Apply intentional delay + jitter between requests."""
@@ -20,9 +21,10 @@ class RateLimiter:
         time.sleep(delay / 1000)
 
     def backoff(self, attempt):
-        """Exponential backoff for 429/5xx errors."""
+        """Exponential backoff with jitter for 429/498/5xx errors."""
         delay = min(
             self.backoff_initial * (self.backoff_multiplier ** attempt),
-            self.backoff_max
+            self.backoff_max,
         )
-        time.sleep(delay / 1000)
+        jitter = delay * max(0.0, self.backoff_jitter_ratio) * random.random()
+        time.sleep((delay + jitter) / 1000)

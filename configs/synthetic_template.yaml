@@ -14,8 +14,12 @@ backend:
   service_tier: "__SERVICE_TIER__"
   request_timeout_seconds: 120
   retries:
-    max_request_retries: 3
+    max_request_retries: 12
     retry_sleep_seconds: 0.5
+    retry_backoff_initial_seconds: 1.0
+    retry_backoff_max_seconds: 45.0
+    retry_backoff_multiplier: 2.0
+    retry_jitter_ratio: 0.35
 
 mix:
   arithmetic:
@@ -78,13 +82,14 @@ export:
   include_manifests: true
 
 rate_limit:
-  delay_ms: 40
-  jitter_ms: 20
+  delay_ms: 125
+  jitter_ms: 125
   max_concurrency: __CONCURRENCY__
   backoff:
     initial_ms: 500
-    max_ms: 4000
+    max_ms: 45000
     multiplier: 2.0
+    jitter_ratio: 0.35
 
 generation:
   batch_size: __BATCH_SIZE__

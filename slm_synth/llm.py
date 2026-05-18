@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -34,6 +35,10 @@ class LLMBackend:
         request_timeout: Optional[float] = None,
         max_request_retries: int = 3,
         retry_sleep_seconds: float = 0.5,
+        retry_backoff_initial_seconds: float = 1.0,
+        retry_backoff_max_seconds: float = 30.0,
+        retry_backoff_multiplier: float = 2.0,
+        retry_jitter_ratio: float = 0.30,
     ):
         if provider != "groq":
             raise ValueError(f"Unsupported provider: {provider}")
@@ -51,6 +56,10 @@ class LLMBackend:
         self.request_timeout = request_timeout
         self.max_request_retries = int(max_request_retries)
         self.retry_sleep_seconds = float(retry_sleep_seconds)
+        self.retry_backoff_initial_seconds = float(retry_backoff_initial_seconds)
+        self.retry_backoff_max_seconds = float(retry_backoff_max_seconds)
+        self.retry_backoff_multiplier = float(retry_backoff_multiplier)
+        self.retry_jitter_ratio = float(retry_jitter_ratio)
 
         self.client = OpenAI(
             api_key=api_key,
@@ -80,6 +89,10 @@ class LLMBackend:
             request_timeout=self.request_timeout,
             max_request_retries=self.max_request_retries,
             retry_sleep_seconds=self.retry_sleep_seconds,
+            retry_backoff_initial_seconds=self.retry_backoff_initial_seconds,
+            retry_backoff_max_seconds=self.retry_backoff_max_seconds,
+            retry_backoff_multiplier=self.retry_backoff_multiplier,
+            retry_jitter_ratio=self.retry_jitter_ratio,
         )
 
     def _clean(self, text: str) -> str:
@@ -161,6 +174,67 @@ class LLMBackend:
                 return self.client.chat.completions.create(**kwargs)
             raise
 
+
+    def _error_text(self, exc: Exception) -> str:
+        return str(exc).lower()
+
+    def _is_capacity_or_rate_error(self, exc: Exception) -> bool:
+        text = self._error_text(exc)
+        return any(
+            marker in text
+            for marker in (
+                "capacity_exceeded",
+                "rate_limit",
+                "rate limit",
+                "too many requests",
+                "error code: 429",
+                "error code: 498",
+                " 429 ",
+                " 498 ",
+            )
+        )
+
+    def _is_transient_transport_error(self, exc: Exception) -> bool:
+        text = self._error_text(exc)
+        return any(
+            marker in text
+            for marker in (
+                "timeout",
+                "timed out",
+                "temporarily unavailable",
+                "connection error",
+                "connection reset",
+                "error code: 500",
+                "error code: 502",
+                "error code: 503",
+                "error code: 504",
+                " 500 ",
+                " 502 ",
+                " 503 ",
+                " 504 ",
+            )
+        )
+
+    def _sleep_before_retry(self, attempt: int, exc: Exception) -> None:
+        """Sleep before retrying an LLM request.
+
+        Flex capacity errors can last for several seconds. A tiny fixed sleep
+        causes all worker threads to retry together and quickly burn through
+        attempts. Use exponential backoff with jitter for capacity/rate/5xx
+        errors, and a shorter compatibility sleep for parser/model-format
+        failures.
+        """
+        if self._is_capacity_or_rate_error(exc) or self._is_transient_transport_error(exc):
+            delay = min(
+                self.retry_backoff_max_seconds,
+                self.retry_backoff_initial_seconds * (self.retry_backoff_multiplier ** max(0, attempt - 1)),
+            )
+            jitter = delay * max(0.0, self.retry_jitter_ratio) * random.random()
+            time.sleep(delay + jitter)
+            return
+
+        time.sleep(self.retry_sleep_seconds * attempt)
+
     def generate_batch(self, prompt: str, batch_size: int) -> List[Dict[str, Any]]:
         last_error: Optional[Exception] = None
 
@@ -173,6 +247,6 @@ class LLMBackend:
                 last_error = exc
                 if attempt >= self.max_request_retries:
                     break
-                time.sleep(self.retry_sleep_seconds * attempt)
+                self._sleep_before_retry(attempt, exc)
 
         raise RuntimeError(f"LLM batch failed after {self.max_request_retries} attempts: {last_error}")
