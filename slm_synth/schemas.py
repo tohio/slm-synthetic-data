@@ -34,12 +34,17 @@ TASK_CODE_SCHEMA = {
 # -------------------------
 # Educational QA/MCQ Schema
 # -------------------------
-EDU_QA_MCQ_SCHEMA = {
+EDUCATIONAL_QA_MCQ_SCHEMA = {
     "type": "object",
     "properties": {
         "type": {"const": "educational_qa_mcq"},
         "question": {"type": "string"},
-        "choices": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
+        "choices": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 4,
+            "maxItems": 4
+        },
         "correct_index": {"type": "integer"},
         "explanation": {"type": "string"}
     },
@@ -73,7 +78,7 @@ def validate_task_code(obj):
 
 
 def validate_educational_qa_mcq(obj):
-    jsonschema.validate(obj, EDU_QA_MCQ_SCHEMA)
+    jsonschema.validate(obj, EDUCATIONAL_QA_MCQ_SCHEMA)
 
 
 def validate_factual_restraint(obj):
