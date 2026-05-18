@@ -39,23 +39,29 @@ class LLMBackend:
         return text
 
     def generate_batch(self, prompt: str, batch_size: int):
-        """
-        Generate a batch of JSON objects using a single LLM call.
-        The model must return a JSON array of length batch_size.
-        """
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You MUST output ONLY valid JSON. No prose."},
+                {"role": "user", "content": prompt},
+            ],
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             top_p=self.top_p,
-            n=1,  # one response containing a JSON array
         )
 
         raw = response.choices[0].message.content.strip()
 
-        # Parse the JSON array
-        objs = json.loads(raw)
+        # Try direct JSON parse
+        try:
+            objs = json.loads(raw)
+        except Exception:
+            # Try to extract JSON array
+            import re
+            match = re.search(r"\[.*\]", raw, re.DOTALL)
+            if not match:
+                raise ValueError(f"Model did not return JSON: {raw}")
+            objs = json.loads(match.group(0))
 
         if not isinstance(objs, list):
             raise ValueError("Expected a JSON array from batched prompt")
@@ -64,4 +70,5 @@ class LLMBackend:
             raise ValueError(f"Expected {batch_size} items, got {len(objs)}")
 
         return objs
+
 
