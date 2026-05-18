@@ -8,11 +8,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # ---------------------------------------------------------
-# Paths
+# Paths (fixed to support script living inside configs/)
 # ---------------------------------------------------------
-ROOT = Path(__file__).resolve().parent
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent  # project root
+
 TEMPLATE_PATH = ROOT / "configs" / "synthetic_template.yaml"
 OUTPUT_PATH = ROOT / "configs" / "synthetic.yaml"
+
 
 load_dotenv()
 
