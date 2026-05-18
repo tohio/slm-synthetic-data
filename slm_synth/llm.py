@@ -62,7 +62,7 @@ class LLMBackend:
             temperature=self.temperature,
             top_p=self.top_p,
         )
-        return response.choices[0].message["content"]
+        return response.choices[0].message.content
 
     # ------------------------------------------------------------
     # Public API used by generators
