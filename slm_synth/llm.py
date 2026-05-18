@@ -38,34 +38,30 @@ class LLMBackend:
             text = text.rsplit("```", 1)[0].strip()
         return text
 
-    def generate_one(self, prompt: str, retries: int = 3, delay: float = 0.5):
+    def generate_batch(self, prompt: str, batch_size: int):
         """
-        Sends a single prompt and expects a single JSON object.
-        Retries on malformed JSON.
+        Generate a batch of JSON objects using a single LLM call.
+        The model must return a JSON array of length batch_size.
         """
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            n=1,  # one response containing a JSON array
+        )
 
-        for attempt in range(retries):
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                )
+        raw = response.choices[0].message.content.strip()
 
-                raw = response.choices[0].message.content
-                cleaned = self._clean(raw)
+        # Parse the JSON array
+        objs = json.loads(raw)
 
-                obj = json.loads(cleaned)
-                if not isinstance(obj, dict):
-                    raise ValueError("Model did not return a JSON object")
+        if not isinstance(objs, list):
+            raise ValueError("Expected a JSON array from batched prompt")
 
-                return obj
+        if len(objs) != batch_size:
+            raise ValueError(f"Expected {batch_size} items, got {len(objs)}")
 
-            except Exception as e:
-                if attempt == retries - 1:
-                    raise RuntimeError(f"Failed to parse JSON object: {e}")
-                time.sleep(delay * (attempt + 1))
+        return objs
 
-        raise RuntimeError("Unreachable")
