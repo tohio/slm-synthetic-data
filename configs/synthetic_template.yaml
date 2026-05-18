@@ -71,7 +71,7 @@ validation:
 
 dedup:
   enable_exact: true
-  enable_fuzzy: true
+  enable_fuzzy: false
   fuzzy_method: "minhash"
   minhash_threshold: 0.85
 
