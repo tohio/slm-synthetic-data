@@ -1,3 +1,4 @@
+
 EDU_QA_MCQ_SCHEMA = r"""
 {
   "type": "object",
@@ -29,8 +30,29 @@ Each item must have:
 - "correct_index": an integer from 0 to 3
 - "explanation": one short sentence explaining the correct answer
 
-Use general topics: math, science, history, technology, language, or reasoning.
-Keep each question self-contained.
+Allowed subjects include:
+- arithmetic
+- basic algebra
+- geometry
+- physical science
+- earth science
+- biology basics
+- computer science basics
+- Python concepts
+- history
+- geography
+- grammar
+- vocabulary
+- logic and reasoning
+- data interpretation
+- technology literacy
+
+Rules:
+- Keep each question self-contained.
+- Vary the correct_index across items.
+- Make distractors plausible but clearly incorrect.
+- Avoid repeated toy questions such as "What is 2 + 2?".
+- Do not rely on obscure or time-sensitive facts.
 """
 
 # Backward-compatible alias for older imports. This is the task text, not schema.
@@ -43,4 +65,5 @@ def build_educational_qa_mcq_prompt() -> str:
         batch_size=1,
         schema=EDU_QA_MCQ_SCHEMA,
         task_instruction=EDU_QA_MCQ_TASK,
+        diversity_context="Use a varied subject, level, and question style.",
     )

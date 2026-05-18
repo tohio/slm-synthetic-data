@@ -1,3 +1,4 @@
+
 TASK_CODE_SCHEMA = r"""
 {
   "type": "object",
@@ -14,13 +15,29 @@ TASK_CODE_SCHEMA = r"""
 }
 """
 
-TASK_CODE_TASK = """Generate independent beginner programming task records.
+TASK_CODE_TASK = """Generate independent beginner Python programming task records.
 
 Each item must have:
 - "type": "task_code"
 - "task": a short programming task
 - "plan": 2 to 4 short solution steps
 - "code": a short Python code snippet solving the task
+
+Allowed task topics include:
+- strings and text cleanup
+- lists and simple aggregation
+- dictionaries and counting
+- sets and uniqueness
+- sorting records
+- filtering values
+- loops and conditionals
+- basic math helper functions
+- parsing simple delimited strings
+- input validation helpers
+- nested lists
+- grouping items by key
+- frequency tables
+- simple error handling
 
 Rules for "code":
 - Use Python only.
@@ -29,6 +46,8 @@ Rules for "code":
 - Do not include triple backticks.
 - Avoid very long strings.
 - JSON must escape newline characters correctly inside the code string.
+- Avoid overused tasks such as rectangle area, palindrome, factorial, Fibonacci, and prime checks.
+- Use varied function names and varied problem statements.
 """
 
 
@@ -38,4 +57,5 @@ def build_task_code_prompt() -> str:
         batch_size=1,
         schema=TASK_CODE_SCHEMA,
         task_instruction=TASK_CODE_TASK,
+        diversity_context="Use a varied programming topic, implementation pattern, and constraint.",
     )

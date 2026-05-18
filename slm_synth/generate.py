@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import yaml
 from dotenv import load_dotenv
 
+from slm_synth.diversity import build_diversity_context
 from slm_synth.llm import LLMBackend
 from slm_synth.rate_limit import RateLimiter
 from slm_synth.sources.arithmetic import ArithmeticGenerator
@@ -123,8 +124,17 @@ def submit_next(
     prompt_file: Optional[str],
     batch_size: int,
     min_batch_size: int,
+    signal_name: str,
+    batch_id: int,
+    diversity_enabled: bool,
 ):
-    generator = GenClass(llm, prompt_file, batch_size=batch_size)
+    diversity_context = build_diversity_context(signal_name, batch_id) if diversity_enabled else ""
+    generator = GenClass(
+        llm,
+        prompt_file,
+        batch_size=batch_size,
+        diversity_context=diversity_context,
+    )
     return executor.submit(generate_with_split, generator, batch_size, min_batch_size)
 
 
@@ -154,11 +164,13 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
         mix_cfg.get("max_rejected_batches", generation_cfg.get("max_rejected_batches", 1000))
     )
     prompt_file = mix_cfg.get("prompt_file")
+    diversity_cfg = generation_cfg.get("diversity", {}) or {}
+    diversity_enabled = bool(mix_cfg.get("diversity_enabled", diversity_cfg.get("enabled", True)))
     samples = signal_sample_target(name, cfg, mix_cfg)
 
     print(
         f"[generate] Starting signal: {name} "
-        f"({samples} samples, batch_size={batch_size}, parallel_requests={parallel_requests})"
+        f"({samples} samples, batch_size={batch_size}, parallel_requests={parallel_requests}, diversity={diversity_enabled})"
     )
 
     raw_path = output_dir / "raw" / f"{name}.jsonl"
@@ -179,7 +191,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
         with ThreadPoolExecutor(max_workers=max(1, parallel_requests)) as executor:
             while len(pending) < parallel_requests and submitted * batch_size < samples:
                 _submit_delay(rate_limiter)
-                pending.add(submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size))
+                pending.add(submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled))
                 submitted += 1
 
             last_log = time.time()
@@ -212,7 +224,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
                     while len(pending) < parallel_requests and generated + len(pending) * batch_size < samples:
                         _submit_delay(rate_limiter)
                         pending.add(
-                            submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size)
+                            submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled)
                         )
                         submitted += 1
 

@@ -70,8 +70,10 @@ validation:
     - hallucinated_facts
 
 dedup:
+  mode: "exact"
   enable_exact: true
   enable_fuzzy: false
+  fuzzy_enabled: false
   fuzzy_method: "minhash"
   minhash_threshold: 0.85
 
@@ -92,6 +94,8 @@ rate_limit:
     jitter_ratio: 0.35
 
 generation:
+  diversity:
+    enabled: true
   batch_size: __BATCH_SIZE__
   min_batch_size: 1
   avg_tokens_per_sample: __AVG_TOKENS_PER_SAMPLE__

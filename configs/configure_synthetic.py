@@ -28,7 +28,7 @@ PROFILES = {
     "speed": {
         "model": "llama-3.1-8b-instant",
         "max_tokens": 1024,
-        "temperature": 0.3,
+        "temperature": 0.55,
         "top_p": 0.95,
         "concurrency": 12,
         "avg_tokens_per_sample": 100,
@@ -37,7 +37,7 @@ PROFILES = {
     "balanced": {
         "model": "llama-3.1-8b-instant",
         "max_tokens": 1536,
-        "temperature": 0.25,
+        "temperature": 0.45,
         "top_p": 0.95,
         "concurrency": 8,
         "avg_tokens_per_sample": 110,
@@ -46,7 +46,7 @@ PROFILES = {
     "quality": {
         "model": "llama-3.3-70b-versatile",
         "max_tokens": 2048,
-        "temperature": 0.2,
+        "temperature": 0.35,
         "top_p": 0.95,
         "concurrency": 4,
         "avg_tokens_per_sample": 130,
