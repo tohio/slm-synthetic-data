@@ -3,6 +3,9 @@ import argparse
 import yaml
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
+
 
 from slm_synth.llm import LLMBackend
 from slm_synth.writer import JSONLWriter
@@ -11,6 +14,8 @@ from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
+
+
 
 
 GENERATOR_MAP = {

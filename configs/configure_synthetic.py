@@ -7,6 +7,9 @@ import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 
+load_dotenv()
+
+
 
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 
