@@ -2,6 +2,7 @@
 
 from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_arithmetic
+from slm_synth.schemas import ARITHMETIC_SCHEMA
 
 
 class ArithmeticGenerator:
@@ -9,9 +10,14 @@ class ArithmeticGenerator:
         self.llm = llm
 
     def build_prompt(self) -> str:
-        return build_arithmetic_prompt()
+        return build_prompt(
+            schema=ARITHMETIC_SCHEMA,
+            task_instruction="",
+            prompt_name="arithmetic"
+        )
 
     def generate_one(self):
         obj = self.llm.generate_one(self.build_prompt())
         obj = repair_arithmetic(obj)
         return obj
+
