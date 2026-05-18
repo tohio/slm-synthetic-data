@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from slm_synth.diversity import build_diversity_context
 from slm_synth.llm import LLMBackend
+from slm_synth.model_support import warn_if_unsupported_models
 from slm_synth.rate_limit import RateLimiter
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
@@ -57,9 +58,12 @@ def build_llm(base_cfg: Dict[str, Any], signal_cfg: Optional[Dict[str, Any]] = N
     signal_cfg = signal_cfg or {}
     retry_cfg = base_cfg.get("retries", {}) or {}
 
+    model_name = signal_cfg.get("model", base_cfg["model"])
+    warn_if_unsupported_model(model_name, context="synthetic generation")
+
     return LLMBackend(
         provider=base_cfg.get("provider", "groq"),
-        model=signal_cfg.get("model", base_cfg["model"]),
+        model=model_name,
         max_tokens=_int_cfg(signal_cfg.get("max_tokens"), base_cfg.get("max_tokens"), default=1024),
         temperature=_float_cfg(signal_cfg.get("temperature"), base_cfg.get("temperature"), default=0.2),
         top_p=_float_cfg(signal_cfg.get("top_p"), base_cfg.get("top_p"), default=0.95),
@@ -247,6 +251,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
 
 def main(config_path: str, signal_override: Optional[str] = None) -> None:
     cfg = yaml.safe_load(Path(config_path).read_text())
+    warn_if_unsupported_models(cfg, context="generate")
 
     output_dir = _expand_path(cfg["output_dir"])
     (output_dir / "raw").mkdir(parents=True, exist_ok=True)

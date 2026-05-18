@@ -1,21 +1,12 @@
-# Docs
+# Documentation
 
-This directory contains static documentation assets for the SLM synthetic-data repository.
+This directory contains supplementary project documentation.
 
-Current asset:
+Start with the root `README.md` for usage instructions. Additional docs in this directory should describe stable project behavior, design decisions, or future work in a public-repo style.
 
-```text
-architecture.png
-```
+## Current docs
 
-The main operational documentation lives in:
-
-```text
-README.md
-configs/README.md
-prompts/README.md
-slm_synth/README.md
-tests/README.md
-```
-
-When the pipeline changes, update the relevant README files so they continue to match the current code path.
+| File | Purpose |
+|---|---|
+| `TODO.md` | Maintainer task list and future improvements. |
+| `architecture.png` | Optional architecture diagram. |

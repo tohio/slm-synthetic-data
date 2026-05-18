@@ -1,124 +1,50 @@
 # Prompts
 
-This directory contains Python prompt templates for the synthetic generation signals.
+Prompt modules define the generation task and schema guidance for each synthetic signal.
 
-The current prompt system uses Python modules instead of YAML prompt files:
+## Contract
 
-```text
-prompts/
-├── wrapper.py
-├── arithmetic.py
-├── task_code.py
-├── educational_qa_mcq.py
-└── factual_restraint.py
-```
-
----
-
-## JSON Contract
-
-The wrapper asks the model to return a JSON object with an `items` array:
+The generator asks the model to return a JSON object with an `items` array:
 
 ```json
 {
   "items": [
-    { "type": "..." }
+    { "...": "..." }
   ]
 }
 ```
 
-This is more reliable with Groq JSON object mode than asking for a top-level JSON array.
+The pipeline intentionally avoids bare top-level JSON arrays because JSON object output is more reliable with the supported Groq models.
 
-Do not change the prompt back to a bare array without also updating parsing and tests.
+## Signals
 
----
+| Signal | File | Purpose |
+|---|---|---|
+| `arithmetic` | `arithmetic.py` | Integer arithmetic questions with short reasoning steps. |
+| `task_code` | `task_code.py` | Small Python programming tasks with plans and code snippets. |
+| `educational_qa_mcq` | `educational_qa_mcq.py` | Multiple-choice educational questions with explanations. |
+| `factual_restraint` | `factual_restraint.py` | Questions that require cautious answers instead of unsupported claims. |
 
-## Diversity Context
+## Diversity
 
-Generation uses per-batch diversity context from:
+Per-batch diversity context is added by `slm_synth.diversity`. It rotates attributes such as topic, difficulty, format, scenario, and answer style. This reduces exact duplicates and improves coverage without changing the JSON schema.
 
-```text
-slm_synth/diversity.py
-```
+## Prompt rules
 
-The diversity context adds signal-specific variation such as:
+Prompts should:
 
-- batch nonce / seed
-- topic buckets
-- difficulty levels
-- stem patterns
-- number ranges
-- task-code categories
-- MCQ subject and scenario rotation
-- factual-restraint uncertainty styles
+- keep the top-level JSON object contract,
+- avoid markdown and code fences,
+- keep string fields JSON-safe,
+- produce concise records,
+- avoid generic repeated examples,
+- preserve the schema expected by `slm_synth.schemas`.
 
-This is important for scaling. Without diversity controls, exact duplicate rates can become very high even when JSON parsing succeeds.
-
----
-
-## Signal Templates
-
-### `arithmetic.py`
-
-Generates integer arithmetic and simple numeric reasoning. The prompt should preserve variation across:
-
-- operation type
-- number range
-- problem format
-- word-problem context
-- missing-value or comparison style
-
-### `task_code.py`
-
-Generates Python task/code records. The prompt should keep code short and JSON-safe:
-
-- no markdown fences
-- no triple backticks
-- escaped newlines inside JSON strings
-- concise plans
-- beginner/intermediate Python tasks
-
-### `educational_qa_mcq.py`
-
-Generates educational multiple-choice questions. This prompt has stronger diversity requirements because generic MCQs can duplicate easily. It rotates:
-
-- subject
-- level
-- scenario context
-- stem pattern
-- distractor strategy
-
-Avoid generic examples such as `What is 2 + 2?`.
-
-### `factual_restraint.py`
-
-Generates questions where the desired answer avoids overclaiming. The prompt should vary:
-
-- uncertainty type
-- question domain
-- safe-answer style
-- unsupported premise pattern
-
----
-
-## Editing Guidelines
-
-When changing prompts:
-
-1. Keep the `{"items": [...]}` contract.
-2. Keep fields compatible with `slm_synth/schemas.py`.
-3. Run a signal-level smoke test.
-4. Report duplicates before and after validation.
-5. Avoid increasing batch size as a first fix for throughput.
-
-Useful smoke test:
+When changing prompts, run a small generation test and duplicate report before scaling:
 
 ```bash
 make configure PROFILE=balanced TOKENS=200000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
-rm -rf data
 python bootstrap_dirs.py
-make generate SIGNAL=educational_qa_mcq
+make generate
 python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
-make validate
-make dedup
 ```
