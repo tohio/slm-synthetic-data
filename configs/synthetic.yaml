@@ -1,51 +1,34 @@
-# SLM Synthetic Data — Master Generation Config
-# JSONL-compatible version (one object per LLM call)
+run_name: "__RUN_NAME__"
+output_dir: "__OUTPUT_DIR__"
 
-# ---------------------------------------------------------------------
-# GLOBAL SETTINGS
-# ---------------------------------------------------------------------
-run_name: "synthetic"
-output_dir: "${DATA_DIR}/${run_name}"
+target_total_tokens: __TARGET_TOKENS__
 
-# Total synthetic token target (adjust as needed)
-target_total_tokens: 200000
-
-# Backend LLM for generation (Groq recommended)
 backend:
   provider: "groq"
-  model: "llama-3.3-70b-versatile"
-  max_tokens: 512
-  temperature: 0.4
-  top_p: 0.95
-  parallel_requests: 32
+  model: "__MODEL__"
+  max_tokens: __MAX_TOKENS__
+  temperature: __TEMPERATURE__
+  top_p: __TOP_P__
+  parallel_requests: __CONCURRENCY__
 
-# ---------------------------------------------------------------------
-# SIGNAL FAMILY ALLOCATION
-# ---------------------------------------------------------------------
 mix:
   arithmetic:
     share: 0.30
     prompt_file: "prompts/arithmetic.yaml"
     source_module: "slm_synth.sources.arithmetic"
-
   task_code:
     share: 0.30
     prompt_file: "prompts/task_code.yaml"
     source_module: "slm_synth.sources.task_code"
-
   educational_qa_mcq:
     share: 0.30
     prompt_file: "prompts/educational_qa_mcq.yaml"
     source_module: "slm_synth.sources.educational_qa_mcq"
-
   factual_restraint:
     share: 0.10
     prompt_file: "prompts/factual_restraint.yaml"
     source_module: "slm_synth.sources.factual_restraint"
 
-# ---------------------------------------------------------------------
-# VALIDATION SETTINGS
-# ---------------------------------------------------------------------
 validation:
   schema: true
   max_retries: 2
@@ -55,40 +38,26 @@ validation:
     - unsafe_content
     - hallucinated_facts
 
-# ---------------------------------------------------------------------
-# DEDUPLICATION SETTINGS
-# ---------------------------------------------------------------------
 dedup:
   enable_exact: true
   enable_fuzzy: true
   fuzzy_method: "minhash"
   minhash_threshold: 0.85
 
-# ---------------------------------------------------------------------
-# EXPORT SETTINGS
-# ---------------------------------------------------------------------
 export:
   push_to_hf: true
-  hf_repo: "${HF_USERNAME}/${HF_REPO}"
+  hf_repo: "__HF_REPO__"
   private: false
   include_manifests: true
 
-# ---------------------------------------------------------------------
-# RATE LIMIT SETTINGS
-# ---------------------------------------------------------------------
 rate_limit:
-  delay_ms: 120
-  jitter_ms: 40
-  max_concurrency: 2
-
+  delay_ms: 40
+  jitter_ms: 20
+  max_concurrency: __CONCURRENCY__
   backoff:
     initial_ms: 500
     max_ms: 4000
     multiplier: 2.0
 
-# ---------------------------------------------------------------------
-# JSONL GENERATION SETTINGS
-# ---------------------------------------------------------------------
 generation:
-  # batch_size removed — JSONL uses one object per call
-  samples_per_signal: 60000
+  samples_per_signal: __SAMPLES_PER_SIGNAL__

@@ -1,32 +1,38 @@
-# Educational QA / MCQ Synthetic Data Prompt
-# Generates structured educational questions:
-# - multiple choice
-# - short explanations
-# - varied subjects
+# slm_synth/prompts/educational_qa_mcq.py
 
-system: |
-  You are a data generator. Output exactly ONE JSON object.
-  No arrays. No markdown. No explanations.
+from .wrapper import WRAPPER_TEMPLATE
 
-  Schema:
-  {
-    "type": "educational_qa_mcq",
-    "question": string,
-    "choices": [string, string, string, string],
-    "answer": string
-  }
+EDU_QA_MCQ_SCHEMA = r"""
+{
+  "type": "object",
+  "properties": {
+    "type": { "const": "educational_qa_mcq" },
+    "question": { "type": "string" },
+    "choices": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "correct_index": { "type": "integer" },
+    "explanation": { "type": "string" }
+  },
+  "required": ["type", "question", "choices", "correct_index", "explanation"]
+}
+"""
 
-instruction: |
-  Generate one multiple-choice educational question.
-  Provide exactly 4 answer choices.
-  The answer must be one of the choices.
+EDU_QA_MCQ_TASK = """Generate a single multiple-choice educational question.
 
-format: |
-  {
-    "type": "educational_qa_mcq",
-    "question": "What is the capital of France?",
-    "choices": ["Paris", "Berlin", "Madrid", "Rome"],
-    "answer": "Paris"
-  }
+The JSON object MUST have:
+- "type": "educational_qa_mcq"
+- "question": the question text
+- "choices": an array of exactly 4 answer options (strings)
+- "correct_index": an integer index 0–3 pointing into "choices"
+- "explanation": a short explanation of why the correct choice is correct
+"""
 
-
+def build_educational_qa_mcq_prompt() -> str:
+    return WRAPPER_TEMPLATE.format(
+        schema=EDU_QA_MCQ_SCHEMA,
+        task_instruction=EDU_QA_MCQ_TASK,
+    )

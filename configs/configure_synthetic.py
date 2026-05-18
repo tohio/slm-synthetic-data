@@ -1,151 +1,130 @@
 #!/usr/bin/env python3
 import argparse
 import os
-import re
+import random
+import string
 import requests
-import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 
+# ---------------------------------------------------------
+# Paths
+# ---------------------------------------------------------
+ROOT = Path(__file__).resolve().parent
+TEMPLATE_PATH = ROOT / "configs" / "synthetic_template.yaml"
+OUTPUT_PATH = ROOT / "configs" / "synthetic.yaml"
+
 load_dotenv()
 
-DEFAULT_MODEL = "openai/gpt-oss-20b"
+# ---------------------------------------------------------
+# Profile presets
+# ---------------------------------------------------------
+PROFILES = {
+    "speed": {
+        "model": "llama-3.1-8b-instant",
+        "max_tokens": 192,
+        "temperature": 0.4,
+        "top_p": 0.9,
+        "concurrency": 12,
+        "avg_tokens_per_sample": 60,
+    },
+    "balanced": {
+        "model": "openai/gpt-oss-20b",
+        "max_tokens": 256,
+        "temperature": 0.4,
+        "top_p": 0.95,
+        "concurrency": 8,
+        "avg_tokens_per_sample": 80,
+    },
+    "quality": {
+        "model": "llama-3.3-70b-versatile",
+        "max_tokens": 384,
+        "temperature": 0.2,
+        "top_p": 0.95,
+        "concurrency": 4,
+        "avg_tokens_per_sample": 120,
+    },
+}
+
+# ---------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------
+def generate_run_name(length=7):
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
 
 
-# -----------------------------
-# 1. Fetch models from Groq API
-# -----------------------------
 def fetch_groq_models():
-    # Ensure .env is loaded even if called standalone
+    # Always load .env from project root
     load_dotenv()
 
-    api_key = os.environ.get("GROQ_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        raise RuntimeError("GROQ_API_KEY not found in environment or .env file.")
+        raise RuntimeError("GROQ_API_KEY not found in .env")
 
     url = "https://api.groq.com/openai/v1/models"
     headers = {"Authorization": f"Bearer {api_key}"}
-
     resp = requests.get(url, headers=headers)
     resp.raise_for_status()
-
     data = resp.json()
     return [m["id"] for m in data.get("data", [])]
 
 
-# -----------------------------
-# 2. Infer model size from name
-# -----------------------------
-def infer_model_size(model_name: str) -> float:
-    b_match = re.search(r"(\d+)\s*b", model_name.lower())
-    if b_match:
-        return float(b_match.group(1))
+def compute_samples_per_signal(target_tokens: int, avg_tokens_per_sample: int):
+    return max(1, target_tokens // avg_tokens_per_sample)
 
-    m_match = re.search(r"(\d+)\s*m", model_name.lower())
-    if m_match:
-        return float(m_match.group(1)) / 1000.0
-
-    return 8.0
-
-
-# -----------------------------
-# 3. Model-size → profile mapping
-# -----------------------------
-def select_profile(size_b: float):
-    if size_b <= 10:
-        return {
-            "max_tokens": 384,
-            "temperature": 0.3,
-            "top_p": 0.9,
-            "concurrency": 4,
-        }
-
-    if size_b <= 30:
-        return {
-            "max_tokens": 512,
-            "temperature": 0.4,
-            "top_p": 0.95,
-            "concurrency": 2,
-        }
-
-    if size_b <= 80:
-        return {
-            "max_tokens": 768,
-            "temperature": 0.2,
-            "top_p": 0.95,
-            "concurrency": 1,
-        }
-
-    print(f"Warning: Model size {size_b}B is very large. Using 70B profile.")
-    return {
-        "max_tokens": 768,
-        "temperature": 0.2,
-        "top_p": 0.95,
-        "concurrency": 1,
-    }
-
-
-# -----------------------------
-# 4. Patch existing YAML config
-# -----------------------------
-def update_config(config_path, model_name, tokens):
-    cfg_path = Path(config_path)
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"Config file not found: {cfg_path}")
-
-    cfg = yaml.safe_load(cfg_path.read_text())
-
-    size_b = infer_model_size(model_name)
-    profile = select_profile(size_b)
-
-    cfg["target_total_tokens"] = tokens
-
-    cfg["backend"]["provider"] = "groq"
-    cfg["backend"]["model"] = model_name
-    cfg["backend"]["max_tokens"] = profile["max_tokens"]
-    cfg["backend"]["temperature"] = profile["temperature"]
-    cfg["backend"]["top_p"] = profile["top_p"]
-
-    # -----------------------------
-    # Option A: enforce consistency
-    # -----------------------------
-    concurrency = profile["concurrency"]
-    cfg["backend"]["parallel_requests"] = concurrency
-    cfg["rate_limit"]["max_concurrency"] = concurrency
-    # -----------------------------
-
-    # Remove batch_size if present
-    if "generation" in cfg and "batch_size" in cfg["generation"]:
-        del cfg["generation"]["batch_size"]
-
-    cfg_path.write_text(yaml.dump(cfg, sort_keys=False))
-    print(f"Updated config written to {cfg_path}")
-
-
-# -----------------------------
-# 5. CLI entrypoint
-# -----------------------------
+# ---------------------------------------------------------
+# Main
+# ---------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Modify synthetic.yaml for JSONL generation")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser = argparse.ArgumentParser(description="Unified synthetic config generator")
+    parser.add_argument("--profile", choices=["speed", "balanced", "quality"], default="balanced")
+    parser.add_argument("--model", default=None)
     parser.add_argument("--tokens", required=True, type=int)
-    parser.add_argument("--config", default="configs/synthetic.yaml")
+    parser.add_argument("--run", default=None)
+    parser.add_argument("--hf_repo", default="user/repo")
     args = parser.parse_args()
 
+    preset = PROFILES[args.profile]
+
+    # Determine run name
+    run_name = args.run if args.run else generate_run_name()
+
+    # Determine model
+    model_name = args.model if args.model else preset["model"]
+
+    # Validate model exists
     available = fetch_groq_models()
+    if model_name not in available:
+        raise ValueError(f"Model '{model_name}' not found in Groq model list.")
 
-    if args.model not in available:
-        print(f"Model '{args.model}' not found in Groq model list.")
-        print("Available Groq models:")
-        for m in available:
-            print(" -", m)
-        raise ValueError(f"Model '{args.model}' not found.")
-
-    update_config(
-        config_path=args.config,
-        model_name=args.model,
-        tokens=args.tokens,
+    # Compute samples_per_signal
+    samples = compute_samples_per_signal(
+        args.tokens,
+        avg_tokens_per_sample=preset["avg_tokens_per_sample"]
     )
+
+    # Load template
+    template = TEMPLATE_PATH.read_text()
+
+    # Fill template
+    filled = (
+        template
+        .replace("__RUN_NAME__", run_name)
+        .replace("__OUTPUT_DIR__", f"${{DATA_DIR}}/{run_name}")
+        .replace("__TARGET_TOKENS__", str(args.tokens))
+        .replace("__MODEL__", model_name)
+        .replace("__MAX_TOKENS__", str(preset["max_tokens"]))
+        .replace("__TEMPERATURE__", str(preset["temperature"]))
+        .replace("__TOP_P__", str(preset["top_p"]))
+        .replace("__CONCURRENCY__", str(preset["concurrency"]))
+        .replace("__SAMPLES_PER_SIGNAL__", str(samples))
+        .replace("__HF_REPO__", args.hf_repo)
+    )
+
+    # Write output
+    OUTPUT_PATH.write_text(filled)
+    print(f"Generated unified config at {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

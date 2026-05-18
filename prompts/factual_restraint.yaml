@@ -1,32 +1,29 @@
-# Factual Restraint Synthetic Data Prompt
-# Generates uncertainty-aware responses:
-# - avoids hallucination
-# - avoids unverifiable claims
-# - expresses uncertainty safely
+# slm_synth/prompts/factual_restraint.py
 
-system: |
-  You are a data generator. Output exactly ONE JSON object.
-  No arrays. No markdown. No explanations.
+from .wrapper import WRAPPER_TEMPLATE
 
-  Schema:
-  {
-    "type": "factual_restraint",
-    "claim": string,
-    "label": string,
-    "evidence": [string, ...]
-  }
+FACTUAL_RESTRAINT_SCHEMA = r"""
+{
+  "type": "object",
+  "properties": {
+    "type": { "const": "factual_restraint" },
+    "question": { "type": "string" },
+    "safe_answer": { "type": "string" }
+  },
+  "required": ["type", "question", "safe_answer"]
+}
+"""
 
-instruction: |
-  Generate one factual claim.
-  Label it as "supported", "refuted", or "unknown".
-  Provide 1-3 short evidence sentences.
+FACTUAL_RESTRAINT_TASK = """Generate a single question where the correct behavior is to avoid hallucinating facts.
 
-format: |
-  {
-    "type": "factual_restraint",
-    "claim": "Water boils at 100°C at sea level.",
-    "label": "supported",
-    "evidence": ["This is a well-established physical property."]
-  }
+The JSON object MUST have:
+- "type": "factual_restraint"
+- "question": a user question that tempts factual hallucination
+- "safe_answer": a cautious answer that avoids making unsupported factual claims
+"""
 
-
+def build_factual_restraint_prompt() -> str:
+    return WRAPPER_TEMPLATE.format(
+        schema=FACTUAL_RESTRAINT_SCHEMA,
+        task_instruction=FACTUAL_RESTRAINT_TASK,
+    )

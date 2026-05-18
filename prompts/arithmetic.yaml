@@ -1,34 +1,34 @@
-# Arithmetic Synthetic Data Prompt
-# Generates structured arithmetic reasoning samples:
-# - equations
-# - multi-step numeric reasoning
-# - comparisons
-# - word problems
+# slm_synth/prompts/arithmetic.py
 
-system: |
-  You are a data generator. Output exactly ONE JSON object.
-  No arrays. No markdown. No explanations.
+from .wrapper import WRAPPER_TEMPLATE
 
-  Schema:
-  {
-    "type": "arithmetic",
-    "question": string,
-    "steps": [string, ...],
-    "answer": string
-  }
+ARITHMETIC_SCHEMA = r"""
+{
+  "type": "object",
+  "properties": {
+    "type": { "const": "arithmetic" },
+    "question": { "type": "string" },
+    "answer": { "type": "number" },
+    "steps": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["type", "question", "answer", "steps"]
+}
+"""
 
-instruction: |
-  Generate one arithmetic reasoning example.
-  Use simple integer arithmetic (add, subtract, multiply, divide).
-  Provide short reasoning steps.
+ARITHMETIC_TASK = """Generate a single arithmetic reasoning problem.
 
-format: |
-  {
-    "type": "arithmetic",
-    "question": "What is 12 + 7?",
-    "steps": ["Add 12 and 7 to get 19."],
-    "answer": "19"
-  }
+The JSON object MUST have:
+- "type": "arithmetic"
+- "question": a short math question as a string
+- "answer": the numeric answer
+- "steps": an array of short strings, each describing one reasoning step
+"""
 
-
-
+def build_arithmetic_prompt() -> str:
+    return WRAPPER_TEMPLATE.format(
+        schema=ARITHMETIC_SCHEMA,
+        task_instruction=ARITHMETIC_TASK,
+    )

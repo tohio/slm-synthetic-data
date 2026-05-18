@@ -1,22 +1,17 @@
-import json
-from slm_synth.prompt_loader import load_prompt
-from slm_synth.schemas import validate_factual_restraint
+# slm_synth/sources/factual_restraint.py
+
+from slm_synth.prompts.factual_restraint import build_factual_restraint_prompt
+from slm_synth.repair import repair_factual_restraint
 
 
 class FactualRestraintGenerator:
-    def __init__(self, llm, prompt_file: str):
+    def __init__(self, llm, prompt_file: str = None):
         self.llm = llm
-        self.prompt = load_prompt(prompt_file)
 
-    def build_prompt(self):
-        return (
-            f"{self.prompt['system']}\n\n"
-            f"{self.prompt['instruction']}\n\n"
-            f"Output format:\n{self.prompt['format']}"
-        )
+    def build_prompt(self) -> str:
+        return build_factual_restraint_prompt()
 
     def generate_one(self):
-        obj = self.llm.generate_one(self.build_prompt())  # dict
-        validate_factual_restraint(obj)
+        obj = self.llm.generate_one(self.build_prompt())
+        obj = repair_factual_restraint(obj)
         return obj
-

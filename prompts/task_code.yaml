@@ -1,31 +1,34 @@
-# Task-Code Synthetic Data Prompt
-# Generates structured task decomposition + pseudocode samples.
+# slm_synth/prompts/task_code.py
 
-system: |
-  You are a data generator. Output exactly ONE JSON object.
-  No arrays. No markdown. No explanations.
+from .wrapper import WRAPPER_TEMPLATE
 
-  Schema:
-  {
-    "type": "task_code",
-    "task": string,
-    "plan": [string, ...],
-    "pseudocode": string
-  }
+TASK_CODE_SCHEMA = r"""
+{
+  "type": "object",
+  "properties": {
+    "type": { "const": "task_code" },
+    "task": { "type": "string" },
+    "plan": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "code": { "type": "string" }
+  },
+  "required": ["type", "task", "plan", "code"]
+}
+"""
 
-instruction: |
-  Generate one coding task.
-  Include:
-    - a natural-language task description
-    - a step-by-step plan (array of short steps)
-    - pseudocode solving the task
+TASK_CODE_TASK = """Generate a single programming task with a solution.
 
-format: |
-  {
-    "type": "task_code",
-    "task": "Write a function that returns the square of a number.",
-    "plan": ["Define function square(x).", "Return x * x."],
-    "pseudocode": "function square(x): return x * x"
-  }
+The JSON object MUST have:
+- "type": "task_code"
+- "task": a natural language description of the coding task
+- "plan": an array of short strings, each describing one step in the solution plan
+- "code": a code snippet solving the task
+"""
 
-
+def build_task_code_prompt() -> str:
+    return WRAPPER_TEMPLATE.format(
+        schema=TASK_CODE_SCHEMA,
+        task_instruction=TASK_CODE_TASK,
+    )

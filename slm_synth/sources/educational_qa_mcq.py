@@ -1,22 +1,17 @@
-import json
-from slm_synth.prompt_loader import load_prompt
-from slm_synth.schemas import validate_educational_qa_mcq
+# slm_synth/sources/educational_qa_mcq.py
+
+from slm_synth.prompts.educational_qa_mcq import build_educational_qa_mcq_prompt
+from slm_synth.repair import repair_educational_qa_mcq
 
 
 class EducationalQAMCQGenerator:
-    def __init__(self, llm, prompt_file: str):
+    def __init__(self, llm, prompt_file: str = None):
         self.llm = llm
-        self.prompt = load_prompt(prompt_file)
 
-    def build_prompt(self):
-        return (
-            f"{self.prompt['system']}\n\n"
-            f"{self.prompt['instruction']}\n\n"
-            f"Output format:\n{self.prompt['format']}"
-        )
+    def build_prompt(self) -> str:
+        return build_educational_qa_mcq_prompt()
 
     def generate_one(self):
-        obj = self.llm.generate_one(self.build_prompt())  # dict
-        validate_educational_qa_mcq(obj)
+        obj = self.llm.generate_one(self.build_prompt())
+        obj = repair_educational_qa_mcq(obj)
         return obj
-
