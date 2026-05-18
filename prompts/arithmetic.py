@@ -1,5 +1,3 @@
-# slm_synth/prompts/arithmetic.py
-
 from .wrapper import WRAPPER_TEMPLATE
 
 ARITHMETIC_SCHEMA = r"""

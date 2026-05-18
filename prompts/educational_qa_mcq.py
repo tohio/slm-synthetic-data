@@ -1,5 +1,3 @@
-# slm_synth/prompts/educational_qa_mcq.py
-
 from .wrapper import WRAPPER_TEMPLATE
 
 EDU_QA_MCQ_SCHEMA = r"""

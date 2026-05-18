@@ -1,16 +1,14 @@
-import yaml
 import json
-from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT = SCRIPT_DIR.parent
-PROMPT_DIR = ROOT / "prompts"
+# -------------------------------------------------------------------
+# Unified wrapper template (no YAML parsing, no external loading)
+# -------------------------------------------------------------------
 
 WRAPPER_TEMPLATE = """You are a JSON-only generator.
 
 You MUST output a single JSON object that strictly follows this JSON Schema:
 
-{schema_json}
+{schema}
 
 Rules:
 - Output ONLY valid JSON.
@@ -30,20 +28,21 @@ Now follow this task description and produce ONE JSON object:
 {task_instruction}
 """
 
-def load_prompt_yaml(name: str) -> dict:
-    path = PROMPT_DIR / f"{name}.yaml"
-    if not path.exists():
-        raise FileNotFoundError(f"Prompt file not found: {path}")
-    return yaml.safe_load(path.read_text())
+# -------------------------------------------------------------------
+# Unified prompt builder (schema + task text only)
+# -------------------------------------------------------------------
 
-def build_prompt(schema: dict, task_instruction: str, prompt_name: str) -> str:
-    prompt_yaml = load_prompt_yaml(prompt_name)
-    task_text = prompt_yaml.get("task_instruction", "") + "\n" + task_instruction
+def build_prompt(schema: dict, task_instruction: str, prompt_name: str | None = None) -> str:
+    """
+    Build the final LLM prompt.
 
-    # FIX: Convert schema dict → pretty JSON string
+    - schema: Python dict (will be JSON-encoded)
+    - task_instruction: plain text describing what to generate
+    - prompt_name: ignored (kept for compatibility with generators)
+    """
     schema_json = json.dumps(schema, indent=2)
 
     return WRAPPER_TEMPLATE.format(
-        schema_json=schema_json,
-        task_instruction=task_text.strip()
+        schema=schema_json,
+        task_instruction=task_instruction.strip(),
     )

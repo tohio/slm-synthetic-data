@@ -1,5 +1,3 @@
-# slm_synth/prompts/factual_restraint.py
-
 from .wrapper import WRAPPER_TEMPLATE
 
 FACTUAL_RESTRAINT_SCHEMA = r"""

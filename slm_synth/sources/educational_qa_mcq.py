@@ -1,8 +1,7 @@
-# slm_synth/sources/educational_qa_mcq.py
-
 from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_educational_qa_mcq
 from slm_synth.schemas import EDUCATIONAL_QA_MCQ_SCHEMA
+from slm_synth.prompts.educational_qa_mcq import EDUCATIONAL_QA_MCQ_TASK
 
 
 class EducationalQAMCQGenerator:
@@ -12,12 +11,10 @@ class EducationalQAMCQGenerator:
     def build_prompt(self) -> str:
         return build_prompt(
             schema=EDUCATIONAL_QA_MCQ_SCHEMA,
-            task_instruction="",
-            prompt_name="educational_qa_mcq"
+            task_instruction=EDUCATIONAL_QA_MCQ_TASK,
         )
 
     def generate_one(self):
         obj = self.llm.generate_one(self.build_prompt())
         obj = repair_educational_qa_mcq(obj)
         return obj
-

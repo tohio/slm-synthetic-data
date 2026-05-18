@@ -1,5 +1,3 @@
-# slm_synth/prompts/task_code.py
-
 from .wrapper import WRAPPER_TEMPLATE
 
 TASK_CODE_SCHEMA = r"""
