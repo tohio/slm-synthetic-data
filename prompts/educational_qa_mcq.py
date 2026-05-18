@@ -1,5 +1,3 @@
-from .wrapper import WRAPPER_TEMPLATE
-
 EDUCATIONAL_QA_MCQ_TASK = r"""
 {
   "type": "object",

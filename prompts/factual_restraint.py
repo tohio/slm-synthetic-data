@@ -1,5 +1,3 @@
-from .wrapper import WRAPPER_TEMPLATE
-
 FACTUAL_RESTRAINT_SCHEMA = r"""
 {
   "type": "object",

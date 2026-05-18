@@ -1,5 +1,3 @@
-from .wrapper import WRAPPER_TEMPLATE
-
 TASK_CODE_SCHEMA = r"""
 {
   "type": "object",

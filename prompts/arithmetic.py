@@ -1,5 +1,3 @@
-from .wrapper import WRAPPER_TEMPLATE
-
 ARITHMETIC_SCHEMA = r"""
 {
   "type": "object",
