@@ -90,32 +90,92 @@ TASK_CODE_CONSTRAINTS = [
 ]
 
 MCQ_SUBJECTS = [
-    "arithmetic",
-    "basic algebra",
-    "geometry",
-    "physical science",
-    "earth science",
-    "biology basics",
-    "computer science basics",
-    "Python concepts",
-    "history",
-    "geography",
-    "grammar",
-    "vocabulary",
-    "logic and reasoning",
-    "data interpretation",
-    "technology literacy",
+    "integer arithmetic",
+    "fractions and decimals",
+    "percentages and ratios",
+    "basic algebra equations",
+    "geometry shapes and area",
+    "measurement and units",
+    "physical science forces and motion",
+    "earth science weather and rocks",
+    "biology cells and ecosystems",
+    "computer science algorithms",
+    "Python data types",
+    "Python control flow",
+    "history timelines and sources",
+    "geography maps and regions",
+    "grammar and sentence structure",
+    "vocabulary in context",
+    "logic puzzles and inference",
+    "data interpretation from small tables",
+    "technology literacy and privacy",
+    "reading comprehension",
+    "scientific method",
+    "basic probability",
+    "statistics averages and spread",
+    "financial literacy basics",
 ]
-MCQ_LEVELS = ["upper elementary", "middle school", "high school intro", "adult beginner"]
+MCQ_LEVELS = [
+    "upper elementary",
+    "middle school",
+    "high school intro",
+    "adult beginner",
+    "mixed-review beginner",
+]
 MCQ_STYLES = [
-    "definition question",
-    "worked example question",
+    "definition question with a concrete example",
+    "worked example question using non-trivial values",
     "identify the best explanation",
-    "classification question",
+    "classification question with four distinct categories",
     "cause-and-effect question",
-    "choose the next step",
+    "choose the next step in a process",
     "spot the misconception",
-    "simple scenario question",
+    "short scenario question with named objects",
+    "compare two options and choose the better answer",
+    "interpret a tiny table or list described in text",
+    "fill in the missing step",
+    "choose the statement that must be true",
+]
+MCQ_CONTEXTS = [
+    "classroom practice",
+    "workplace note",
+    "science lab observation",
+    "small business example",
+    "sports or games example",
+    "garden or nature example",
+    "library or reading example",
+    "travel or map example",
+    "simple coding exercise",
+    "home budget example",
+    "weather report example",
+    "recipe or measurement example",
+]
+MCQ_STEM_PATTERNS = [
+    "Start with 'A student...' and ask for the best answer.",
+    "Start with 'Which statement...' and ask for the correct statement.",
+    "Start with 'In this example...' and include concrete details.",
+    "Start with 'What should happen next...' and ask for a next step.",
+    "Start with 'Why...' and ask for an explanation, not a bare fact.",
+    "Start with 'Which choice best describes...' and compare concepts.",
+    "Start with 'Given...' and include a small value, list, or condition.",
+    "Start with 'A teacher asks...' and include a specific scenario.",
+]
+MCQ_DISTRACTOR_STRATEGIES = [
+    "use common misconceptions as distractors",
+    "use near-miss numeric answers",
+    "use same-category but wrong concepts",
+    "use plausible but incomplete explanations",
+    "use wrong order or wrong next step",
+    "use overgeneralized statements as distractors",
+]
+MCQ_BANNED_EXAMPLES = [
+    "What is 2 + 2?",
+    "What is the capital of France?",
+    "What color is the sky?",
+    "Which planet is known as the Red Planet?",
+    "What is the largest mammal?",
+    "Who wrote Hamlet?",
+    "What is photosynthesis?",
 ]
 
 FACTUAL_CATEGORIES = [
@@ -169,13 +229,22 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
         ])
 
     if signal == "educational_qa_mcq":
+        banned = "; ".join(MCQ_BANNED_EXAMPLES)
         return "\n".join([
             f"Batch diversity id: {nonce}",
             f"Subject focus: {_choose(MCQ_SUBJECTS, batch_id, signal, 1)}",
             f"Level: {_choose(MCQ_LEVELS, batch_id, signal, 2)}",
             f"Question style: {_choose(MCQ_STYLES, batch_id, signal, 3)}",
-            "Within this batch, use different correct answer positions and avoid repeating the same question stem.",
-            "Do not use 'What is 2 + 2?' or similarly overused examples.",
+            f"Scenario context: {_choose(MCQ_CONTEXTS, batch_id, signal, 4)}",
+            f"Stem pattern: {_choose(MCQ_STEM_PATTERNS, batch_id, signal, 5)}",
+            f"Distractor strategy: {_choose(MCQ_DISTRACTOR_STRATEGIES, batch_id, signal, 6)}",
+            f"Correct-index rotation starts at: {int(hashlib.sha256((signal + str(batch_id)).encode('utf-8')).hexdigest()[:2], 16) % 4}",
+            "Within this batch, every question must use a different stem, topic detail, and correct answer.",
+            "For numeric questions, avoid tiny toy values; prefer two-step, fractions, percentages, ratios, or non-obvious values.",
+            "For non-numeric questions, include a concrete scenario detail instead of asking a generic definition.",
+            "Do not reuse answer choices across items in the same batch.",
+            "Do not include the batch diversity id in any generated field.",
+            f"Banned examples: {banned}",
         ])
 
     if signal == "factual_restraint":
