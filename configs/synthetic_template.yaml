@@ -61,4 +61,4 @@ rate_limit:
 
 generation:
   samples_per_signal: __SAMPLES_PER_SIGNAL__
-  batch_size: __batch_size__
+  batch_size: __BATCH_SIZE__
