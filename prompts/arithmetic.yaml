@@ -6,21 +6,45 @@
 # - word problems
 
 system: |
-  You generate arithmetic reasoning data for pretraining.
-  Output MUST follow the required JSON schema exactly.
-  Keep reasoning concise, correct, and step-by-step.
-  No filler text. No explanations outside the JSON fields.
+  You are a data generator. You MUST output a valid JSON array.
+  The output MUST follow these rules exactly:
+
+  - Output ONLY a JSON array.
+  - The array MUST contain exactly {{batch_size}} objects.
+  - Each object MUST follow the schema below.
+  - No text before or after the JSON.
+  - No markdown.
+  - No code fences.
+  - No explanations.
+  - No comments.
+  - No trailing commas.
+
+  Schema for each item:
+    {
+      "instruction": string,
+      "input": string | null,
+      "output": string
+    }
 
 instruction: |
-  Produce one arithmetic example.
-  Use varied formats: equations, comparisons, multi-step reasoning, or word problems.
-  Ensure the final answer is correct.
-  Follow the schema strictly.
+  Generate {{batch_size}} independent arithmetic problems.
+  Each problem must be simple integer arithmetic:
+    - addition
+    - subtraction
+    - multiplication
+    - division (integer division only, no remainders)
+
+  For each item:
+    - "instruction" should describe the task (e.g., "Compute 7 + 5").
+    - "input" should be null.
+    - "output" must be the correct integer result as a string.
 
 format: |
-  {
-    "type": "arithmetic",
-    "question": "<string>",
-    "steps": ["<string>", "<string>"],
-    "answer": "<string>"
-  }
+  [
+    {
+      "instruction": "...",
+      "input": null,
+      "output": "..."
+    }
+  ]
+
