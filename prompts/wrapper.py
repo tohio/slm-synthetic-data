@@ -1,7 +1,7 @@
 import yaml
+import json
 from pathlib import Path
 
-# Determine project root (one level above /prompts/)
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 PROMPT_DIR = ROOT / "prompts"
@@ -10,7 +10,7 @@ WRAPPER_TEMPLATE = """You are a JSON-only generator.
 
 You MUST output a single JSON object that strictly follows this JSON Schema:
 
-{schema}
+{schema_json}
 
 Rules:
 - Output ONLY valid JSON.
@@ -31,25 +31,19 @@ Now follow this task description and produce ONE JSON object:
 """
 
 def load_prompt_yaml(name: str) -> dict:
-    """
-    Loads a YAML prompt file from /prompts/.
-    Example: load_prompt_yaml("arithmetic")
-    """
     path = PROMPT_DIR / f"{name}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Prompt file not found: {path}")
     return yaml.safe_load(path.read_text())
 
-def build_prompt(schema: str, task_instruction: str, prompt_name: str) -> str:
-    """
-    Builds the final wrapped prompt using:
-    - The wrapper template
-    - The YAML prompt content
-    """
+def build_prompt(schema: dict, task_instruction: str, prompt_name: str) -> str:
     prompt_yaml = load_prompt_yaml(prompt_name)
     task_text = prompt_yaml.get("task_instruction", "") + "\n" + task_instruction
 
+    # FIX: Convert schema dict → pretty JSON string
+    schema_json = json.dumps(schema, indent=2)
+
     return WRAPPER_TEMPLATE.format(
-        schema=schema,
+        schema_json=schema_json,
         task_instruction=task_text.strip()
     )
