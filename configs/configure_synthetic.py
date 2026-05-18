@@ -10,12 +10,10 @@ if str(REPO_ROOT) not in sys.path:
 import os
 import random
 import string
-import sys
-from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-from slm_synth.model_support import warn_if_unsupported_model_name
+from slm_synth.model_support import warn_if_unsupported_model
 
 # ---------------------------------------------------------
 # Paths
@@ -125,8 +123,7 @@ def main():
 
     run_name = args.run if args.run else generate_run_name()
     model_name = args.model if args.model else preset["model"]
-    warn_if_unsupported_model(model_name, context="config generation")
-    warn_if_unsupported_model_name(model_name, context="configure")
+    warn_if_unsupported_model(model_name, context="configure")
     concurrency = int(args.concurrency or preset["concurrency"])
     service_tier = sanitize_service_tier(args.service_tier or preset.get("service_tier", "flex"))
 
