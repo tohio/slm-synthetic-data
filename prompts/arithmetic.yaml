@@ -21,30 +21,34 @@ system: |
 
   Schema for each item:
     {
-      "instruction": string,
-      "input": string | null,
-      "output": string
+      "type": "arithmetic",
+      "question": string,
+      "steps": [string, ...],
+      "answer": string
     }
 
 instruction: |
-  Generate {{batch_size}} independent arithmetic problems.
-  Each problem must be simple integer arithmetic:
+  Generate {{batch_size}} independent arithmetic reasoning problems.
+  Each problem must involve simple integer arithmetic:
     - addition
     - subtraction
     - multiplication
     - division (integer division only, no remainders)
 
   For each item:
-    - "instruction" should describe the task (e.g., "Compute 7 + 5").
-    - "input" should be null.
-    - "output" must be the correct integer result as a string.
+    - "type" must be "arithmetic".
+    - "question" must be a natural-language question (e.g., "What is 12 + 7?").
+    - "steps" must be a list of short reasoning steps showing how to solve it.
+    - "answer" must be the final integer result as a string.
 
 format: |
   [
     {
-      "instruction": "...",
-      "input": null,
-      "output": "..."
+      "type": "arithmetic",
+      "question": "What is 12 + 7?",
+      "steps": ["Add 12 and 7 to get 19."],
+      "answer": "19"
     }
   ]
+
 
