@@ -1,6 +1,6 @@
 # slm_synth/sources/factual_restraint.py
 
-from slm_synth.prompts.factual_restraint import build_factual_restraint_prompt
+from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_factual_restraint
 
 

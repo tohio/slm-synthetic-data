@@ -1,6 +1,6 @@
 # slm_synth/sources/arithmetic.py
 
-from slm_synth.prompts.arithmetic import build_arithmetic_prompt
+from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_arithmetic
 
 

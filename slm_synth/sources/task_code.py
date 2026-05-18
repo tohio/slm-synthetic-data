@@ -1,6 +1,6 @@
 # slm_synth/sources/task_code.py
 
-from slm_synth.prompts.task_code import build_task_code_prompt
+from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_task_code
 
 

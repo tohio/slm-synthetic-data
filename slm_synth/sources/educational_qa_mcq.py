@@ -1,6 +1,6 @@
 # slm_synth/sources/educational_qa_mcq.py
 
-from slm_synth.prompts.educational_qa_mcq import build_educational_qa_mcq_prompt
+from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_educational_qa_mcq
 
 
