@@ -2,42 +2,30 @@
 # Generates structured task decomposition + pseudocode samples.
 
 system: |
-  You are a data generator. You MUST output a valid JSON array.
-  The output MUST follow these rules exactly:
+  You are a data generator. Output exactly ONE JSON object.
+  No arrays. No markdown. No explanations.
 
-  - Output ONLY a JSON array.
-  - The array MUST contain exactly {{batch_size}} objects.
-  - Each object MUST follow the schema below.
-  - No text before or after the JSON.
-  - No markdown.
-  - No code fences.
-  - No explanations.
-  - No comments.
-  - No trailing commas.
-
-  Schema for each item:
-    {
-      "type": "task_code",
-      "instruction": string,
-      "input": string,
-      "output": string
-    }
+  Schema:
+  {
+    "type": "task_code",
+    "task": string,
+    "plan": [string, ...],
+    "pseudocode": string
+  }
 
 instruction: |
-  Generate {{batch_size}} independent code‑generation tasks.
-  Each item must include:
-    - "instruction": a natural-language coding task
-    - "input": optional starter code or context (string; may be empty)
-    - "output": the correct code solution as a string
-  All code must be short, correct, and self-contained.
+  Generate one coding task.
+  Include:
+    - a natural-language task description
+    - a step-by-step plan (array of short steps)
+    - pseudocode solving the task
 
 format: |
-  [
-    {
-      "type": "task_code",
-      "instruction": "Write a Python function that returns the square of a number.",
-      "input": "",
-      "output": "def square(x): return x * x"
-    }
-  ]
+  {
+    "type": "task_code",
+    "task": "Write a function that returns the square of a number.",
+    "plan": ["Define function square(x).", "Return x * x."],
+    "pseudocode": "function square(x): return x * x"
+  }
+
 

@@ -6,49 +6,29 @@
 # - word problems
 
 system: |
-  You are a data generator. You MUST output a valid JSON array.
-  The output MUST follow these rules exactly:
+  You are a data generator. Output exactly ONE JSON object.
+  No arrays. No markdown. No explanations.
 
-  - Output ONLY a JSON array.
-  - The array MUST contain exactly {{batch_size}} objects.
-  - Each object MUST follow the schema below.
-  - No text before or after the JSON.
-  - No markdown.
-  - No code fences.
-  - No explanations.
-  - No comments.
-  - No trailing commas.
-
-  Schema for each item:
-    {
-      "type": "arithmetic",
-      "question": string,
-      "steps": [string, ...],
-      "answer": string
-    }
+  Schema:
+  {
+    "type": "arithmetic",
+    "question": string,
+    "steps": [string, ...],
+    "answer": string
+  }
 
 instruction: |
-  Generate {{batch_size}} independent arithmetic reasoning problems.
-  Each problem must involve simple integer arithmetic:
-    - addition
-    - subtraction
-    - multiplication
-    - division (integer division only, no remainders)
-
-  For each item:
-    - "type" must be "arithmetic".
-    - "question" must be a natural-language question (e.g., "What is 12 + 7?").
-    - "steps" must be a list of short reasoning steps showing how to solve it.
-    - "answer" must be the final integer result as a string.
+  Generate one arithmetic reasoning example.
+  Use simple integer arithmetic (add, subtract, multiply, divide).
+  Provide short reasoning steps.
 
 format: |
-  [
-    {
-      "type": "arithmetic",
-      "question": "What is 12 + 7?",
-      "steps": ["Add 12 and 7 to get 19."],
-      "answer": "19"
-    }
-  ]
+  {
+    "type": "arithmetic",
+    "question": "What is 12 + 7?",
+    "steps": ["Add 12 and 7 to get 19."],
+    "answer": "19"
+  }
+
 
 

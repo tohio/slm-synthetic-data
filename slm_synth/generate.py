@@ -1,31 +1,16 @@
-import os
-import json
-from pathlib import Path
+#!/usr/bin/env python3
+import argparse
 import yaml
-import traceback
-import sys
 import time
+from pathlib import Path
 
 from slm_synth.llm import LLMBackend
-from slm_synth.rate_limit import RateLimiter
-
+from slm_synth.writer import JSONLWriter
+from slm_synth.prompt_loader import load_prompt
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
-
-from dotenv import load_dotenv
-load_dotenv()
-
-
-
-def log(msg: str):
-    print(f"[generate] {msg}", flush=True)
-
-
-def load_config(path: str):
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 GENERATOR_MAP = {
@@ -36,126 +21,83 @@ GENERATOR_MAP = {
 }
 
 
-# ------------------------------------------------------------
-# Run ONE signal family (batched)
-# ------------------------------------------------------------
-def run_one_signal(name: str, cfg, llm, output_dir: Path):
-    log(f"Starting signal: {name}")
-
-    spec = cfg["mix"][name]
-    share = spec["share"]
+def run_signal(name, cfg, llm, output_dir):
+    share = cfg["mix"][name]["share"]
+    prompt_file = cfg["mix"][name]["prompt_file"]
+    module = cfg["mix"][name]["source_module"]
 
     total_tokens = cfg["target_total_tokens"]
-    target_tokens = int(total_tokens * share)
+    samples = int(total_tokens * share / 10)  # ~10 tokens per sample avg
 
-    batch_size = cfg.get("generation", {}).get("batch_size", 8)
+    print(f"[generate] Starting signal: {name} ({samples} samples)")
 
-    generator_cls = GENERATOR_MAP[name]
-    generator = generator_cls(llm, spec["prompt_file"])
+    # Output paths
+    raw_path = output_dir / "raw" / f"{name}.jsonl"
+    rejected_path = output_dir / "rejected" / f"{name}.jsonl"
 
-    raw_dir = output_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    writer = JSONLWriter(raw_path)
+    reject_writer = JSONLWriter(rejected_path)
 
-    out_file = raw_dir / f"{name}.jsonl"
+    # Load generator
+    GenClass = GENERATOR_MAP[name]
+    generator = GenClass(llm, prompt_file)
 
-    rate = RateLimiter(cfg)
+    generated = 0
+    failures = 0
+    max_failures = cfg["validation"]["max_retries"]
 
-    tokens_generated = 0
-    attempt = 0
+    while generated < samples:
+        try:
+            obj = generator.generate_one()
+            writer.write(obj)
+            generated += 1
 
-    with open(out_file, "w", encoding="utf-8") as f:
-        while tokens_generated < target_tokens:
-            try:
-                batch = generator.generate_batch(batch_size)
+            if generated % 100 == 0:
+                print(f"[generate] {name}: {generated}/{samples}")
 
-                for obj in batch:
-                    text = json.dumps(obj, ensure_ascii=False)
-                    f.write(text + "\n")
-                    tokens_generated += len(text.split())
+        except Exception as e:
+            failures += 1
+            reject_writer.write({"error": str(e)})
+            print(f"[generate] ERROR in {name}: {e}")
 
-                    if tokens_generated >= target_tokens:
-                        break
+            if failures >= max_failures:
+                print(f"[generate] FATAL: Too many failures in '{name}'. Aborting.")
+                break
 
-                log(f"{name}: {tokens_generated}/{target_tokens} tokens")
+            time.sleep(0.2)
 
-                attempt = 0
-                rate.sleep_with_jitter()
+    writer.close()
+    reject_writer.close()
 
-            except Exception as e:
-                log(f"ERROR in signal '{name}': {e}")
-                traceback.print_exc()
-                attempt += 1
-
-                if attempt > 5:
-                    log(f"FATAL: Too many failures in '{name}'. Aborting.")
-                    raise
-
-                rate.backoff(attempt)
-                continue
-
-    log(f"Completed signal: {name}")
+    print(f"[generate] Completed signal: {name}")
 
 
-# ------------------------------------------------------------
-# Run ALL signals sequentially
-# ------------------------------------------------------------
-def run_all_signals(cfg, llm, output_dir: Path):
-    for name in cfg["mix"].keys():
-        run_one_signal(name, cfg, llm, output_dir)
+def main(config_path, signal_override=None):
+    cfg = yaml.safe_load(Path(config_path).read_text())
 
-
-# ------------------------------------------------------------
-# Main entrypoint
-# ------------------------------------------------------------
-def main(config_path: str, signal_override: str | None = None):
-    log(f"Loading config: {config_path}")
-    cfg = load_config(config_path)
-
-    # Resolve output directory
-    output_dir_raw = cfg["output_dir"]
-    output_dir = Path(os.path.expandvars(output_dir_raw))
-    log(f"Resolved output_dir: {output_dir}")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    backend_cfg = cfg["backend"]
-    log(f"Backend provider: {backend_cfg['provider']}")
-    log(f"Backend model: {backend_cfg['model']}")
-    log(f"Max tokens per call: {backend_cfg['max_tokens']}")
-    log(f"Temperature: {backend_cfg['temperature']}")
-    log(f"Top-p: {backend_cfg['top_p']}")
+    output_dir = Path(cfg["output_dir"])
+    (output_dir / "raw").mkdir(parents=True, exist_ok=True)
+    (output_dir / "rejected").mkdir(parents=True, exist_ok=True)
 
     llm = LLMBackend(
-        provider=backend_cfg["provider"],
-        model=backend_cfg["model"],
-        max_tokens=backend_cfg["max_tokens"],
-        temperature=backend_cfg["temperature"],
-        top_p=backend_cfg["top_p"],
+        provider=cfg["backend"]["provider"],
+        model=cfg["backend"]["model"],
+        max_tokens=cfg["backend"]["max_tokens"],
+        temperature=cfg["backend"]["temperature"],
+        top_p=cfg["backend"]["top_p"],
     )
 
-    log(f"Target total tokens: {cfg['target_total_tokens']}")
-
     if signal_override:
-        if signal_override not in cfg["mix"]:
-            raise ValueError(f"Unknown signal: {signal_override}")
-        log(f"Running only signal: {signal_override}")
-        run_one_signal(signal_override, cfg, llm, output_dir)
+        run_signal(signal_override, cfg, llm, output_dir)
     else:
-        log("Running all signals...")
-        run_all_signals(cfg, llm, output_dir)
-
-    log("Generation complete.")
+        for name in cfg["mix"].keys():
+            run_signal(name, cfg, llm, output_dir)
 
 
-# ------------------------------------------------------------
-# CLI
-# ------------------------------------------------------------
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True, help="Path to synthetic.yaml")
-    parser.add_argument("--signal", required=False, help="Run only one signal family")
+    parser.add_argument("--config", default="configs/synthetic.yaml")
+    parser.add_argument("--signal", default=None)
     args = parser.parse_args()
 
     main(args.config, signal_override=args.signal)

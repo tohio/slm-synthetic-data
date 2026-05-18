@@ -1,7 +1,5 @@
 # SLM Synthetic Data — Master Generation Config
-# This config defines the full synthetic dataset for all model sizes.
-# Smaller models (125M, 350M, 1B) downsample from this dataset.
-# Default target: ~600M tokens for a 1.5B parameter model.
+# JSONL-compatible version (one object per LLM call)
 
 # ---------------------------------------------------------------------
 # GLOBAL SETTINGS
@@ -23,7 +21,6 @@ backend:
 
 # ---------------------------------------------------------------------
 # SIGNAL FAMILY ALLOCATION
-# Adjust percentages to rebalance curriculum signals.
 # ---------------------------------------------------------------------
 mix:
   arithmetic:
@@ -79,24 +76,19 @@ export:
 # ---------------------------------------------------------------------
 # RATE LIMIT SETTINGS
 # ---------------------------------------------------------------------
-
 rate_limit:
-  delay_ms: 120                # Fixed delay between requests (milliseconds)
-  jitter_ms: 40                # Random jitter added to each delay (milliseconds) 
-  max_concurrency: 2           # Maximum number of concurrent LLM requests 
+  delay_ms: 120
+  jitter_ms: 40
+  max_concurrency: 2
 
-  # Backoff settings for 429 / 5xx errors
   backoff:
     initial_ms: 500
     max_ms: 4000
     multiplier: 2.0
 
-
 # ---------------------------------------------------------------------
-# BATCH GENERATIONS SETTINGS
+# JSONL GENERATION SETTINGS
 # ---------------------------------------------------------------------
-
 generation:
-  batch_size: 32
-
-
+  # batch_size removed — JSONL uses one object per call
+  samples_per_signal: 60000

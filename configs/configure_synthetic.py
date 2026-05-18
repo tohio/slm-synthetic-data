@@ -41,30 +41,29 @@ def infer_model_size(model_name: str) -> float:
     - 22m, 86m → treated as tiny → 0.1B
     """
 
-    # Look for "<number>b"
     b_match = re.search(r"(\d+)\s*b", model_name.lower())
     if b_match:
         return float(b_match.group(1))
 
-    # Look for "<number>m"
     m_match = re.search(r"(\d+)\s*m", model_name.lower())
     if m_match:
-        return float(m_match.group(1)) / 1000.0  # convert to billions
+        return float(m_match.group(1)) / 1000.0
 
-    # Fallback: treat unknown sizes as small
     return 8.0
 
 
 # -----------------------------
-# 3. Bucket → profile mapping
+# 3. Model-size → profile mapping
 # -----------------------------
 def select_profile(size_b: float):
     """
-    Option A: nearest-bucket mapping
+    JSONL version:
+    Only selects max_tokens, temperature, top_p, concurrency.
+    No batch size.
     """
+
     if size_b <= 10:
         return {
-            "batch_size": 16,
             "max_tokens": 384,
             "temperature": 0.3,
             "top_p": 0.9,
@@ -73,7 +72,6 @@ def select_profile(size_b: float):
 
     if size_b <= 30:
         return {
-            "batch_size": 32,
             "max_tokens": 512,
             "temperature": 0.4,
             "top_p": 0.95,
@@ -82,17 +80,14 @@ def select_profile(size_b: float):
 
     if size_b <= 80:
         return {
-            "batch_size": 64,
             "max_tokens": 768,
             "temperature": 0.2,
             "top_p": 0.95,
             "concurrency": 1,
         }
 
-    # Extra-large fallback
     print(f"Warning: Model size {size_b}B is very large. Using 70B profile.")
     return {
-        "batch_size": 64,
         "max_tokens": 768,
         "temperature": 0.2,
         "top_p": 0.95,
@@ -103,14 +98,13 @@ def select_profile(size_b: float):
 # -----------------------------
 # 4. Patch existing YAML config
 # -----------------------------
-def update_config(config_path, model_name, tokens, batch_override=None):
+def update_config(config_path, model_name, tokens):
     cfg_path = Path(config_path)
     if not cfg_path.exists():
         raise FileNotFoundError(f"Config file not found: {cfg_path}")
 
     cfg = yaml.safe_load(cfg_path.read_text())
 
-    # Infer size
     size_b = infer_model_size(model_name)
     profile = select_profile(size_b)
 
@@ -126,7 +120,9 @@ def update_config(config_path, model_name, tokens, batch_override=None):
 
     cfg["rate_limit"]["max_concurrency"] = profile["concurrency"]
 
-    cfg["generation"]["batch_size"] = batch_override or profile["batch_size"]
+    # Remove batch_size if present
+    if "generation" in cfg and "batch_size" in cfg["generation"]:
+        del cfg["generation"]["batch_size"]
 
     # Write back
     cfg_path.write_text(yaml.dump(cfg, sort_keys=False))
@@ -137,14 +133,12 @@ def update_config(config_path, model_name, tokens, batch_override=None):
 # 5. CLI entrypoint
 # -----------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Modify existing synthetic.yaml using Groq model profiles")
+    parser = argparse.ArgumentParser(description="Modify synthetic.yaml for JSONL generation")
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--tokens", required=True, type=int)
-    parser.add_argument("--batch-size", type=int)
     parser.add_argument("--config", default="configs/synthetic.yaml")
     args = parser.parse_args()
 
-    # Fetch models from Groq
     available = fetch_groq_models()
 
     if args.model not in available:
@@ -158,7 +152,6 @@ def main():
         config_path=args.config,
         model_name=args.model,
         tokens=args.tokens,
-        batch_override=args.batch_size,
     )
 
 

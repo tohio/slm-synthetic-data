@@ -1,119 +1,76 @@
-# slm_synth/llm.py
-
-import os
 import json
-import re
 import time
-from typing import List, Optional
-
-from dotenv import load_dotenv
-load_dotenv()
-
-from groq import Groq
-import httpx
-
-
-def extract_json_array(text: str) -> str:
-    """
-    Extract the first JSON array from a messy LLM output.
-    """
-    match = re.search(r"\[[\s\S]*\]", text)
-    if not match:
-        raise ValueError("No JSON array found in model output")
-    return match.group(0)
+from typing import Optional
+from openai import OpenAI
 
 
 class LLMBackend:
     """
-    Groq backend that supports:
-    - expect_array=True
-    - expected_length=N
-    - JSON array extraction
-    - batch validation
-    - retries for malformed output
+    JSONL-compatible LLM backend.
+    - One prompt → one JSON object
+    - No batching
+    - No array parsing
     """
 
-    def __init__(self, provider: str, model: str, max_tokens: int, temperature: float, top_p: float):
-        if provider != "groq":
-            raise ValueError(f"Unsupported provider: {provider}. Only 'groq' is supported.")
+    def __init__(self, provider: str, model: str, max_tokens: int,
+                 temperature: float, top_p: float, api_key: Optional[str] = None):
 
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise RuntimeError("GROQ_API_KEY is not set in .env")
-
-        # Use a clean httpx client (avoids Groq SDK proxy bug)
-        http_client = httpx.Client(timeout=60.0)
-
-        self.client = Groq(api_key=api_key, http_client=http_client)
-
+        self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.top_p = top_p
 
-    # ------------------------------------------------------------
-    # Core LLM call
-    # ------------------------------------------------------------
-    def _call_llm(self, prompt: str) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=self.max_tokens,
-            temperature=self.temperature,
-            top_p=self.top_p,
-        )
-        return response.choices[0].message.content
+        # Groq uses OpenAI-compatible client
+        self.client = OpenAI(api_key=api_key)
 
-    # ------------------------------------------------------------
-    # Public API used by generators
-    # ------------------------------------------------------------
-    def generate(
-        self,
-        prompt: str,
-        expect_array: bool = False,
-        expected_length: Optional[int] = None,
-        max_retries: int = 3,
-    ):
+    # ---------------------------------------------------------
+    # Clean model output (remove markdown, code fences, chatter)
+    # ---------------------------------------------------------
+    def _clean(self, text: str) -> str:
+        text = text.strip()
+
+        # Remove ```json or ``` fences
+        if text.startswith("```"):
+            text = text.split("```", 1)[-1].strip()
+        if text.endswith("```"):
+            text = text.rsplit("```", 1)[0].strip()
+
+        return text
+
+    # ---------------------------------------------------------
+    # Core JSONL generation: one prompt → one JSON object
+    # ---------------------------------------------------------
+    def generate_one(self, prompt: str, retries: int = 3, delay: float = 0.5):
         """
-        If expect_array=True:
-            - enforce JSON array output
-            - extract array from messy output
-            - validate array length
-        Otherwise:
-            - return raw string
+        Sends a single prompt and expects a single JSON object.
+        Retries on malformed JSON.
         """
 
-        for attempt in range(max_retries):
-            raw = self._call_llm(prompt)
-
-            if not expect_array:
-                return raw
-
+        for attempt in range(retries):
             try:
-                # Try direct JSON parse
-                arr = json.loads(raw)
-                if not isinstance(arr, list):
-                    raise ValueError("Model returned non-list JSON")
-            except Exception:
-                # Try extracting array from messy output
-                try:
-                    cleaned = extract_json_array(raw)
-                    arr = json.loads(cleaned)
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise RuntimeError(f"Failed to parse JSON array: {e}")
-                    time.sleep(0.5 * (attempt + 1))
-                    continue
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                )
 
-            # Validate batch size
-            if expected_length is not None and len(arr) != expected_length:
-                if attempt == max_retries - 1:
-                    raise RuntimeError(
-                        f"Model returned wrong batch size: expected {expected_length}, got {len(arr)}"
-                    )
-                time.sleep(0.5 * (attempt + 1))
-                continue
+                raw = response.choices[0].message.content
+                cleaned = self._clean(raw)
 
-            return arr
+                # Parse JSON object
+                obj = json.loads(cleaned)
+                if not isinstance(obj, dict):
+                    raise ValueError("Model did not return a JSON object")
 
-        raise RuntimeError("Unreachable: exceeded retry loop")
+                return obj
+
+            except Exception as e:
+                if attempt == retries - 1:
+                    raise RuntimeError(f"Failed to parse JSON object: {e}")
+
+                time.sleep(delay * (attempt + 1))
+
+        raise RuntimeError("Unreachable: JSON parsing loop exited unexpectedly")

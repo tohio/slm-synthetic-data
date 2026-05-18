@@ -5,42 +5,28 @@
 # - varied subjects
 
 system: |
-  You are a data generator. You MUST output a valid JSON array.
-  The output MUST follow these rules exactly:
+  You are a data generator. Output exactly ONE JSON object.
+  No arrays. No markdown. No explanations.
 
-  - Output ONLY a JSON array.
-  - The array MUST contain exactly {{batch_size}} objects.
-  - Each object MUST follow the schema below.
-  - No text before or after the JSON.
-  - No markdown.
-  - No code fences.
-  - No explanations.
-  - No comments.
-  - No trailing commas.
-
-  Schema for each item:
-    {
-      "type": "educational_qa_mcq",
-      "question": string,
-      "choices": [string, string, string, string],
-      "answer": string
-    }
+  Schema:
+  {
+    "type": "educational_qa_mcq",
+    "question": string,
+    "choices": [string, string, string, string],
+    "answer": string
+  }
 
 instruction: |
-  Generate {{batch_size}} independent multiple-choice educational questions.
-  Requirements:
-    - "question": a clear educational question
-    - "choices": exactly 4 answer options
-    - "answer": must be one of the choices
-    - Difficulty: basic to intermediate
+  Generate one multiple-choice educational question.
+  Provide exactly 4 answer choices.
+  The answer must be one of the choices.
 
 format: |
-  [
-    {
-      "type": "educational_qa_mcq",
-      "question": "What is the capital of France?",
-      "choices": ["Paris", "Berlin", "Madrid", "Rome"],
-      "answer": "Paris"
-    }
-  ]
+  {
+    "type": "educational_qa_mcq",
+    "question": "What is the capital of France?",
+    "choices": ["Paris", "Berlin", "Madrid", "Rome"],
+    "answer": "Paris"
+  }
+
 
