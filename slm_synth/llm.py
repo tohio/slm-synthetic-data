@@ -17,11 +17,7 @@ def extract_json_array(text: str) -> str:
     """
     Extract the first JSON array from a messy LLM output.
     """
-    match = re.search(r"
-
-\[[\s\S]*\]
-
-", text)
+    match = re.search(r"\[[\s\S]*\]", text)
     if not match:
         raise ValueError("No JSON array found in model output")
     return match.group(0)
