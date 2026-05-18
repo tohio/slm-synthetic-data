@@ -1,7 +1,7 @@
 from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_task_code
 from slm_synth.schemas import TASK_CODE_SCHEMA
-from slm_synth.prompts.task_code import TASK_CODE_TASK
+from prompts.task_code import TASK_CODE_TASK
 
 
 class TaskCodeGenerator:

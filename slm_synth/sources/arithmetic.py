@@ -1,7 +1,8 @@
 from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_arithmetic
 from slm_synth.schemas import ARITHMETIC_SCHEMA
-from slm_synth.prompts.arithmetic import ARITHMETIC_TASK
+from prompts.arithmetic import ARITHMETIC_TASK
+
 
 
 class ArithmeticGenerator:

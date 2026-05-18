@@ -1,7 +1,7 @@
 from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_educational_qa_mcq
 from slm_synth.schemas import EDUCATIONAL_QA_MCQ_SCHEMA
-from slm_synth.prompts.educational_qa_mcq import EDUCATIONAL_QA_MCQ_TASK
+from prompts.educational_qa_mcq import EDUCATIONAL_QA_MCQ_TASK
 
 
 class EducationalQAMCQGenerator:

@@ -1,7 +1,7 @@
 from prompts.wrapper import build_prompt
 from slm_synth.repair import repair_factual_restraint
 from slm_synth.schemas import FACTUAL_RESTRAINT_SCHEMA
-from slm_synth.prompts.factual_restraint import FACTUAL_RESTRAINT_TASK
+from prompts.factual_restraint import FACTUAL_RESTRAINT_TASK
 
 
 class FactualRestraintGenerator:
