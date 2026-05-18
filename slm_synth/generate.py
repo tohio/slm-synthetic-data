@@ -14,6 +14,10 @@ from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
 
+from dotenv import load_dotenv
+load_dotenv()
+
+
 
 def log(msg: str):
     print(f"[generate] {msg}", flush=True)

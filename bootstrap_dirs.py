@@ -4,6 +4,10 @@ import os
 import yaml
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
+
 
 def load_config():
     with open("configs/synthetic.yaml", "r", encoding="utf-8") as f:
