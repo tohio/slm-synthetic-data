@@ -13,7 +13,7 @@ target_total_tokens: 200000
 # Backend LLM for generation (Groq recommended)
 backend:
   provider: "groq"
-  model: "llama3-70b-versatile"
+  model: "llama-3.3-70b-versatile"
   max_tokens: 512
   temperature: 0.4
   top_p: 0.95
