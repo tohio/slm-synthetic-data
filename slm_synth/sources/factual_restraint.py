@@ -1,20 +1,18 @@
-from prompts.wrapper import build_prompt
-from slm_synth.repair import repair_factual_restraint
+from prompts.wrapper import build_batched_prompt
 from slm_synth.schemas import FACTUAL_RESTRAINT_SCHEMA
 from prompts.factual_restraint import FACTUAL_RESTRAINT_TASK
-
+from slm_synth.repair import repair_factual_restraint
 
 class FactualRestraintGenerator:
-    def __init__(self, llm, prompt_file: str = None):
+    def __init__(self, llm, prompt_file: str = None, batch_size: int = 1):
         self.llm = llm
+        self.batch_size = batch_size
 
-    def build_prompt(self) -> str:
-        return build_prompt(
+    def generate_batch(self):
+        prompt = build_batched_prompt(
             schema=FACTUAL_RESTRAINT_SCHEMA,
             task_instruction=FACTUAL_RESTRAINT_TASK,
+            batch_size=self.batch_size,
         )
-
-    def generate_one(self):
-        obj = self.llm.generate_one(self.build_prompt())
-        obj = repair_factual_restraint(obj)
-        return obj
+        objs = self.llm.generate_batch(prompt, self.batch_size)
+        return [repair_factual_restraint(o) for o in objs]

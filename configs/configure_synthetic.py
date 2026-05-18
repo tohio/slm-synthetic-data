@@ -86,6 +86,7 @@ def main():
     parser.add_argument("--tokens", required=True, type=int)
     parser.add_argument("--run", default=None)
     parser.add_argument("--hf_repo", default="user/repo")
+    parser.add_argument("--batch-size", type=int, default=16)
     args = parser.parse_args()
 
     preset = PROFILES[args.profile]
@@ -122,6 +123,7 @@ def main():
         .replace("__TOP_P__", str(preset["top_p"]))
         .replace("__CONCURRENCY__", str(preset["concurrency"]))
         .replace("__SAMPLES_PER_SIGNAL__", str(samples))
+        .replace("__BATCH_SIZE__", str(args.batch_size))
         .replace("__HF_REPO__", args.hf_repo)
     )
 
