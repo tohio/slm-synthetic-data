@@ -80,8 +80,6 @@ Recommended progression:
 | `50000000` | Long-run stability test. |
 | `600000000` | Production-scale generation target. |
 
-Do not jump directly to the largest target after changing prompts, schemas, model settings, deduplication, or retry behavior.
-
 ---
 
 ## Generation Profiles
@@ -452,6 +450,12 @@ See:
 - [Prompt guide](prompts/README.md)
 - [Package guide](slm_synth/README.md)
 - [Test guide](tests/README.md)
+
+---
+
+## Related Projects
+
+- [slm](https://github.com/tohio/slm) — GPT-style LLM trained from scratch
 
 ---
 
