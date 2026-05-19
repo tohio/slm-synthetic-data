@@ -76,7 +76,7 @@ def get_hf_config(cfg: Dict[str, Any]) -> Tuple[str, bool, str]:
         )
 
     private = bool(hf.get("private", True))
-    license_name = str(hf.get("license") or cfg.get("license") or "other")
+    license_name = str(hf.get("license") or cfg.get("license") or "mit")
     return repo_id, private, license_name
 
 
@@ -150,20 +150,19 @@ def build_dataset_card(
     repo_id: str,
     license_name: str,
 ) -> str:
-    total = sum(item["records"] for item in stats)
-    run_name = cfg.get("run_name") or output_dir.name
-    model = config_value(cfg, ["backend", "model"], cfg.get("model", "unknown"))
-    service_tier = config_value(cfg, ["backend", "service_tier"], cfg.get("service_tier", "unknown"))
-    batch_size = config_value(cfg, ["generation", "batch_size"], cfg.get("batch_size", "unknown"))
-    parallel_requests = config_value(cfg, ["backend", "parallel_requests"], cfg.get("parallel_requests", "unknown"))
-    target_tokens = cfg.get("target_total_tokens", cfg.get("tokens", "unknown"))
-    dedup_cfg = cfg.get("dedup", {}) if isinstance(cfg.get("dedup", {}), dict) else {}
-    dedup_mode = dedup_cfg.get("mode", "exact")
-    enable_fuzzy = dedup_cfg.get("enable_fuzzy", dedup_cfg.get("fuzzy_enabled", False))
-    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    """Build a public-facing Hugging Face dataset card.
+
+    The card intentionally excludes internal operational details such as repo id,
+    run id, target token count, output directory, model configuration, batch size,
+    service tier, and reproduction commands. Those details belong in local
+    manifests, logs, and project documentation rather than the published dataset
+    page.
+    """
+    generated_date = datetime.now(timezone.utc).date().isoformat()
+    license_name = license_name or "mit"
 
     file_rows = "\n".join(
-        f"| `{item['name']}` | {item['records']} | {item['size_bytes']} | {item['bad_json']} |"
+        f"| `{item['name']}` | {item['records']} |"
         for item in stats
     )
     schema_rows = "\n".join(
@@ -179,8 +178,6 @@ task_categories:
 - text-generation
 - question-answering
 pretty_name: SLM Synthetic Data
-size_categories:
-- {size_category(total)}
 tags:
 - synthetic
 - llm-generated
@@ -192,18 +189,22 @@ tags:
 
 # SLM Synthetic Data
 
-This dataset contains synthetic training records generated for a small language model pipeline. It is intended for experimentation with instruction-following, arithmetic reasoning, simple coding tasks, educational multiple-choice questions, and factual-restraint behavior.
+Synthetic training records generated for small language model experiments.
 
-Repository: `{repo_id}`  
-Run: `{run_name}`  
-Generated at: `{generated_at}`  
-Total records in uploaded split: **{total}**
+Generated date: `{generated_date}`
 
 ## Files
 
-| File | Records | Size bytes | Bad JSON |
-|---|---:|---:|---:|
+| File | Records |
+|---|---:|
 {file_rows}
+
+## Signals
+
+- `arithmetic` — integer arithmetic, word problems, comparisons, missing-value problems, and compact reasoning steps.
+- `task_code` — beginner/intermediate Python tasks with short plans and code snippets.
+- `educational_qa_mcq` — scenario-based multiple-choice questions with answer choices and explanations.
+- `factual_restraint` — questions that reward cautious answers and discourage unsupported claims.
 
 ## Record Schemas
 
@@ -213,42 +214,16 @@ Each file is JSONL with one JSON object per line.
 |---|---|
 {schema_rows}
 
-## Generation Configuration
+## Deduplication
 
-| Setting | Value |
-|---|---|
-| Generator model | `{model}` |
-| Service tier | `{service_tier}` |
-| Target tokens | `{target_tokens}` |
-| Batch size | `{batch_size}` |
-| Parallel requests | `{parallel_requests}` |
-| Output directory | `{output_dir}` |
-
-## Processing Pipeline
-
-The uploaded files are from the `deduped/` stage:
-
-1. `raw/` — batched LLM generations using a JSON-object contract.
-2. `validated/` — schema-valid records only.
-3. `deduped/` — exact-deduplicated records used for upload.
-
-## Deduplication Policy
-
-Synthetic records intentionally share structure, so fuzzy near-duplicate removal can destroy useful variation. This dataset uses the following dedup policy:
-
-| Setting | Value |
-|---|---|
-| Dedup mode | `{dedup_mode}` |
-| Fuzzy dedup enabled | `{enable_fuzzy}` |
-
-For downstream training, prefer the uploaded exact-deduped JSONL files. Avoid fuzzy MinHash dedup on these synthetic signals unless you are intentionally running a separate experiment.
+The uploaded files are exact-deduplicated JSONL outputs. Fuzzy deduplication is intentionally not applied by default because synthetic records often share schemas and templates by design.
 
 ## Intended Use
 
 Suitable uses include:
 
 - Small language model training experiments.
-- Pipeline validation for synthetic data generation.
+- Synthetic data pipeline validation.
 - Instruction-following and response-format experiments.
 - Arithmetic, MCQ, factual-restraint, and simple coding behavior checks.
 
@@ -259,24 +234,10 @@ Suitable uses include:
 - Code examples are simple and should be reviewed before use in production settings.
 - Synthetic distributions may differ from real user queries.
 
-## Reproducibility
-
-The run was produced with `configs/synthetic.yaml` from this repository. To reproduce a similar run, configure the pipeline, generate raw records, validate, exact-deduplicate, and push to Hugging Face.
-
-```bash
-make configure PROFILE=balanced TOKENS=<tokens> BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
-python bootstrap_dirs.py
-make generate
-make validate
-make dedup
-make push
-```
-
 ## License
 
-License metadata is set to `{license_name}`. Review and update this field before public release if a stricter project license is required.
+This dataset is released under the MIT License.
 """
-
 
 def write_dataset_card(cfg: Dict[str, Any], output_dir: Path, repo_id: str, license_name: str) -> Path:
     dedup_dir = output_dir / "deduped"
@@ -302,7 +263,7 @@ def main(
     token: str | None = None,
     cfg: Dict[str, Any] | None = None,
     output_dir: Path | None = None,
-    license_name: str = "other",
+    license_name: str = "mit",
     env_file: str | None = None,
     skip_card: bool = False,
 ) -> None:
@@ -360,7 +321,7 @@ def cli() -> None:
     output_dir: Path | None = None
     repo_id = args.repo_id
     private = True
-    license_name = "other"
+    license_name = "mit"
 
     if args.config:
         cfg = load_yaml_config(args.config)
