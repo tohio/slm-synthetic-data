@@ -161,13 +161,38 @@ def build_dataset_card(
     generated_date = datetime.now(timezone.utc).date().isoformat()
     license_name = license_name or "mit"
 
+    def human_size(num_bytes: int) -> str:
+        units = ["B", "KB", "MB", "GB", "TB"]
+        size = float(num_bytes)
+        for unit in units:
+            if size < 1024 or unit == units[-1]:
+                if unit == "B":
+                    return f"{int(size)} B"
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{num_bytes} B"
+
+    enriched_stats: List[Dict[str, Any]] = []
+    for item in stats:
+        name = item["name"]
+        path = dedup_dir / name
+        size_bytes = path.stat().st_size if path.exists() else int(item.get("size_bytes", 0) or 0)
+        enriched_stats.append({
+            **item,
+            "size_bytes": size_bytes,
+            "size": human_size(size_bytes),
+        })
+
+    total_records = sum(int(item.get("records", 0) or 0) for item in enriched_stats)
+    total_size_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in enriched_stats)
+
     file_rows = "\n".join(
-        f"| `{item['name']}` | {item['records']} |"
-        for item in stats
+        f"| `{item['name']}` | {int(item.get('records', 0)):,} | {item['size']} |"
+        for item in enriched_stats
     )
     schema_rows = "\n".join(
         f"| `{Path(item['name']).stem}` | {signal_schema(Path(item['name']).stem)} |"
-        for item in stats
+        for item in enriched_stats
     )
 
     return f"""---
@@ -191,12 +216,14 @@ tags:
 
 Synthetic training records generated for small language model experiments.
 
-Generated date: `{generated_date}`
+Generated date: `{generated_date}`  
+Total records: `{total_records:,}`  
+Storage size: `{human_size(total_size_bytes)}`
 
 ## Files
 
-| File | Records |
-|---|---:|
+| File | Records | Size |
+|---|---:|---:|
 {file_rows}
 
 ## Signals
