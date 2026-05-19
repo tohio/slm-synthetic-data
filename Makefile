@@ -98,6 +98,7 @@ dedup:
 > $(PYTHON) -m slm_synth.dedup --config $(CONFIG_FILE)
 
 push:
+	python -m slm_synth.push_hf --config configs/synthetic.yaml $(if $(SIGNAL),--signal $(SIGNAL),)
 > $(PYTHON) -m slm_synth.push_hf --config $(CONFIG_FILE)
 
 all: generate validate dedup push

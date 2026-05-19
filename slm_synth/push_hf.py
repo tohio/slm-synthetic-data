@@ -1,48 +1,45 @@
+from __future__ import annotations
+
 import argparse
-import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any
 
 import yaml
-from huggingface_hub import HfApi, create_repo, upload_file
+from dotenv import load_dotenv
+from huggingface_hub import HfApi, create_repo
 
-try:
-    from dotenv import load_dotenv
-except Exception:  # pragma: no cover - optional dependency fallback
-    load_dotenv = None
+from slm_synth.paths import load_yaml_config, resolve_output_dir
 
-try:
-    from slm_synth.paths import load_yaml_config, resolve_output_dir
-except Exception:  # pragma: no cover - keeps this script usable during early bootstrap
-    def load_yaml_config(path: str | Path) -> Dict[str, Any]:
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
 
-    def resolve_output_dir(cfg: Dict[str, Any]) -> Path:
-        raw = str(cfg.get("output_dir", "data/runs/default"))
-        raw = raw.replace("${DATA_DIR}", os.getenv("DATA_DIR", "data/runs"))
-        return Path(os.path.expandvars(os.path.expanduser(raw)))
+SIGNAL_REPO_SUFFIXES = {
+    "arithmetic": "arithmetic",
+    "task_code": "task-code",
+    "educational_qa_mcq": "educational-qa-mcq",
+    "factual_restraint": "factual-restraint",
+}
+
+SIGNAL_DESCRIPTIONS = {
+    "arithmetic": "Integer arithmetic, word problems, comparisons, missing-value problems, and compact reasoning steps.",
+    "task_code": "Beginner/intermediate Python tasks with short plans and code snippets.",
+    "educational_qa_mcq": "Scenario-based multiple-choice questions with explanations.",
+    "factual_restraint": "Questions that reward cautious answers and discourage unsupported claims.",
+}
+
+SIGNAL_SCHEMAS = {
+    "arithmetic": "`type`, `question`, `steps`, `answer`",
+    "task_code": "`type`, `task`, `plan`, `code`",
+    "educational_qa_mcq": "`type`, `question`, `choices`, `correct_index`, `explanation`",
+    "factual_restraint": "`type`, `question`, `safe_answer`",
+}
 
 
 def load_env_file(env_file: str | None = None) -> None:
-    """Load repo .env so HF_TOKEN works without shell export."""
-    path = Path(env_file or ".env")
-    if load_dotenv is not None:
-        load_dotenv(path if path.exists() else None)
-        return
-
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+    if env_file:
+        load_dotenv(env_file)
+    else:
+        load_dotenv()
 
 
 def get_hf_token() -> str:
@@ -55,331 +52,268 @@ def get_hf_token() -> str:
     return token
 
 
-def get_hf_config(cfg: Dict[str, Any]) -> Tuple[str, bool, str]:
-    hf = cfg.get("hf") or cfg.get("huggingface") or cfg.get("hub") or {}
+def human_size(num_bytes: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(num_bytes)
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{num_bytes} B"
 
-    repo_id = (
-        hf.get("repo_id")
-        or cfg.get("repo_id")
-        or os.getenv("HF_REPO_ID")
-    )
-    if not repo_id:
-        username = hf.get("username") or os.getenv("HF_USERNAME")
-        repo = hf.get("repo") or hf.get("repo_name") or os.getenv("HF_REPO")
-        if username and repo:
-            repo_id = f"{username}/{repo}"
 
-    if not repo_id:
+def count_jsonl(path: Path) -> int:
+    with path.open("r", encoding="utf-8") as handle:
+        return sum(1 for line in handle if line.strip())
+
+
+def signal_to_repo_id(base_repo: str, signal: str) -> str:
+    if signal not in SIGNAL_REPO_SUFFIXES:
         raise ValueError(
-            "Missing Hugging Face repo id. Set hf.repo_id in configs/synthetic.yaml "
-            "or set HF_REPO_ID / HF_USERNAME+HF_REPO."
+            f"Unknown signal '{signal}'. Expected one of: {', '.join(sorted(SIGNAL_REPO_SUFFIXES))}"
+        )
+    if "/" not in base_repo:
+        raise ValueError(
+            f"HF repo must include namespace, e.g. 'tohio/slm-synthetic'. Got: {base_repo!r}"
         )
 
-    private = bool(hf.get("private", True))
-    license_name = str(hf.get("license") or cfg.get("license") or "mit")
+    namespace, name = base_repo.split("/", 1)
+    suffix = SIGNAL_REPO_SUFFIXES[signal]
+    if name.endswith(f"-{suffix}"):
+        return base_repo
+    return f"{namespace}/{name}-{suffix}"
+
+
+def get_export_config(cfg: dict[str, Any]) -> tuple[str, bool, str]:
+    export_cfg = cfg.get("export", {}) or {}
+    repo_id = (
+        export_cfg.get("hf_repo")
+        or export_cfg.get("repo_id")
+        or export_cfg.get("repository")
+        or "user/repo"
+    )
+    private = bool(export_cfg.get("private", False))
+    license_name = str(export_cfg.get("license", "mit") or "mit").lower()
     return repo_id, private, license_name
 
 
-def jsonl_count(path: Path) -> Tuple[int, int]:
-    total = 0
-    bad_json = 0
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            total += 1
-            try:
-                json.loads(line)
-            except json.JSONDecodeError:
-                bad_json += 1
-    return total, bad_json
+def dataset_card_yaml(signal: str, license_name: str) -> str:
+    tags = ["synthetic", "llm", "instruction-tuning", "reasoning"]
+    if signal == "task_code":
+        tags.append("code")
+    if signal == "educational_qa_mcq":
+        tags.append("educational")
 
-
-def file_stats(files: Iterable[Path]) -> List[Dict[str, Any]]:
-    stats = []
-    for path in sorted(files):
-        total, bad_json = jsonl_count(path)
-        stats.append(
-            {
-                "name": path.name,
-                "records": total,
-                "bad_json": bad_json,
-                "size_bytes": path.stat().st_size,
-            }
-        )
-    return stats
-
-
-def size_category(total_records: int) -> str:
-    if total_records < 1_000:
-        return "n<1K"
-    if total_records < 10_000:
-        return "1K<n<10K"
-    if total_records < 100_000:
-        return "10K<n<100K"
-    if total_records < 1_000_000:
-        return "100K<n<1M"
-    return "1M<n<10M"
-
-
-def signal_schema(signal: str) -> str:
-    schemas = {
-        "arithmetic": "`type`, `question`, `steps`, `answer`",
-        "educational_qa_mcq": "`type`, `question`, `choices`, `correct_index`, `explanation`",
-        "factual_restraint": "`type`, `question`, `safe_answer`",
-        "task_code": "`type`, `task`, `plan`, `code`",
+    metadata = {
+        "license": license_name,
+        "language": ["en"],
+        "pretty_name": f"SLM Synthetic {SIGNAL_REPO_SUFFIXES[signal].replace('-', ' ').title()}",
+        "tags": tags,
     }
-    return schemas.get(signal, "JSONL records; see file contents for fields")
+    return yaml.safe_dump(metadata, sort_keys=False).strip()
 
 
-def config_value(cfg: Dict[str, Any], path: List[str], default: Any = None) -> Any:
-    cur: Any = cfg
-    for key in path:
-        if not isinstance(cur, dict) or key not in cur:
-            return default
-        cur = cur[key]
-    return cur
-
-
-def build_dataset_card(
-    cfg: Dict[str, Any],
+def write_dataset_card(
+    *,
     output_dir: Path,
-    dedup_dir: Path,
-    stats: List[Dict[str, Any]],
-    repo_id: str,
+    signal: str,
     license_name: str,
-) -> str:
-    """Build a public-facing Hugging Face dataset card.
+    file_path: Path,
+) -> Path:
+    manifests_dir = output_dir / "manifests"
+    manifests_dir.mkdir(parents=True, exist_ok=True)
 
-    The card intentionally excludes internal operational details such as repo id,
-    run id, target token count, output directory, model configuration, batch size,
-    service tier, and reproduction commands. Those details belong in local
-    manifests, logs, and project documentation rather than the published dataset
-    page.
-    """
     generated_date = datetime.now(timezone.utc).date().isoformat()
-    license_name = license_name or "mit"
+    record_count = count_jsonl(file_path)
+    storage_size = human_size(file_path.stat().st_size if file_path.exists() else 0)
 
-    def human_size(num_bytes: int) -> str:
-        units = ["B", "KB", "MB", "GB", "TB"]
-        size = float(num_bytes)
-        for unit in units:
-            if size < 1024 or unit == units[-1]:
-                if unit == "B":
-                    return f"{int(size)} B"
-                return f"{size:.1f} {unit}"
-            size /= 1024
-        return f"{num_bytes} B"
+    card_path = manifests_dir / f"README_{signal}.md"
+    yaml_header = dataset_card_yaml(signal, license_name)
 
-    enriched_stats: List[Dict[str, Any]] = []
-    for item in stats:
-        name = item["name"]
-        path = dedup_dir / name
-        size_bytes = path.stat().st_size if path.exists() else int(item.get("size_bytes", 0) or 0)
-        enriched_stats.append({
-            **item,
-            "size_bytes": size_bytes,
-            "size": human_size(size_bytes),
-        })
+    title = SIGNAL_REPO_SUFFIXES[signal].replace("-", " ").title()
+    description = SIGNAL_DESCRIPTIONS.get(signal, "Synthetic data signal.")
+    schema = SIGNAL_SCHEMAS.get(signal, "JSONL records")
 
-    total_records = sum(int(item.get("records", 0) or 0) for item in enriched_stats)
-    total_size_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in enriched_stats)
-
-    file_rows = "\n".join(
-        f"| `{item['name']}` | {int(item.get('records', 0)):,} | {item['size']} |"
-        for item in enriched_stats
-    )
-    schema_rows = "\n".join(
-        f"| `{Path(item['name']).stem}` | {signal_schema(Path(item['name']).stem)} |"
-        for item in enriched_stats
-    )
-
-    return f"""---
-license: {license_name}
-language:
-- en
-task_categories:
-- text-generation
-- question-answering
-pretty_name: SLM Synthetic Data
-tags:
-- synthetic
-- llm-generated
-- jsonl
-- educational
-- arithmetic
-- code
+    content = f"""---
+{yaml_header}
 ---
 
-# SLM Synthetic Data
+# SLM Synthetic {title}
 
-Synthetic training records generated for small language model experiments.
+{description}
 
-Generated date: `{generated_date}`  
-Total records: `{total_records:,}`  
-Storage size: `{human_size(total_size_bytes)}`
+Generated date: {generated_date}  
+Total records: {record_count:,}  
+Storage size: {storage_size}
 
 ## Files
 
 | File | Records | Size |
 |---|---:|---:|
-{file_rows}
+| `{file_path.name}` | {record_count:,} | {storage_size} |
 
-## Signals
+## Record Format
 
-- `arithmetic` — integer arithmetic, word problems, comparisons, missing-value problems, and compact reasoning steps.
-- `task_code` — beginner/intermediate Python tasks with short plans and code snippets.
-- `educational_qa_mcq` — scenario-based multiple-choice questions with answer choices and explanations.
-- `factual_restraint` — questions that reward cautious answers and discourage unsupported claims.
+Each row is a JSON object stored as one line in JSONL format.
 
-## Record Schemas
+Schema fields:
 
-Each file is JSONL with one JSON object per line.
-
-| Signal | Fields |
-|---|---|
-{schema_rows}
+{schema}
 
 ## Deduplication
 
-The uploaded files are exact-deduplicated JSONL outputs. Fuzzy deduplication is intentionally not applied by default because synthetic records often share schemas and templates by design.
+The uploaded split is exact-deduplicated. Fuzzy MinHash deduplication is not used for synthetic signals because synthetic examples often share useful structure by design.
 
 ## Intended Use
 
-Suitable uses include:
-
-- Small language model training experiments.
-- Synthetic data pipeline validation.
-- Instruction-following and response-format experiments.
-- Arithmetic, MCQ, factual-restraint, and simple coding behavior checks.
+This dataset is intended for SLM data experiments, pretraining/post-training mixtures, instruction tuning, and behavior evaluation.
 
 ## Limitations
 
-- Records are synthetic and may contain mistakes or low-quality examples.
-- The data should not be treated as a source of authoritative factual knowledge.
-- Code examples are simple and should be reviewed before use in production settings.
-- Synthetic distributions may differ from real user queries.
+The data is synthetic and should be inspected before use in training or evaluation. It may contain simple, repetitive, or imperfect examples. It should not be treated as a source of authoritative factual knowledge.
 
 ## License
 
 This dataset is released under the MIT License.
 """
-
-def write_dataset_card(cfg: Dict[str, Any], output_dir: Path, repo_id: str, license_name: str) -> Path:
-    dedup_dir = output_dir / "deduped"
-    stats = file_stats(dedup_dir.glob("*.jsonl"))
-    if not stats:
-        raise FileNotFoundError(f"No JSONL files found in dedup directory: {dedup_dir}")
-
-    manifests = output_dir / "manifests"
-    manifests.mkdir(parents=True, exist_ok=True)
-    card_path = manifests / "README.md"
-    card_path.write_text(
-        build_dataset_card(cfg, output_dir, dedup_dir, stats, repo_id, license_name),
-        encoding="utf-8",
-    )
+    card_path.write_text(content, encoding="utf-8")
     return card_path
 
 
-def main(
-    dedup_dir: str | Path,
-    *,
-    repo_id: str,
-    private: bool = True,
-    token: str | None = None,
-    cfg: Dict[str, Any] | None = None,
-    output_dir: Path | None = None,
-    license_name: str = "mit",
-    env_file: str | None = None,
-    skip_card: bool = False,
-) -> None:
-    load_env_file(env_file)
-    token = token or get_hf_token()
-    dedup_dir = Path(dedup_dir)
-    output_dir = output_dir or dedup_dir.parent
-    cfg = cfg or {}
+def discover_signal_files(dedup_dir: Path, signal: str | None = None) -> list[tuple[str, Path]]:
+    if signal:
+        path = dedup_dir / f"{signal}.jsonl"
+        if not path.exists():
+            raise FileNotFoundError(f"Missing deduped file for signal '{signal}': {path}")
+        return [(signal, path)]
 
-    api = HfApi()
-    create_repo(repo_id, token=token, exist_ok=True, private=private, repo_type="dataset")
+    files: list[tuple[str, Path]] = []
+    for signal_name in SIGNAL_REPO_SUFFIXES:
+        path = dedup_dir / f"{signal_name}.jsonl"
+        if path.exists():
+            files.append((signal_name, path))
+
+    if not files:
+        raise FileNotFoundError(f"No deduped JSONL files found in {dedup_dir}")
+
+    return files
+
+
+def push_signal_repo(
+    *,
+    api: HfApi,
+    base_repo_id: str,
+    private: bool,
+    license_name: str,
+    output_dir: Path,
+    signal: str,
+    file_path: Path,
+    skip_card: bool,
+) -> str:
+    repo_id = signal_to_repo_id(base_repo_id, signal)
+
+    create_repo(
+        repo_id=repo_id,
+        repo_type="dataset",
+        private=private,
+        exist_ok=True,
+    )
 
     if not skip_card:
-        card_path = write_dataset_card(cfg, output_dir, repo_id, license_name)
+        card_path = write_dataset_card(
+            output_dir=output_dir,
+            signal=signal,
+            license_name=license_name,
+            file_path=file_path,
+        )
         print(f"[push_hf] uploading dataset card {card_path} -> {repo_id}/README.md")
-        upload_file(
+        api.upload_file(
             path_or_fileobj=str(card_path),
             path_in_repo="README.md",
             repo_id=repo_id,
             repo_type="dataset",
-            token=token,
         )
 
-    files = sorted(dedup_dir.glob("*.jsonl"))
-    if not files:
-        raise FileNotFoundError(f"No JSONL files found in dedup directory: {dedup_dir}")
+    print(f"[push_hf] uploading {file_path} -> {repo_id}/{file_path.name}")
+    api.upload_file(
+        path_or_fileobj=str(file_path),
+        path_in_repo=file_path.name,
+        repo_id=repo_id,
+        repo_type="dataset",
+    )
+    return repo_id
 
-    for file in files:
-        print(f"[push_hf] uploading {file} -> {repo_id}/{file.name}")
-        upload_file(
-            path_or_fileobj=str(file),
-            path_in_repo=file.name,
-            repo_id=repo_id,
-            repo_type="dataset",
-            token=token,
+
+def main(
+    dedup_dir: str | Path | None = None,
+    *,
+    config: str | Path = "configs/synthetic.yaml",
+    repo_id: str | None = None,
+    private: bool | None = None,
+    signal: str | None = None,
+    env_file: str | None = None,
+    skip_card: bool = False,
+) -> None:
+    load_env_file(env_file)
+    token = get_hf_token()
+    api = HfApi(token=token)
+
+    cfg = load_yaml_config(config)
+    output_dir = resolve_output_dir(cfg)
+    dedup_path = Path(dedup_dir) if dedup_dir else output_dir / "deduped"
+
+    base_repo_id, cfg_private, license_name = get_export_config(cfg)
+    if repo_id:
+        base_repo_id = repo_id
+    if private is None:
+        private = cfg_private
+
+    files = discover_signal_files(dedup_path, signal=signal)
+
+    pushed_repos = []
+    for signal_name, path in files:
+        pushed_repos.append(
+            push_signal_repo(
+                api=api,
+                base_repo_id=base_repo_id,
+                private=bool(private),
+                license_name=license_name,
+                output_dir=output_dir,
+                signal=signal_name,
+                file_path=path,
+                skip_card=skip_card,
+            )
         )
 
-    print(f"[push_hf] Completed repo_id={repo_id}, files={len(files)}, dataset_card={not skip_card}")
+    print(
+        "[push_hf] Completed "
+        f"repos={len(pushed_repos)}, files={len(files)}, signal={signal or 'all'}"
+    )
+    for pushed_repo in pushed_repos:
+        print(f"[push_hf] repo={pushed_repo}")
 
 
 def cli() -> None:
-    parser = argparse.ArgumentParser(description="Push deduped synthetic JSONL files to Hugging Face Hub.")
-    parser.add_argument("dedup_dir", nargs="?", help="Directory containing deduped JSONL files.")
-    parser.add_argument("--config", default=None, help="Path to configs/synthetic.yaml.")
-    parser.add_argument("--repo-id", default=None, help="HF dataset repo id, e.g. username/repo.")
-    parser.add_argument("--private", action="store_true", help="Create/update repo as private.")
-    parser.add_argument("--public", action="store_true", help="Create/update repo as public.")
-    parser.add_argument("--env-file", default=".env", help="Path to dotenv file. Defaults to .env.")
-    parser.add_argument("--skip-card", action="store_true", help="Do not generate/upload README.md dataset card.")
+    parser = argparse.ArgumentParser(
+        description="Push exact-deduped synthetic data to Hugging Face dataset repos."
+    )
+    parser.add_argument("--config", default="configs/synthetic.yaml")
+    parser.add_argument("--dedup-dir", default=None)
+    parser.add_argument("--repo-id", default=None, help="Base HF repo, e.g. tohio/slm-synthetic")
+    parser.add_argument("--private", action="store_true", default=None)
+    parser.add_argument("--signal", choices=sorted(SIGNAL_REPO_SUFFIXES), default=None)
+    parser.add_argument("--env-file", default=None)
+    parser.add_argument("--skip-card", action="store_true")
     args = parser.parse_args()
 
-    load_env_file(args.env_file)
-
-    cfg: Dict[str, Any] = {}
-    output_dir: Path | None = None
-    repo_id = args.repo_id
-    private = True
-    license_name = "mit"
-
-    if args.config:
-        cfg = load_yaml_config(args.config)
-        output_dir = resolve_output_dir(cfg)
-        cfg_repo_id, cfg_private, license_name = get_hf_config(cfg)
-        repo_id = repo_id or cfg_repo_id
-        private = cfg_private
-
-    if args.private:
-        private = True
-    if args.public:
-        private = False
-
-    if not repo_id:
-        repo_id, private, license_name = get_hf_config(cfg)
-
-    if args.dedup_dir:
-        dedup_dir = Path(args.dedup_dir)
-        output_dir = output_dir or dedup_dir.parent
-    else:
-        if output_dir is None:
-            raise ValueError("Provide dedup_dir or --config.")
-        dedup_dir = output_dir / "deduped"
-
     main(
-        dedup_dir,
-        repo_id=repo_id,
-        private=private,
-        cfg=cfg,
-        output_dir=output_dir,
-        license_name=license_name,
+        dedup_dir=args.dedup_dir,
+        config=args.config,
+        repo_id=args.repo_id,
+        private=args.private,
+        signal=args.signal,
         env_file=args.env_file,
         skip_card=args.skip_card,
     )

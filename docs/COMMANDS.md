@@ -489,3 +489,21 @@ duplicate rate under 5%
 validation rejects under 1%
 dedup retention above 95%
 ```
+
+
+## Hugging Face Push
+
+Default push behavior publishes each signal to a separate Hugging Face dataset repository:
+
+```bash
+make push
+```
+
+Push only one signal:
+
+```bash
+make push SIGNAL=arithmetic
+make push SIGNAL=task_code
+make push SIGNAL=educational_qa_mcq
+make push SIGNAL=factual_restraint
+```

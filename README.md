@@ -462,3 +462,23 @@ See:
 ## License
 
 MIT
+
+
+## Hugging Face Publishing
+
+By default, `make push` publishes each signal to its own Hugging Face dataset repository:
+
+```text
+<namespace>/slm-synthetic-arithmetic
+<namespace>/slm-synthetic-task-code
+<namespace>/slm-synthetic-educational-qa-mcq
+<namespace>/slm-synthetic-factual-restraint
+```
+
+Push a single signal with:
+
+```bash
+make push SIGNAL=arithmetic
+```
+
+Each repository receives one JSONL file and a public-facing dataset card.

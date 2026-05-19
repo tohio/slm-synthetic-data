@@ -78,6 +78,7 @@ dedup:
   minhash_threshold: 0.85
 
 export:
+  license: mit
   push_to_hf: true
   hf_repo: "__HF_REPO__"
   private: false
