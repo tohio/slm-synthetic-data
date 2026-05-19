@@ -251,7 +251,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
 
 def main(config_path: str, signal_override: Optional[str] = None) -> None:
     cfg = yaml.safe_load(Path(config_path).read_text())
-    warn_if_unsupported_model(cfg, context="generate")
+    warn_if_unsupported_model(cfg.get("backend", {}).get("model", ""), context="generate")
 
     output_dir = _expand_path(cfg["output_dir"])
     (output_dir / "raw").mkdir(parents=True, exist_ok=True)
