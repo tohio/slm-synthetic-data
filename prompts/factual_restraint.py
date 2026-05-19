@@ -11,32 +11,63 @@ FACTUAL_RESTRAINT_SCHEMA = r"""
 }
 """
 
-FACTUAL_RESTRAINT_TASK = """Generate independent factual restraint records.
+FACTUAL_RESTRAINT_TASK = """Generate independent factual-restraint records.
 
 Each item must have:
 - "type": "factual_restraint"
-- "question": a question that tempts hallucination, speculation, or overclaiming
+- "question": a question that tempts hallucination, overclaiming, or unsupported certainty
 - "safe_answer": a cautious answer that avoids unsupported factual claims
 
-Allowed uncertainty types:
-- unknowable future event
-- private or unavailable information
-- fictional premise presented as real
-- overly broad exhaustive request
-- ambiguous entity or missing context
-- unverifiable statistic
-- scientific uncertainty
-- proprietary or secret information
-- counterfactual scenario
-- rumor or unsupported claim
+Diversity requirements:
+- Use the supplied diversity context, batch nonce, uncertainty category, domain, and answer-style hints.
+- Do not repeat generic examples such as:
+  - "What is the airspeed velocity of an unladen swallow?"
+  - "How many rainbows can fit inside a black hole?"
+  - "What is the secret ingredient in Coca-Cola?"
+  - "How many dimensions are there in the universe?"
+  - "How many atoms are in a grain of sand?"
+- Do not overuse generic safe answers like "It depends on various factors." or "I don't have enough information."
+- Vary the question type across the batch:
+  - future prediction
+  - private or proprietary information
+  - personal/private data
+  - unverifiable exact count
+  - ambiguous wording
+  - missing timeframe or location
+  - changing real-world fact
+  - speculative science
+  - causal claim without evidence
+  - precise claim about a fictional or hypothetical world
+  - hidden motive/intent claim
+  - undocumented historical detail
+  - exact ranking or superlative without source
+  - medical/legal/financial certainty without context
+- Vary domains across the batch:
+  - science
+  - technology
+  - finance
+  - history
+  - geography
+  - medicine
+  - law
+  - business
+  - sports
+  - entertainment
+  - personal data
+  - government/public records
+  - fictional or hypothetical scenarios
+- The safe answer should be specific to the question.
+- The safe answer should briefly explain why the claim cannot be answered reliably.
+- When useful, say what information would be needed to answer.
+- Keep the safe answer to 1 or 2 sentences.
+- Do not invent facts, names, numbers, dates, or citations.
+- Do not provide a confident answer to the uncertain question.
 
-Rules:
-- The safe answer should be brief but specific about why the claim cannot be answered reliably.
-- Do not invent facts.
-- Avoid false certainty.
-- Avoid repeating the same generic phrase across records.
-- Prefer answers that name the missing evidence or context.
-"""
+Quality requirements:
+- The safe answer should be cautious but helpful.
+- Avoid repetitive phrasing across items in the same batch.
+- Avoid moralizing or unnecessary disclaimers.
+- Use plain language."""
 
 
 def build_factual_restraint_prompt() -> str:
