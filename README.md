@@ -28,6 +28,17 @@ The core goals are:
 
 ---
 
+## Key Decisions
+
+- **Use validated Groq Llama models by default.** The pipeline is validated with `llama-3.1-8b-instant` for scalable bulk generation and `llama-3.3-70b-versatile` for smaller quality-focused runs. Other models may work, but they are not currently validated for production-scale generation.
+- **Use JSON object batches.** Model responses are expected to be JSON objects with an `items` array, not bare JSON arrays. This keeps the output contract compatible with Groq JSON object mode and local schema validation.
+- **Scale with moderate batches plus concurrency.** The recommended production posture is `BATCH=4` with controlled concurrency and backoff, rather than very large batches.
+- **Use Groq Flex with backoff for larger runs.** Flex capacity errors are treated as retryable conditions with exponential backoff and jitter.
+- **Deduplicate synthetic data with exact matching by default.** Fuzzy MinHash dedup can collapse useful template-like synthetic variation and should remain disabled unless explicitly running an experiment.
+- **Track duplicate rate before scaling.** Raw and validated duplicate reports are part of the scaling workflow. High exact-duplicate rates indicate a prompt/diversity issue and should be fixed before larger runs.
+- **Use `deduped/` as the downstream training input.** `raw/` and `validated/` are useful for inspection, but the exact-deduped JSONL files are the preferred exported dataset.
+- **Publish with a dataset card.** Hugging Face pushes include the generated JSONL files and a dataset card derived from the active config and output files.
+
 ## Choosing a run size
 
 All sizes use the same pipeline. The difference is the configured token target.
@@ -467,18 +478,14 @@ Only two Groq models are currently validated. The warning is non-blocking, but p
 
 ## Documentation
 
-| Document | Purpose |
-|---|---|
-| `docs/COMMANDS.md` | Command reference and runbook. |
-| `configs/README.md` | Configuration details. |
-| `prompts/README.md` | Prompt contract and signal guidance. |
-| `slm_synth/README.md` | Package/module overview. |
-| `tests/README.md` | Test guidance. |
-| `docs/TODO.md` | Public backlog. |
-
----
+- [Command reference](docs/COMMANDS.md) — common `make` targets, pipeline commands, resume workflows, and troubleshooting commands.
+- [Disk setup](docs/DISK_SETUP.md) — storage layout and disk preparation for larger synthetic-data runs.
+- [Configuration guide](configs/README.md) — profiles, model settings, output paths, and Hugging Face settings.
+- [Prompt guide](prompts/README.md) — signal prompts, JSON output contract, and diversity controls.
+- [Package guide](slm_synth/README.md) — internal module layout and developer notes.
+- [Test guide](tests/README.md) — offline checks, live smoke tests, and validation expectations.
+- [Project docs](docs/README.md) — documentation index.
 
 ## License
 
 TBD.
-
