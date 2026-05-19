@@ -3,112 +3,100 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Iterable
 
-from slm_synth.paths import raw_dir_from_config
-from slm_synth.schemas import (
-    validate_arithmetic,
-    validate_task_code,
-    validate_educational_qa_mcq,
-    validate_factual_restraint,
-)
+from slm_synth.paths import load_yaml_config, resolve_output_dir
+from slm_synth.record_quality import SIGNAL_FROM_FILE, iter_jsonl, signal_to_filename, validate_record
 
 
-VALIDATORS = {
-    "arithmetic": validate_arithmetic,
-    "task_code": validate_task_code,
-    "educational_qa_mcq": validate_educational_qa_mcq,
-    "factual_restraint": validate_factual_restraint,
-}
+def _signals_from_args(raw_dir: Path, signal: str | None) -> list[str]:
+    if signal:
+        return [signal]
+    signals: list[str] = []
+    for path in sorted(raw_dir.glob("*.jsonl")):
+        signals.append(SIGNAL_FROM_FILE.get(path.name, path.stem))
+    return signals
 
 
-def validate_file(path: Path, out_dir: Path, reject_dir: Path) -> tuple[int, int]:
-    accepted = 0
-    rejected = 0
-
-    with open(path, "r", encoding="utf-8") as f:
-        for line_no, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
-
-            obj = None
-            try:
-                obj = json.loads(line)
-                record_type = obj["type"]
-                validator = VALIDATORS[record_type]
-                validator(obj)
-            except Exception as exc:
-                fallback_type = "unknown"
-                if isinstance(obj, dict):
-                    fallback_type = str(obj.get("type", "unknown"))
-
-                with open(reject_dir / f"{fallback_type}.jsonl", "a", encoding="utf-8") as rej:
-                    wrapped = {
-                        "source_file": path.name,
-                        "line": line_no,
-                        "error": str(exc),
-                        "raw": line,
-                    }
-                    rej.write(json.dumps(wrapped, ensure_ascii=False) + "\n")
-                rejected += 1
-                continue
-
-            with open(out_dir / f"{record_type}.jsonl", "a", encoding="utf-8") as out:
-                out.write(json.dumps(obj, ensure_ascii=False) + "\n")
-            accepted += 1
-
-    return accepted, rejected
-
-
-def main(raw_dir: str | Path) -> None:
-    raw_dir = Path(raw_dir)
-    validated_dir = raw_dir.parent / "validated"
-    rejected_dir = raw_dir.parent / "rejected"
-
-    if not raw_dir.exists():
-        raise FileNotFoundError(f"raw_dir does not exist: {raw_dir}")
+def validate_signal(raw_dir: Path, validated_dir: Path, rejected_dir: Path, signal: str) -> tuple[int, int]:
+    src = raw_dir / signal_to_filename(signal)
+    if not src.exists():
+        print(f"[validate] {src.name}: missing, skipped")
+        return 0, 0
 
     validated_dir.mkdir(parents=True, exist_ok=True)
     rejected_dir.mkdir(parents=True, exist_ok=True)
 
-    # Rebuild validation outputs so reruns do not append duplicates.
-    for old in validated_dir.glob("*.jsonl"):
-        old.unlink()
+    dst = validated_dir / src.name
+    rej = rejected_dir / src.name
 
-    # Remove validation-created reject files. Generation reject files are also
-    # signal-named, but empty successful generation files are safe to reset.
-    for old in rejected_dir.glob("*.jsonl"):
-        old.unlink()
+    accepted = 0
+    rejected = 0
+    with dst.open("w", encoding="utf-8") as out, rej.open("w", encoding="utf-8") as bad:
+        for lineno, row, parse_issues in iter_jsonl(src):
+            if parse_issues:
+                bad.write(json.dumps({"line": lineno, "issues": parse_issues, "row": row}, ensure_ascii=False) + "\n")
+                rejected += 1
+                continue
+            assert row is not None
+            result = validate_record(signal, row)
+            if result.ok and result.record is not None:
+                out.write(json.dumps(result.record, ensure_ascii=False) + "\n")
+                accepted += 1
+            else:
+                bad.write(json.dumps({"line": lineno, "issues": result.issues, "row": row}, ensure_ascii=False) + "\n")
+                rejected += 1
 
-    files = sorted(raw_dir.glob("*.jsonl"))
-    if not files:
-        raise FileNotFoundError(f"No JSONL files found in raw_dir: {raw_dir}")
+    print(f"[validate] {src.name}: accepted={accepted}, rejected={rejected}")
+    return accepted, rejected
+
+
+def run_from_config(config_path: str, signal: str | None = None) -> None:
+    cfg = load_yaml_config(config_path)
+    out = resolve_output_dir(cfg)
+    raw_dir = out / "raw"
+    validated_dir = out / "validated"
+    rejected_dir = out / "rejected"
 
     total_accepted = 0
     total_rejected = 0
-    for file in files:
-        accepted, rejected = validate_file(file, validated_dir, rejected_dir)
+    for sig in _signals_from_args(raw_dir, signal):
+        accepted, rejected = validate_signal(raw_dir, validated_dir, rejected_dir, sig)
         total_accepted += accepted
         total_rejected += rejected
-        print(f"[validate] {file.name}: accepted={accepted}, rejected={rejected}")
 
     print(f"[validate] Completed accepted={total_accepted}, rejected={total_rejected}")
 
 
+def run_positional(raw_dir: str, validated_dir: str, rejected_dir: str, signal: str | None = None) -> None:
+    raw = Path(raw_dir)
+    validated = Path(validated_dir)
+    rejected = Path(rejected_dir)
+    total_accepted = 0
+    total_rejected = 0
+    for sig in _signals_from_args(raw, signal):
+        accepted, rejected_count = validate_signal(raw, validated, rejected, sig)
+        total_accepted += accepted
+        total_rejected += rejected_count
+    print(f"[validate] Completed accepted={total_accepted}, rejected={total_rejected}")
+
+
 def cli() -> None:
-    parser = argparse.ArgumentParser(description="Validate synthetic JSONL records.")
-    parser.add_argument("raw_dir", nargs="?", help="Path to raw JSONL directory.")
-    parser.add_argument("--config", default=None, help="Path to configs/synthetic.yaml.")
+    parser = argparse.ArgumentParser(description="Validate synthetic JSONL records by signal schema")
+    parser.add_argument("raw_dir", nargs="?", help="Legacy raw input directory")
+    parser.add_argument("validated_dir", nargs="?", help="Legacy validated output directory")
+    parser.add_argument("rejected_dir", nargs="?", help="Legacy rejected output directory")
+    parser.add_argument("--config", default=None, help="Path to configs/synthetic.yaml")
+    parser.add_argument("--signal", default=None, help="Optional signal filter")
     args = parser.parse_args()
 
     if args.config:
-        raw_dir = raw_dir_from_config(args.config)
-    elif args.raw_dir:
-        raw_dir = Path(args.raw_dir)
-    else:
-        parser.error("provide either raw_dir or --config")
+        run_from_config(args.config, signal=args.signal)
+        return
 
-    main(raw_dir)
+    if not (args.raw_dir and args.validated_dir and args.rejected_dir):
+        parser.error("Either --config or raw_dir validated_dir rejected_dir is required")
+    run_positional(args.raw_dir, args.validated_dir, args.rejected_dir, signal=args.signal)
 
 
 if __name__ == "__main__":
