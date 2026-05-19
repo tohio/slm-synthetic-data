@@ -1,256 +1,221 @@
-# slm-synthetic-data
+# SLM Synthetic Data
 
-Synthetic dataset generation pipeline for small language model training. The project generates structured JSONL data for arithmetic reasoning, beginner task-code examples, educational multiple-choice questions, and factual-restraint responses.
+Synthetic data generation pipeline for the SLM project.
 
-The pipeline is designed for reproducible dataset runs:
+This repository generates structured JSONL datasets for pretraining and
+post-training data experiments. It focuses on reproducible synthetic signal
+generation, schema validation, exact deduplication, duplicate reporting, and
+Hugging Face dataset publishing.
+
+The pipeline currently supports four signal families:
+
+- `arithmetic` — integer arithmetic, word problems, comparisons, missing-value problems, and compact reasoning steps.
+- `task_code` — beginner/intermediate Python tasks with short plans and code snippets.
+- `educational_qa_mcq` — scenario-based multiple-choice questions with answer choices and explanations.
+- `factual_restraint` — prompts that reward cautious answers and discourage unsupported claims.
+
+![Architecture](docs/architecture.png)
+
+---
+
+## Current Status
+
+The supported end-to-end pipeline is:
 
 ```text
-configure -> bootstrap -> generate -> duplicate report -> validate -> exact dedup -> push to Hugging Face
+generate -> validate -> dedup -> push_hf
 ```
 
-> Status: The pipeline is operational with Groq Llama models. The validated production path uses JSON object generation, per-batch diversity controls, Groq Flex backoff, exact-only deduplication, and Hugging Face dataset-card upload.
-
----
-
-## Overview
-
-Most data pipelines treat synthetic generation as a one-off script. This repository treats it as a repeatable data production workflow.
-
-Each run produces a self-contained directory under `data/runs/<run_id>/` with raw, validated, deduped, rejected, and manifest outputs. Configuration is generated from a template so the same commands can be used for small smoke tests, medium validation runs, and larger production-style runs.
-
-The core goals are:
-
-- Generate schema-valid synthetic records at scale.
-- Keep generation stable under Groq Flex capacity pressure.
-- Preserve useful synthetic variation by using exact-only deduplication.
-- Track duplicate rates before and after deduplication.
-- Push clean JSONL datasets and a dataset card to Hugging Face.
-
----
-
-## Key Decisions
-
-- **Use validated Groq Llama models by default.** The pipeline is validated with `llama-3.1-8b-instant` for scalable bulk generation and `llama-3.3-70b-versatile` for smaller quality-focused runs. Other models may work, but they are not currently validated for production-scale generation.
-- **Use JSON object batches.** Model responses are expected to be JSON objects with an `items` array, not bare JSON arrays. This keeps the output contract compatible with Groq JSON object mode and local schema validation.
-- **Scale with moderate batches plus concurrency.** The recommended production posture is `BATCH=4` with controlled concurrency and backoff, rather than very large batches.
-- **Use Groq Flex with backoff for larger runs.** Flex capacity errors are treated as retryable conditions with exponential backoff and jitter.
-- **Deduplicate synthetic data with exact matching by default.** Fuzzy MinHash dedup can collapse useful template-like synthetic variation and should remain disabled unless explicitly running an experiment.
-- **Track duplicate rate before scaling.** Raw and validated duplicate reports are part of the scaling workflow. High exact-duplicate rates indicate a prompt/diversity issue and should be fixed before larger runs.
-- **Use `deduped/` as the downstream training input.** `raw/` and `validated/` are useful for inspection, but the exact-deduped JSONL files are the preferred exported dataset.
-- **Publish with a dataset card.** Hugging Face pushes include the generated JSONL files and a dataset card derived from the active config and output files.
-
-## Choosing a run size
-
-All sizes use the same pipeline. The difference is the configured token target.
-
-| Size | Command token target | Purpose |
-|---|---:|---|
-| Smoke | `200000` | Fast validation of config, prompts, JSON parsing, validation, and dedup. |
-| Small | `5000000` | End-to-end quality check before scaling. |
-| Medium | `50000000` | Longer run for throughput, duplicate-rate, and retention validation. |
-| Large | `600000000` | Production-scale target after medium-run metrics are acceptable. |
-
-Recommended progression:
+Validated default posture:
 
 ```bash
-200K -> 5M -> 50M -> larger production run
+make configure PROFILE=balanced TOKENS=5000000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
+python bootstrap_dirs.py
+make generate
+python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
+make validate
+make dedup
+make push
 ```
 
-Do not jump directly to a large run before checking rejection rate, duplicate rate, validation retention, and dedup retention.
+The current implementation includes:
+
+- Groq-hosted Llama generation.
+- JSON object generation contract: `{"items": [...]}`.
+- Groq JSON object mode support.
+- Groq Flex service-tier support.
+- Exponential backoff with jitter for transient API failures.
+- Per-batch diversity controls.
+- Exact-only synthetic deduplication by default.
+- Duplicate reporting by pipeline stage.
+- Config-based `generate`, `validate`, `dedup`, and `push_hf` commands.
+- Shared path resolution for `${DATA_DIR}/<run_name>`.
+- Hugging Face push with `.env` token loading.
+- Hugging Face dataset card generation.
+
 
 ---
 
-## Supported models
+## Supported Models
 
 This project is validated with the following Groq models:
 
 | Model | Use |
 |---|---|
-| `llama-3.1-8b-instant` | Recommended default for scalable bulk generation. |
+| `llama-3.1-8b-instant` | Recommended default for scalable synthetic generation. |
 | `llama-3.3-70b-versatile` | Higher-quality option for smaller or quality-focused runs. |
 
-Other models may work, but they are not currently validated. The pipeline depends on reliable JSON object output, strict schema following, correct batch counts, and valid escaped string values.
-
-The code emits a non-blocking warning when a model outside the validated list is selected.
+Other models may work, but they are not currently validated for production-scale generation. The pipeline requires reliable JSON object output, strict schema following, and stable batched responses.
 
 ---
 
-## Generation profiles
+## Choosing a Run Size
 
-Profiles select a default model and runtime posture. `speed` and `balanced` both use the same default model; they differ by throughput settings.
+Recommended progression:
 
-| Profile | Default model | Runtime posture | Purpose |
+| Target | Purpose |
+|---:|---|
+| `200000` | Smoke test after code or prompt changes. |
+| `5000000` | Full pipeline validation. |
+| `50000000` | Long-run stability test. |
+| `600000000` | Production-scale generation target. |
+
+Do not jump directly to the largest target after changing prompts, schemas, model settings, deduplication, or retry behavior.
+
+---
+
+## Generation Profiles
+
+| Profile | Default Model | Runtime Posture | Purpose |
 |---|---|---|---|
-| `speed` | `llama-3.1-8b-instant` | Higher concurrency, throughput-oriented settings | Fast bulk generation when occasional retries are acceptable. |
-| `balanced` | `llama-3.1-8b-instant` | Moderate concurrency, diversity enabled, backoff enabled | Recommended default. |
-| `quality` | `llama-3.3-70b-versatile` | Lower concurrency, higher-quality model | Smaller quality-focused or comparison runs. |
+| `speed` | `llama-3.1-8b-instant` | Higher concurrency, throughput-oriented settings. | Fast bulk generation when occasional retries are acceptable. |
+| `balanced` | `llama-3.1-8b-instant` | Moderate concurrency, diversity controls, backoff. | Recommended default. |
+| `quality` | `llama-3.3-70b-versatile` | Lower concurrency, higher-quality model. | Smaller quality-focused runs or comparisons. |
+
+`speed` and `balanced` intentionally use the same default model. The difference is runtime posture, not model family.
 
 ---
 
-## Signals
-
-The default mix generates four signal families:
-
-| Signal | Description | Output file |
-|---|---|---|
-| `arithmetic` | Integer arithmetic reasoning records. | `arithmetic.jsonl` |
-| `task_code` | Beginner programming tasks with short Python solutions. | `task_code.jsonl` |
-| `educational_qa_mcq` | Educational multiple-choice questions with explanations. | `educational_qa_mcq.jsonl` |
-| `factual_restraint` | Questions that require cautious, non-hallucinated answers. | `factual_restraint.jsonl` |
-
-Each signal has its own prompt, schema, batch size, token budget, and diversity controls.
-
----
-
-## Tech stack
-
-| Stage | Tooling |
-|---|---|
-| Config generation | Python + YAML templates |
-| LLM backend | Groq API |
-| Environment loading | `python-dotenv` |
-| Generation format | JSON object batches with an `items` array |
-| Validation | Local JSON/schema validation |
-| Deduplication | Exact matching by default |
-| Duplicate reporting | Local JSONL duplicate scanner |
-| Dataset publishing | `huggingface_hub` |
-| Workflow entrypoints | `make` targets |
-
----
-
-## Repo structure
+## Repository Structure
 
 ```text
 slm-synthetic-data/
-├── bootstrap_dirs.py              # creates run directory structure from configs/synthetic.yaml
-├── configs/
-│   ├── configure_synthetic.py     # generates configs/synthetic.yaml from profile/CLI args
-│   ├── synthetic_template.yaml    # source template for generated configs
-│   ├── synthetic.yaml             # generated active run config
-│   └── README.md
-├── docs/
-│   ├── COMMANDS.md                # command reference
-│   ├── README.md                  # documentation index
-│   └── TODO.md                    # public project backlog
-├── prompts/
-│   ├── arithmetic.py
-│   ├── educational_qa_mcq.py
-│   ├── factual_restraint.py
-│   ├── task_code.py
-│   ├── wrapper.py
-│   └── README.md
-├── slm_synth/
-│   ├── diversity.py               # per-batch diversity controls
-│   ├── dedup.py                   # exact/fuzzy dedup entrypoint
-│   ├── generate.py                # generation runner
-│   ├── llm.py                     # Groq client wrapper
-│   ├── model_support.py           # validated-model warning helper
-│   ├── paths.py                   # shared config/path resolution
-│   ├── push_hf.py                 # Hugging Face upload + dataset card
-│   ├── rate_limit.py              # pacing/backoff helpers
-│   ├── repair.py                  # record repair helpers
-│   ├── report_duplicates.py       # duplicate reporting CLI
-│   ├── schemas.py                 # signal schemas
-│   ├── validate.py                # validation runner
-│   ├── writer.py                  # JSONL writing helpers
-│   ├── sources/
-│   │   ├── arithmetic.py
-│   │   ├── educational_qa_mcq.py
-│   │   ├── factual_restraint.py
-│   │   └── task_code.py
-│   └── README.md
-├── tests/
-│   └── README.md
+├── README.md
 ├── Makefile
 ├── requirements.txt
-└── .env.sample
+├── pytest.ini
+├── bootstrap_dirs.py
+│
+├── configs/
+│   ├── README.md
+│   ├── configure_synthetic.py
+│   └── synthetic_template.yaml
+│
+├── docs/
+│   ├── COMMANDS.md
+│   ├── DISK_SETUP.md
+│   ├── README.md
+│   └── architecture.png
+│
+├── prompts/
+│   ├── README.md
+│   ├── wrapper.py
+│   ├── arithmetic.py
+│   ├── task_code.py
+│   ├── educational_qa_mcq.py
+│   └── factual_restraint.py
+│
+├── slm_synth/
+│   ├── README.md
+│   ├── paths.py
+│   ├── schemas.py
+│   ├── repair.py
+│   ├── diversity.py
+│   ├── llm.py
+│   ├── rate_limit.py
+│   ├── writer.py
+│   ├── generate.py
+│   ├── validate.py
+│   ├── dedup.py
+│   ├── report_duplicates.py
+│   ├── push_hf.py
+│   └── sources/
+│       ├── arithmetic.py
+│       ├── task_code.py
+│       ├── educational_qa_mcq.py
+│       └── factual_restraint.py
+│
+├── tests/
+│   ├── README.md
+│   ├── test_generate.py
+│   ├── test_validate.py
+│   ├── test_dedup.py
+│   └── test_schemas.py
+│
+└── data/
+    └── runs/
+        └── <run_name>/
+            ├── raw/
+            ├── validated/
+            ├── deduped/
+            ├── rejected/
+            └── manifests/
 ```
 
-Generated run data is written under:
-
-```text
-data/runs/<run_id>/
-├── raw/
-├── validated/
-├── deduped/
-├── rejected/
-└── manifests/
-```
+`data/` is generated output and should not be committed.
 
 ---
 
-## Getting started
+## Getting Started
 
 ### Prerequisites
 
 - Python 3.12+
-- Groq account and API key
-- Hugging Face account and token if using `make push`
-- `make`
+- Ubuntu 24.04 recommended
+- Groq API key
+- Hugging Face account and token, if publishing datasets
+
+### Disk Setup
+
+For larger runs, use a separate mounted data volume before cloning or generating data:
+
+- [Disk setup guide](docs/DISK_SETUP.md)
+
+If you are running a small smoke test on the boot disk, this step is optional.
 
 ### Installation
 
 ```bash
-git clone https://github.com/tohio/slm-synthetic-data.git
-cd slm-synthetic-data
+git clone https://github.com/tohio/slm-synthetic-data.git /data/slm-synthetic-data
+cd /data/slm-synthetic-data
 
-python -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 
 pip install -r requirements.txt
 ```
 
-Create `.env`:
+Create a local `.env` file:
 
 ```bash
 cp .env.sample .env
-vi .env
 ```
 
-Required for generation:
+At minimum, set:
 
-```env
-GROQ_API_KEY=...
+```text
+GROQ_API_KEY=your_groq_api_key
+HF_TOKEN=your_huggingface_token
 ```
 
-Required for Hugging Face push:
-
-```env
-HF_TOKEN=...
-# or
-HUGGINGFACE_HUB_TOKEN=...
-```
-
-Optional:
-
-```env
-DATA_DIR=data/runs
-```
-
-If `DATA_DIR` is not set, the shared path resolver uses `data/runs`.
+`HUGGINGFACE_HUB_TOKEN` is also accepted for Hugging Face pushes.
 
 ---
 
 ## Quickstart
 
-Run a small smoke test:
-
 ```bash
 make configure PROFILE=balanced TOKENS=200000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
-rm -rf data
-python bootstrap_dirs.py
-make generate
-python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
-make validate
-make dedup
-python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage deduped
-```
-
-Run a larger validation run:
-
-```bash
-make configure PROFILE=balanced TOKENS=5000000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
-rm -rf data
 python bootstrap_dirs.py
 make generate
 python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
@@ -258,177 +223,201 @@ make validate
 make dedup
 ```
 
-Push the deduped dataset to Hugging Face:
+Push to Hugging Face after verifying the deduped output:
 
 ```bash
 make push
 ```
 
-`make push` uploads:
-
-```text
-README.md                 # generated dataset card
-arithmetic.jsonl
-task_code.jsonl
-educational_qa_mcq.jsonl
-factual_restraint.jsonl
-```
-
 ---
 
-## Common commands
+## Common Commands
 
-See the full command reference:
-
-```text
-docs/COMMANDS.md
-```
-
-Common targets:
-
-| Command | Purpose |
-|---|---|
-| `make configure` | Generate `configs/synthetic.yaml`. |
-| `python bootstrap_dirs.py` | Create run directories. |
-| `make generate` | Generate all configured signals. |
-| `make generate SIGNAL=arithmetic` | Generate one signal only. |
-| `make validate` | Validate raw records into `validated/`. |
-| `make dedup` | Deduplicate validated records into `deduped/`. |
-| `make push` | Push deduped JSONL files and dataset card to Hugging Face. |
-
----
-
-## Resume after interruption
-
-Do not delete `data` if you want to continue an interrupted run.
-
-Activate the environment:
+Generate config:
 
 ```bash
-cd ~/slm-synthetic-data
-source .venv/bin/activate || source venv/bin/activate
-export PYTHONUNBUFFERED=1
+make configure PROFILE=balanced TOKENS=5000000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
 ```
 
-Inspect current files:
+Bootstrap output directories:
 
 ```bash
-grep -n "run_name\|output_dir" configs/synthetic.yaml
-
-for f in data/runs/*/raw/*.jsonl; do
-  echo "$f $(wc -l < "$f")"
-done
+python bootstrap_dirs.py
 ```
 
-Continue with a specific signal:
+Generate all signals:
+
+```bash
+make generate
+```
+
+Generate one signal:
 
 ```bash
 make generate SIGNAL=educational_qa_mcq
 ```
 
-If a signal needs to be rerun cleanly, remove only that signal file:
-
-```bash
-rm -f data/runs/<run_id>/raw/arithmetic.jsonl
-rm -f data/runs/<run_id>/rejected/arithmetic.jsonl
-make generate SIGNAL=arithmetic
-```
-
----
-
-## Deduplication policy
-
-Synthetic data intentionally shares structure. Fuzzy deduplication can remove useful variation.
-
-Default policy:
-
-```text
-Use exact deduplication for synthetic data.
-Do not enable fuzzy MinHash deduplication unless running an explicit experiment.
-```
-
-Recommended thresholds before scaling:
-
-| Metric | Target |
-|---|---:|
-| Bad JSON | `0` |
-| Rejected batches | near `0` |
-| Overall exact duplicate rate | under `5%` |
-| Validation rejection rate | under `1%` |
-| Dedup retention | above `95%` |
-
-Check duplicate rates:
+Report exact duplicates:
 
 ```bash
 python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
-python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage validated
-python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage deduped
 ```
 
----
-
-## Dataset format
-
-Each JSONL file contains one JSON object per line. All records include a `type` field.
-
-Example arithmetic record:
-
-```json
-{
-  "type": "arithmetic",
-  "question": "A box has 18 red marbles and 27 blue marbles. How many marbles are there in total?",
-  "steps": ["Add the red and blue marbles.", "18 + 27 = 45"],
-  "answer": "45"
-}
-```
-
-Example MCQ record:
-
-```json
-{
-  "type": "educational_qa_mcq",
-  "question": "A student measures the temperature of water before and after heating it. Which variable is being observed?",
-  "choices": ["The color of the cup", "The water temperature", "The room size", "The clock time"],
-  "correct_index": 1,
-  "explanation": "The observed variable is the water temperature because it is measured before and after heating."
-}
-```
-
----
-
-## Hugging Face publishing
-
-Configure the repository target:
+Validate:
 
 ```bash
-make configure PROFILE=balanced TOKENS=5000000 HF_REPO=tohio/slm-synthetic
+make validate
 ```
 
-Then push:
+Deduplicate:
+
+```bash
+make dedup
+```
+
+Push to Hugging Face:
 
 ```bash
 make push
 ```
 
-The push stage loads credentials from `.env`, writes a dataset card to:
+See the full command reference:
 
-```text
-data/runs/<run_id>/manifests/README.md
-```
-
-and uploads the card as the repository `README.md`.
+- [Command reference](docs/COMMANDS.md)
 
 ---
 
-## Development checks
+## Pipeline Outputs
 
-Compile key files:
+Each run writes to:
 
-```bash
-python -m py_compile   bootstrap_dirs.py   configs/configure_synthetic.py   slm_synth/*.py   slm_synth/sources/*.py   prompts/*.py
+```text
+data/runs/<run_name>/
 ```
 
-Run tests:
+Stages:
+
+```text
+raw/        generated JSONL records
+validated/  schema-valid records
+deduped/    exact-deduped records for downstream use
+rejected/   rejected records and failed batches
+manifests/  generated metadata, including Hugging Face dataset card
+```
+
+---
+
+## Dataset Format
+
+The pipeline writes one JSON object per line.
+
+Example `arithmetic` record:
+
+```json
+{
+  "type": "arithmetic",
+  "question": "A box has 12 red pens and 9 blue pens. How many pens are in the box?",
+  "steps": ["Add 12 and 9.", "12 + 9 = 21."],
+  "answer": "21"
+}
+```
+
+Each signal has its own schema. See:
+
+- [Prompt documentation](prompts/README.md)
+- [Package documentation](slm_synth/README.md)
+
+---
+
+## Deduplication Policy
+
+Synthetic data uses exact deduplication by default:
+
+```yaml
+dedup:
+  mode: "exact"
+  enable_exact: true
+  enable_fuzzy: false
+  fuzzy_enabled: false
+```
+
+Fuzzy MinHash deduplication is intentionally disabled for synthetic data because useful examples can share structure, schemas, and wording patterns. Use fuzzy dedup only for explicit experiments.
+
+---
+
+## Hugging Face Publishing
+
+`make push` uploads:
+
+- deduped JSONL files
+- generated dataset card as `README.md`
+
+The Hugging Face repo target is configured in `configs/synthetic.yaml`:
+
+```yaml
+export:
+  push_to_hf: true
+  hf_repo: "tohio/slm-synthetic"
+  private: false
+```
+
+The push stage loads credentials from `.env` using either:
+
+```text
+HF_TOKEN=...
+```
+
+or:
+
+```text
+HUGGINGFACE_HUB_TOKEN=...
+```
+
+---
+
+## Resume After Interruption
+
+If a run is interrupted, do not delete `data/` unless you intend to start over.
+
+Inspect current counts:
+
+```bash
+for f in data/runs/*/raw/*.jsonl; do
+  echo "$f $(wc -l < "$f")"
+done
+```
+
+Resume an unfinished signal:
+
+```bash
+make generate SIGNAL=task_code
+```
+
+If a signal file is partial and you want a clean rerun for that signal:
+
+```bash
+rm -f data/runs/<run_name>/raw/task_code.jsonl
+rm -f data/runs/<run_name>/rejected/task_code.jsonl
+make generate SIGNAL=task_code
+```
+
+---
+
+## Testing
+
+Install test tools if needed:
+
+```bash
+pip install pytest
+```
+
+Run all tests:
+
+```bash
+make test
+```
+
+or:
 
 ```bash
 python -m pytest -q
@@ -436,56 +425,36 @@ python -m pytest -q
 
 See:
 
-```text
-tests/README.md
-```
+- [Test guide](tests/README.md)
 
 ---
 
-## Troubleshooting
+## Key Decisions
 
-### `make: python: No such file or directory`
+- **Use JSON objects, not top-level arrays.** Models are instructed to return `{"items": [...]}` because it works better with JSON object mode and batched generation.
+- **Support only validated Groq Llama models for production runs.** The backend is configurable, but the pipeline depends on reliable schema-following behavior.
+- **Use `llama-3.1-8b-instant` as the default bulk generator.** It is the recommended model for scalable synthetic generation.
+- **Use `llama-3.3-70b-versatile` for quality-focused runs.** It is slower and more expensive, so it is better suited for smaller runs, audits, or comparisons.
+- **Scale with moderate batch size plus concurrency.** `BATCH=4` with controlled concurrency is preferred over very large batches.
+- **Use exact deduplication for synthetic data.** Fuzzy MinHash deduplication is disabled by default because synthetic examples intentionally share schemas and patterns.
+- **Measure duplicate rate before scaling.** High exact duplicate rates indicate a generation-diversity issue and should be fixed before large runs.
+- **Keep generated data out of git.** `data/` contains run outputs and should not be committed.
 
-Activate the virtual environment:
-
-```bash
-source .venv/bin/activate || source venv/bin/activate
-which python
-```
-
-### Generation appears to hang when piped through `tee`
-
-Use unbuffered Python:
-
-```bash
-export PYTHONUNBUFFERED=1
-make generate
-```
-
-### Groq Flex capacity errors
-
-The generator includes exponential backoff and jitter for temporary capacity errors. If rejected batches climb, reduce concurrency:
-
-```bash
-make configure PROFILE=balanced TOKENS=50000000 BATCH=4 CONCURRENCY=6 SERVICE_TIER=flex
-```
-
-### Unsupported model warning
-
-Only two Groq models are currently validated. The warning is non-blocking, but production runs should use a validated model.
 
 ---
 
 ## Documentation
 
-- [Command reference](docs/COMMANDS.md) — common `make` targets, pipeline commands, resume workflows, and troubleshooting commands.
-- [Disk setup](docs/DISK_SETUP.md) — storage layout and disk preparation for larger synthetic-data runs.
-- [Configuration guide](configs/README.md) — profiles, model settings, output paths, and Hugging Face settings.
-- [Prompt guide](prompts/README.md) — signal prompts, JSON output contract, and diversity controls.
-- [Package guide](slm_synth/README.md) — internal module layout and developer notes.
-- [Test guide](tests/README.md) — offline checks, live smoke tests, and validation expectations.
-- [Project docs](docs/README.md) — documentation index.
+- [Command reference](docs/COMMANDS.md)
+- [Disk setup](docs/DISK_SETUP.md)
+- [Docs index](docs/README.md)
+- [Configuration guide](configs/README.md)
+- [Prompt guide](prompts/README.md)
+- [Package guide](slm_synth/README.md)
+- [Test guide](tests/README.md)
+
+---
 
 ## License
 
-TBD.
+MIT
