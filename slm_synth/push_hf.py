@@ -100,7 +100,7 @@ def get_export_config(cfg: dict[str, Any]) -> tuple[str, bool, str]:
 
 
 def dataset_card_yaml(signal: str, license_name: str) -> str:
-    tags = ["synthetic", "llm", "instruction-tuning", "reasoning"]
+    tags = ["synthetic", "llm", "pretraining", "reasoning"]
     if signal == "task_code":
         tags.append("code")
     if signal == "educational_qa_mcq":
@@ -168,7 +168,7 @@ The uploaded split is exact-deduplicated. Fuzzy MinHash deduplication is not use
 
 ## Intended Use
 
-This dataset is intended for SLM data experiments, pretraining/post-training mixtures, instruction tuning, and behavior evaluation.
+This dataset is intended for SLM data experiments, pretraining/continued-pretraining mixtures, pretraining, and behavior evaluation.
 
 ## Limitations
 

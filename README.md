@@ -1,9 +1,9 @@
 # SLM Synthetic Data
 
-Synthetic data generation pipeline for the SLM project.
+This repository generates synthetic data signals that can be mixed into the training corpus for small language model pretraining and continued-pretraining.
 
 This repository generates structured JSONL datasets for pretraining and
-post-training data experiments. It focuses on reproducible synthetic signal
+continued-pretraining data experiments. It focuses on reproducible synthetic signal
 generation, schema validation, exact deduplication, duplicate reporting, and
 Hugging Face dataset publishing.
 
