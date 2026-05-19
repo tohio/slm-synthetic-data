@@ -10,3 +10,7 @@ Start with the root `README.md` for usage instructions. Additional docs in this 
 |---|---|
 | `TODO.md` | Maintainer task list and future improvements. |
 | `architecture.png` | Optional architecture diagram. |
+
+## References
+
+- [Command reference](COMMANDS.md)
