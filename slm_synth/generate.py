@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 from slm_synth.diversity import build_diversity_context
 from slm_synth.llm import LLMBackend
-from slm_synth.model_support import warn_if_unsupported_models
+from slm_synth.model_support import warn_if_unsupported_model
 from slm_synth.rate_limit import RateLimiter
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
@@ -251,7 +251,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
 
 def main(config_path: str, signal_override: Optional[str] = None) -> None:
     cfg = yaml.safe_load(Path(config_path).read_text())
-    warn_if_unsupported_models(cfg, context="generate")
+    warn_if_unsupported_model(cfg, context="generate")
 
     output_dir = _expand_path(cfg["output_dir"])
     (output_dir / "raw").mkdir(parents=True, exist_ok=True)
