@@ -46,6 +46,8 @@ Disallowed task topics:
 - shell commands
 - extracting emails, phone numbers, or numeric patterns from text
 - tasks that require pattern matching syntax
+- custom classes
+- custom exceptions
 
 Rules for the "code" field:
 - Use Python only.
@@ -57,6 +59,18 @@ Rules for the "code" field:
 - Use varied function names and varied problem statements.
 - The code must be a complete, valid Python 3 snippet.
 - The code must pass `ast.parse(code)` with no `SyntaxError` and no `SyntaxWarning`.
+
+Function-only code requirements:
+- Return only function definitions and helper logic needed by those functions.
+- Do NOT include `print(...)` calls.
+- Do NOT include example calls.
+- Do NOT include `if __name__ == "__main__":`.
+- Do NOT include top-level executable statements.
+- Do NOT use f-strings.
+- Do NOT generate classes.
+- Do NOT raise custom exceptions.
+- Prefer one complete function per record.
+- A small helper function is allowed only when it is necessary.
 
 JSON and newline rules:
 - The response must be valid JSON.
@@ -112,7 +126,7 @@ Task diversity requirements:
 - Use varied domains such as inventory, grades, tags, usernames, product IDs, scores, categories, logs, labels, short messages, shopping carts, classroom records, and simple metrics.
 - For each item in a batch, use a different task family and a different sample input shape.
 - Prefer task names that describe a realistic small utility, such as "Summarize product counts", "Select passing grades", or "Group labels by prefix".
-- Avoid using the same list values, dictionary keys, or printed examples repeatedly.
+- Avoid using the same list values, dictionary keys, or examples repeatedly.
 - Avoid code that only wraps a single built-in call unless the task includes a small transformation, validation, or grouping step.
 
 Bad output pattern to avoid:
@@ -129,7 +143,7 @@ Correct output pattern:
   "type": "task_code",
   "task": "Summarize product counts",
   "plan": ["Define a function", "Count each product label", "Return the frequency dictionary"],
-  "code": "def summarize_products(products):\n    counts = {}\n    for product in products:\n        counts[product] = counts.get(product, 0) + 1\n    return counts\n\nprint(summarize_products(['pen', 'book', 'pen']))"
+  "code": "def summarize_products(products):\n    counts = {}\n    for product in products:\n        counts[product] = counts.get(product, 0) + 1\n    return counts"
 }
 """
 
@@ -141,5 +155,5 @@ def build_task_code_prompt() -> str:
         batch_size=1,
         schema=TASK_CODE_SCHEMA,
         task_instruction=TASK_CODE_TASK,
-        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Avoid regex, file I/O, CSV parsing, repeated generic task names, and malformed function signatures.",
+        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Generate function-only code. Avoid print calls, regex, file I/O, CSV parsing, repeated generic task names, and malformed function signatures.",
     )
