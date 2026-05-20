@@ -30,11 +30,10 @@ Allowed task families include:
 - filtering values
 - loops and conditionals
 - basic math helper functions
-- string cleanup without regular expressions
+- simple string casing and splitting without regular expressions
 - grouping items by key
 - frequency tables
 - nested lists
-- simple error handling without file I/O
 
 Disallowed task topics:
 - regular expressions
@@ -44,10 +43,16 @@ Disallowed task topics:
 - external packages
 - multiline string parsing
 - shell commands
-- extracting emails, phone numbers, or numeric patterns from text
+- extracting emails, phone numbers, dates, or numeric patterns from text
+- phone number formatting
+- date parsing or date formatting
+- punctuation removal or punctuation replacement
+- quote-heavy string constants
 - tasks that require pattern matching syntax
 - custom classes
 - custom exceptions
+- simple error handling
+- input validation that raises exceptions
 
 Rules for the "code" field:
 - Use Python only.
@@ -61,16 +66,20 @@ Rules for the "code" field:
 - The code must pass `ast.parse(code)` with no `SyntaxError` and no `SyntaxWarning`.
 
 Function-only code requirements:
-- Return only function definitions and helper logic needed by those functions.
+- Generate exactly one function definition per record.
+- Do NOT generate helper functions.
+- Do NOT generate wrapper functions.
 - Do NOT include `print(...)` calls.
 - Do NOT include example calls.
 - Do NOT include `if __name__ == "__main__":`.
 - Do NOT include top-level executable statements.
 - Do NOT use f-strings.
+- Do NOT use `format(...)`.
 - Do NOT generate classes.
-- Do NOT raise custom exceptions.
-- Prefer one complete function per record.
-- A small helper function is allowed only when it is necessary.
+- Do NOT raise exceptions.
+- Do NOT use `try` or `except`.
+- Do NOT import anything.
+- Return only the single function definition.
 
 JSON and newline rules:
 - The response must be valid JSON.
@@ -96,14 +105,14 @@ Additional strict generation rules for task_code:
 - Do NOT generate partial code.
 - Do NOT generate truncated code.
 - Do NOT include prose inside the `code` field.
-- Do NOT import `re`.
-- Do NOT generate regex tasks.
+- Do NOT use regex tasks.
 - Do NOT use regex escapes such as `\d`, `\s`, `\w`, or `\b`.
 - Do NOT use invalid string escapes such as `\d`, `\s`, `\w`, `\.`, or `\/`.
 - Do NOT use CSV parsing tasks.
 - Do NOT use file I/O tasks.
 - Do NOT use external packages.
 - Do NOT include string literals that contain embedded real newlines.
+- Do NOT include punctuation tables such as strings containing many punctuation symbols.
 - If sample input needs multiple values, use Python lists, dictionaries, or simple one-line strings.
 - Prefer simple list, dictionary, string, sorting, counting, filtering, grouping, and numeric helper functions.
 - Avoid duplicate tasks within a batch.
@@ -160,5 +169,5 @@ def build_task_code_prompt() -> str:
         batch_size=1,
         schema=TASK_CODE_SCHEMA,
         task_instruction=TASK_CODE_TASK,
-        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Generate function-only code. Avoid print calls, regex, file I/O, CSV parsing, repeated generic task names, copied examples, and malformed function signatures.",
+        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Generate exactly one function only. Avoid print calls, imports, helper functions, f-strings, exceptions, regex, file I/O, CSV parsing, date or phone formatting, punctuation tables, repeated generic task names, copied examples, and malformed function signatures.",
     )
