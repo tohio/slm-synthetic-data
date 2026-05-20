@@ -92,14 +92,13 @@ generate:
 > $(PYTHON) -m slm_synth.generate --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
 validate:
-> $(PYTHON) -m slm_synth.validate --config $(CONFIG_FILE)
+> $(PYTHON) -m slm_synth.validate --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
 dedup:
-> $(PYTHON) -m slm_synth.dedup --config $(CONFIG_FILE)
+> $(PYTHON) -m slm_synth.dedup --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
 push:
-	python -m slm_synth.push_hf --config configs/synthetic.yaml $(if $(SIGNAL),--signal $(SIGNAL),) $(if $(SIGNAL),--signal $(SIGNAL),)
-> $(PYTHON) -m slm_synth.push_hf --config $(CONFIG_FILE)
+> $(PYTHON) -m slm_synth.push_hf --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
 all: generate validate dedup push
 
