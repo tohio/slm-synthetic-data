@@ -103,6 +103,42 @@ def sanitize_service_tier(value: str) -> str:
     return value
 
 
+
+
+def resolve_hf_repo_from_dotenv() -> str:
+    """Resolve the base Hugging Face dataset repo from .env.
+
+    Supported .env forms:
+      HF_USERNAME=tohio
+      HF_REPO=slm-synthetic
+
+    or:
+      HF_REPO=tohio/slm-synthetic
+
+    The generated config stores the fully-qualified repo id, e.g.
+      tohio/slm-synthetic
+    """
+    load_dotenv()
+    hf_username = os.getenv("HF_USERNAME", "").strip()
+    hf_repo = os.getenv("HF_REPO", "").strip()
+
+    if hf_repo and "/" in hf_repo:
+        return hf_repo
+
+    if hf_username and hf_repo:
+        return f"{hf_username}/{hf_repo}"
+
+    if hf_repo:
+        raise ValueError(
+            "HF_REPO is set without HF_USERNAME. Set HF_USERNAME in .env "
+            "or set HF_REPO to a fully-qualified repo id like 'tohio/slm-synthetic'."
+        )
+
+    raise ValueError(
+        "Missing Hugging Face repo settings. Set HF_USERNAME and HF_REPO in .env, "
+        "or set HF_REPO to a fully-qualified repo id like 'tohio/slm-synthetic'."
+    )
+
 # ---------------------------------------------------------
 # Main
 # ---------------------------------------------------------
@@ -112,12 +148,14 @@ def main():
     parser.add_argument("--model", default=None)
     parser.add_argument("--tokens", required=True, type=int)
     parser.add_argument("--run", default=None)
-    parser.add_argument("--hf_repo", default="user/repo")
+    parser.add_argument("--hf_repo", default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--concurrency", type=int, default=None)
     parser.add_argument("--service-tier", default=None, choices=["auto", "default", "flex"])
     parser.add_argument("--skip-model-check", action="store_true")
     args = parser.parse_args()
+
+    resolved_hf_repo = args.hf_repo or resolve_hf_repo_from_dotenv()
 
     preset = PROFILES[args.profile]
 
@@ -162,7 +200,7 @@ def main():
         .replace("__SERVICE_TIER__", service_tier)
         .replace("__AVG_TOKENS_PER_SAMPLE__", str(preset["avg_tokens_per_sample"]))
         .replace("__BATCH_SIZE__", str(global_batch_size))
-        .replace("__HF_REPO__", args.hf_repo)
+        .replace("__HF_REPO__", resolved_hf_repo)
     )
 
     replacements = {
@@ -182,6 +220,7 @@ def main():
     print(f"Generated unified config at {OUTPUT_PATH}")
     print(f"run_name={run_name}")
     print(f"model={model_name} service_tier={service_tier} concurrency={concurrency}")
+    print(f"hf_repo={resolved_hf_repo}")
 
 
 if __name__ == "__main__":
