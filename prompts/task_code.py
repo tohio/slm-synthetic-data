@@ -22,7 +22,7 @@ Each item must have:
 - "plan": 2 to 4 short solution steps
 - "code": a short Python code snippet solving the task
 
-Allowed task topics include:
+Allowed task families include:
 - list aggregation
 - dictionary counting
 - set uniqueness
@@ -97,27 +97,23 @@ Additional strict generation rules for task_code:
 
 Function definition rules:
 - Every function definition must have a complete signature with a closing parenthesis and colon.
-- Good: `def count_items(items):`
-- Good: `def merge_dicts(a, b):`
-- Good: `def filter_even_numbers(numbers):`
-- Bad: `def count_items(items:`
-- Bad: `def merge_dicts(a, b:`
-- Bad: `def filter_even_numbers(numbers:`
+- Good: `def summarize_scores(scores):`
+- Good: `def combine_inventory(current, incoming):`
+- Good: `def select_active_users(users):`
+- Bad: `def summarize_scores(scores:`
+- Bad: `def combine_inventory(current, incoming:`
+- Bad: `def select_active_users(users:`
 
-Preferred task examples:
-- Count items in a list.
-- Count word frequencies using `text.split()`.
-- Remove duplicates from a list.
-- Sort numbers or strings.
-- Filter even numbers.
-- Find maximum or minimum values.
-- Merge two dictionaries.
-- Invert a dictionary.
-- Group strings by first letter.
-- Count character frequencies.
-- Compute an average from a list of numbers.
-- Flatten a nested list.
-- Check whether all numbers are positive.
+Task diversity requirements:
+- Do not copy task names, function names, sample inputs, or code patterns from these instructions.
+- Do not repeatedly generate generic tasks named `count_items`, `remove_duplicates`, `merge_dicts`, or `filter_even_numbers`.
+- Vary function names, input variable names, sample values, and data shapes.
+- Prefer domain-flavored beginner examples over generic examples.
+- Use varied domains such as inventory, grades, tags, usernames, product IDs, scores, categories, logs, labels, short messages, shopping carts, classroom records, and simple metrics.
+- For each item in a batch, use a different task family and a different sample input shape.
+- Prefer task names that describe a realistic small utility, such as "Summarize product counts", "Select passing grades", or "Group labels by prefix".
+- Avoid using the same list values, dictionary keys, or printed examples repeatedly.
+- Avoid code that only wraps a single built-in call unless the task includes a small transformation, validation, or grouping step.
 
 Bad output pattern to avoid:
 {
@@ -131,9 +127,9 @@ Bad output pattern to avoid:
 Correct output pattern:
 {
   "type": "task_code",
-  "task": "Count words in a sentence",
-  "plan": ["Define a function", "Split the sentence", "Return the number of words"],
-  "code": "def count_words(text):\n    return len(text.split())\n\nprint(count_words('hello world'))"
+  "task": "Summarize product counts",
+  "plan": ["Define a function", "Count each product label", "Return the frequency dictionary"],
+  "code": "def summarize_products(products):\n    counts = {}\n    for product in products:\n        counts[product] = counts.get(product, 0) + 1\n    return counts\n\nprint(summarize_products(['pen', 'book', 'pen']))"
 }
 """
 
@@ -145,5 +141,5 @@ def build_task_code_prompt() -> str:
         batch_size=1,
         schema=TASK_CODE_SCHEMA,
         task_instruction=TASK_CODE_TASK,
-        diversity_context="Use a varied beginner Python topic, implementation pattern, and constraint. Avoid regex, file I/O, CSV parsing, and malformed function signatures.",
+        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Avoid regex, file I/O, CSV parsing, repeated generic task names, and malformed function signatures.",
     )
