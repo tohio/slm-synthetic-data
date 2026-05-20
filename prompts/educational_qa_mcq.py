@@ -61,6 +61,15 @@ Good example styles:
 - "A tiny table shows Monday: 8, Tuesday: 12, Wednesday: 10. Which statement best describes the change?"
 - "A Python loop stops when x is no longer less than 5. Which condition caused the loop to end?"
 - "A plant in a classroom experiment receives less light than another plant. Which explanation best fits the observation?"
+
+Additional generation requirements for MCQ quality:
+- Each item must have exactly four non-empty choices.
+- correct_index must be an integer from 0 to 3 and must point to the correct choice.
+- Do not include empty-string choices, null choices, duplicate choices, or extra top-level keys.
+- Vary subjects across the batch: math, science, history, geography, reading comprehension, basic computing, health, economics, and practical reasoning.
+- Vary question formats: scenario, short passage, diagram description, compare/contrast, missing step, cause/effect, and application question.
+- Explanations must justify why the indexed choice is correct.
+- Do not use generic repeated toy examples or repeat the same stem pattern within a batch.
 """
 
 # Backward-compatible alias for older imports. This is the task text, not schema.

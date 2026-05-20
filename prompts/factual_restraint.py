@@ -67,7 +67,17 @@ Quality requirements:
 - The safe answer should be cautious but helpful.
 - Avoid repetitive phrasing across items in the same batch.
 - Avoid moralizing or unnecessary disclaimers.
-- Use plain language."""
+- Use plain language.
+
+Additional generation requirements for factual-restraint diversity:
+- Avoid generic repeated safe answers such as only "It depends" or "I don't know".
+- The safe_answer must be specific to the question and explain what information is missing or why certainty is not appropriate.
+- Vary uncertainty categories across the batch: missing context, unverifiable claim, future event, private/secret information, fictional premise, ambiguous wording, disputed estimate, unsupported causal claim, and insufficient data.
+- Vary domains across the batch: science, medicine, history, finance, technology, geography, law, sports, entertainment, personal claims, and hypothetical worlds.
+- Do not repeat the same question template, same answer sentence, or same uncertainty category within a batch.
+- The answer should be cautious but useful; it may state what would be needed to answer reliably.
+- Do not fabricate facts, numbers, sources, citations, names, or dates.
+"""
 
 
 def build_factual_restraint_prompt() -> str:

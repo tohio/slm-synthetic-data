@@ -48,6 +48,16 @@ Rules for "code":
 - JSON must escape newline characters correctly inside the code string.
 - Avoid overused tasks such as rectangle area, palindrome, factorial, Fibonacci, and prime checks.
 - Use varied function names and varied problem statements.
+
+Additional generation requirements for clean Python code:
+- Produce valid Python 3 code that passes ast.parse without SyntaxError or SyntaxWarning.
+- Use real newline characters in the code string content; do not output literal escaped "\\n" or "\\t" sequences as formatting.
+- If regular expressions are needed, use raw strings such as r"\\d+", r"\\s+", or r"[A-Za-z]+".
+- Do not use invalid string escapes such as "\\d", "\\s", "\\w", or "\\." inside normal quoted strings.
+- Do not generate partial code, truncated code, markdown fences, shell commands, or prose inside the code field.
+- Prefer small self-contained functions with clear names, simple inputs, and optional tiny examples.
+- Avoid duplicate tasks within a batch. Vary task domains: strings, lists, dictionaries, files-as-strings, parsing, validation, counting, sorting, filtering, simple math, dates-as-strings, and CSV-like text.
+- The plan must describe the code that is actually returned.
 """
 
 

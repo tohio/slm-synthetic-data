@@ -55,7 +55,21 @@ Quality requirements:
 - The calculation must be correct.
 - The answer must match the final step.
 - The problem should be clear without external context.
-- Use concise natural language."""
+- Use concise natural language.
+
+Additional generation requirements for diversity and scale:
+- Keep arithmetic LLM-generated, but avoid template collapse.
+- Vary problem type across the batch: one-step arithmetic, two-step arithmetic, missing operand, compare two expressions, order values, word problem, unit/rate/money/inventory scenario.
+- Vary operation families across the batch: addition, subtraction, multiplication, integer division, and mixed operations.
+- Vary number ranges across the batch: small integers, two-digit integers, three-digit integers, and occasional four-digit totals when appropriate.
+- Do not repeat the same operands, same question stem, same operation pattern, or same answer within a batch.
+- Prefer concrete contexts when using word problems: inventory, distance, rate, schedules, money, classroom counts, packages, tickets, measurements, or simple resource planning.
+- For missing-operand examples, make the missing value clear and ensure the answer is the missing operand.
+- For comparison/order examples, the answer should be the selected value/expression, not a long explanation.
+- Steps must be compact and faithful to the calculation.
+- Answers must be exact integer strings.
+- Do not include fractions, decimals, remainders, algebra variables beyond a single missing value, or ambiguous wording.
+"""
 
 
 def build_arithmetic_prompt() -> str:
