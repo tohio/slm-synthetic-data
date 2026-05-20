@@ -15,7 +15,7 @@ TASK_CODE_SCHEMA = r"""
 }
 """
 
-TASK_CODE_TASK = """Generate independent beginner Python programming task records.
+TASK_CODE_TASK = r"""Generate independent beginner Python programming task records.
 
 Each item must have:
 - "type": "task_code"
