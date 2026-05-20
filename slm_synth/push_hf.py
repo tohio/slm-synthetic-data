@@ -236,7 +236,7 @@ def push_signal_repo(
             repo_type="dataset",
         )
 
-    print(f"[push_hf] uploading {file_path} -> {repo_id}/{file_path.name}")
+    print(f"[push_hf] uploading {file_path} -> {repo_id}/train.jsonl")
     api.upload_file(
         path_or_fileobj=str(file_path),
         path_in_repo="train.jsonl",
