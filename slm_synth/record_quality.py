@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import warnings
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +46,26 @@ def normalize_code(code: str) -> str:
         code = code.replace("\\n", "\n")
     code = code.replace("\\t", "\t")
     return code.strip()
+
+
+def parse_python_code_cleanly(code: str) -> tuple[bool, str | None]:
+    """Return whether generated Python code parses without SyntaxError or SyntaxWarning.
+
+    SyntaxWarning is treated as invalid for the published task_code signal so
+    warning-producing code, such as non-raw regex strings with invalid escape
+    sequences, is not exported.
+    """
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", SyntaxWarning)
+            ast.parse(code)
+
+        if any(issubclass(w.category, SyntaxWarning) for w in caught):
+            return False, "task_code_syntax_warning"
+
+        return True, None
+    except SyntaxError as exc:
+        return False, f"task_code_syntax_error:{exc.msg}"
 
 
 @dataclass
@@ -111,10 +132,9 @@ def validate_task_code(row: dict[str, Any], *, require_syntax: bool = True) -> V
         normalized_code = normalize_code(row["code"])
 
     if require_syntax and normalized_code:
-        try:
-            ast.parse(normalized_code)
-        except SyntaxError as exc:
-            issues.append(f"task_code_syntax_error:{exc.msg}")
+        syntax_ok, syntax_issue = parse_python_code_cleanly(normalized_code)
+        if not syntax_ok and syntax_issue:
+            issues.append(syntax_issue)
 
     if issues:
         return ValidationResult(False, None, issues)
