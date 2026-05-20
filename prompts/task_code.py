@@ -121,11 +121,13 @@ Function definition rules:
 Task diversity requirements:
 - Do not copy task names, function names, sample inputs, or code patterns from these instructions.
 - Do not repeatedly generate generic tasks named `count_items`, `remove_duplicates`, `merge_dicts`, or `filter_even_numbers`.
+- Do not generate `summarize_products`, `count_items`, `remove_duplicates`, `merge_dicts`, `filter_active_users`, `find_max_value`, `sort_grades`, or `word_frequency`.
+- Do not reuse the same function body with only minor changes to the task or plan.
 - Vary function names, input variable names, sample values, and data shapes.
 - Prefer domain-flavored beginner examples over generic examples.
 - Use varied domains such as inventory, grades, tags, usernames, product IDs, scores, categories, logs, labels, short messages, shopping carts, classroom records, and simple metrics.
 - For each item in a batch, use a different task family and a different sample input shape.
-- Prefer task names that describe a realistic small utility, such as "Summarize product counts", "Select passing grades", or "Group labels by prefix".
+- Prefer task names that describe a realistic small utility without copying names from this prompt.
 - Avoid using the same list values, dictionary keys, or examples repeatedly.
 - Avoid code that only wraps a single built-in call unless the task includes a small transformation, validation, or grouping step.
 
@@ -141,10 +143,13 @@ Bad output pattern to avoid:
 Correct output pattern:
 {
   "type": "task_code",
-  "task": "Summarize product counts",
-  "plan": ["Define a function", "Count each product label", "Return the frequency dictionary"],
-  "code": "def summarize_products(products):\n    counts = {}\n    for product in products:\n        counts[product] = counts.get(product, 0) + 1\n    return counts"
+  "task": "<short realistic beginner utility task>",
+  "plan": ["<short step>", "<short step>", "<short step>"],
+  "code": "<one complete Python function definition only>"
 }
+
+Do not copy placeholder text from the correct output pattern.
+Do not copy task names, function names, variable names, sample inputs, or code structure from examples in this prompt.
 """
 
 
@@ -155,5 +160,5 @@ def build_task_code_prompt() -> str:
         batch_size=1,
         schema=TASK_CODE_SCHEMA,
         task_instruction=TASK_CODE_TASK,
-        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Generate function-only code. Avoid print calls, regex, file I/O, CSV parsing, repeated generic task names, and malformed function signatures.",
+        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Generate function-only code. Avoid print calls, regex, file I/O, CSV parsing, repeated generic task names, copied examples, and malformed function signatures.",
     )
