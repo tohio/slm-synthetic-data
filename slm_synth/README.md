@@ -10,14 +10,14 @@ This package implements the synthetic data pipeline.
 | `llm.py` | Groq/OpenAI-compatible chat backend wrapper with JSON object mode and retry handling. |
 | `rate_limit.py` | Request pacing and jitter helpers. |
 | `diversity.py` | Per-batch diversity context generation. |
-| `validate.py` | Schema validation from `raw/` to `validated/`. |
+| `validate.py` | Schema and signal-specific validation from `raw/` to `validated/`; math MCQs receive numeric verification. |
 | `dedup.py` | Exact deduplication from `validated/` to `deduped/`. |
 | `report_duplicates.py` | Duplicate and bad-JSON reporting for pipeline stages. |
 | `push_hf.py` | Hugging Face upload and dataset-card generation. |
 | `paths.py` | Shared config loading and output-path resolution. |
 | `model_support.py` | Lightweight supported-model warning helper. |
 | `schemas.py` | Signal schema validators. |
-| `repair.py` | Lightweight record repair/normalization helpers. |
+| `repair.py` | Lightweight record normalization helpers; MCQ answer keys are not invented during repair. |
 | `writer.py` | JSONL writer utility. |
 
 ## Pipeline stages
@@ -41,5 +41,7 @@ The package is validated with:
 If another model is configured, generation prints a warning but continues. This is intentional: the supported path is explicit, while experiments remain possible.
 
 ## Dedup behavior
+
+The package generates five signals, including separate `educational_qa_mcq_math` and `educational_qa_mcq_general` outputs. Math MCQs use temporary raw-stage verification fields that are removed during validation; general MCQs remain non-math and context-grounded.
 
 Synthetic data uses exact deduplication by default. Fuzzy deduplication is not recommended for these signals because it can collapse useful template-like variation.

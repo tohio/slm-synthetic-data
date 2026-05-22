@@ -12,7 +12,8 @@ from typing import Any, Iterable
 EXPECTED_KEYS: dict[str, set[str]] = {
     "arithmetic": {"type", "question", "steps", "answer"},
     "task_code": {"type", "task", "plan", "code"},
-    "educational_qa_mcq": {"type", "question", "choices", "correct_index", "explanation"},
+    "educational_qa_mcq_math": {"type", "question", "choices", "correct_index", "explanation"},
+    "educational_qa_mcq_general": {"type", "question", "choices", "correct_index", "explanation"},
     "factual_restraint": {"type", "question", "safe_answer"},
 }
 
@@ -21,7 +22,8 @@ MCQ_VERIFICATION_KEYS = {"verification_expression", "verification_answer"}
 SIGNAL_FROM_FILE = {
     "arithmetic.jsonl": "arithmetic",
     "task_code.jsonl": "task_code",
-    "educational_qa_mcq.jsonl": "educational_qa_mcq",
+    "educational_qa_mcq_math.jsonl": "educational_qa_mcq_math",
+    "educational_qa_mcq_general.jsonl": "educational_qa_mcq_general",
     "factual_restraint.jsonl": "factual_restraint",
 }
 
@@ -53,10 +55,8 @@ def parse_python_code_cleanly(code: str) -> tuple[bool, str | None]:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", SyntaxWarning)
             ast.parse(code)
-
         if any(issubclass(w.category, SyntaxWarning) for w in caught):
             return False, "task_code_syntax_warning"
-
         return True, None
     except SyntaxError as exc:
         return False, f"task_code_syntax_error:{exc.msg}"
@@ -69,12 +69,7 @@ class ValidationResult:
     issues: list[str] = field(default_factory=list)
 
 
-def _validate_exact_keys(
-    signal: str,
-    row: dict[str, Any],
-    *,
-    extra_expected: set[str] | None = None,
-) -> list[str]:
+def _validate_exact_keys(signal: str, row: dict[str, Any], *, extra_expected: set[str] | None = None) -> list[str]:
     expected = set(EXPECTED_KEYS[signal])
     if extra_expected:
         expected.update(extra_expected)
@@ -97,23 +92,18 @@ def validate_arithmetic(row: dict[str, Any]) -> ValidationResult:
         issues.append("empty_question")
     if not isinstance(row.get("steps"), list) or not row.get("steps"):
         issues.append("bad_steps")
-    elif not all(isinstance(s, str) and s.strip() for s in row["steps"]):
+    elif not all(isinstance(step, str) and step.strip() for step in row["steps"]):
         issues.append("bad_steps")
     if not strip_text(row.get("answer")):
         issues.append("empty_answer")
-
     if issues:
         return ValidationResult(False, None, issues)
-    return ValidationResult(
-        True,
-        {
-            "type": "arithmetic",
-            "question": row["question"].strip(),
-            "steps": [s.strip() for s in row["steps"]],
-            "answer": row["answer"].strip(),
-        },
-        [],
-    )
+    return ValidationResult(True, {
+        "type": "arithmetic",
+        "question": row["question"].strip(),
+        "steps": [step.strip() for step in row["steps"]],
+        "answer": row["answer"].strip(),
+    }, [])
 
 
 def validate_task_code(row: dict[str, Any], *, require_syntax: bool = True) -> ValidationResult:
@@ -124,31 +114,64 @@ def validate_task_code(row: dict[str, Any], *, require_syntax: bool = True) -> V
         issues.append("empty_task")
     if not isinstance(row.get("plan"), list) or not row.get("plan"):
         issues.append("bad_plan")
-    elif not all(isinstance(s, str) and s.strip() for s in row["plan"]):
+    elif not all(isinstance(step, str) and step.strip() for step in row["plan"]):
         issues.append("bad_plan")
     if not isinstance(row.get("code"), str) or not row.get("code", "").strip():
         issues.append("empty_code")
         normalized_code = ""
     else:
         normalized_code = normalize_code(row["code"])
-
     if require_syntax and normalized_code:
         syntax_ok, syntax_issue = parse_python_code_cleanly(normalized_code)
         if not syntax_ok and syntax_issue:
             issues.append(syntax_issue)
-
     if issues:
         return ValidationResult(False, None, issues)
-    return ValidationResult(
-        True,
-        {
-            "type": "task_code",
-            "task": row["task"].strip(),
-            "plan": [s.strip() for s in row["plan"]],
-            "code": normalized_code,
-        },
-        [],
-    )
+    return ValidationResult(True, {
+        "type": "task_code",
+        "task": row["task"].strip(),
+        "plan": [step.strip() for step in row["plan"]],
+        "code": normalized_code,
+    }, [])
+
+
+def _validate_mcq_base(
+    signal: str,
+    row: dict[str, Any],
+    *,
+    extra_expected: set[str] | None = None,
+    validate_index: bool = True,
+) -> tuple[list[str], list[str] | None, int | None, str]:
+    issues = _validate_exact_keys(signal, row, extra_expected=extra_expected)
+    if row.get("type") != signal:
+        issues.append("bad_type")
+    if not strip_text(row.get("question")):
+        issues.append("empty_question")
+    choices = row.get("choices")
+    cleaned_choices: list[str] | None = None
+    if not isinstance(choices, list):
+        issues.append("bad_choices")
+    elif len(choices) != 4:
+        issues.append("choices_not_four")
+    elif not all(isinstance(choice, str) and choice.strip() for choice in choices):
+        issues.append("empty_choice")
+    else:
+        cleaned_choices = [choice.strip() for choice in choices]
+        if len({normalize_space(choice) for choice in cleaned_choices}) != 4:
+            issues.append("duplicate_choices")
+    idx = row.get("correct_index")
+    cleaned_index: int | None = None
+    if validate_index:
+        if isinstance(idx, bool) or not isinstance(idx, int):
+            issues.append("bad_correct_index_type")
+        elif not (0 <= idx < 4):
+            issues.append("correct_index_out_of_bounds")
+        else:
+            cleaned_index = idx
+    explanation = strip_text(row.get("explanation"))
+    if not explanation:
+        issues.append("empty_explanation")
+    return issues, cleaned_choices, cleaned_index, explanation
 
 
 def _parse_integer_text(value: Any) -> int | None:
@@ -167,7 +190,6 @@ def _eval_numeric_expression(expression: Any) -> Fraction | None:
     expression = expression.strip()
     if not expression or len(expression) > 120:
         return None
-
     try:
         tree = ast.parse(expression, mode="eval")
     except SyntaxError:
@@ -206,138 +228,67 @@ def _contains_integer(text: str, value: int) -> bool:
     return bool(re.search(pattern, text.replace(",", "")))
 
 
-def validate_educational_qa_mcq(
-    row: dict[str, Any],
-    *,
-    require_verification: bool = False,
-) -> ValidationResult:
-    issues = _validate_exact_keys(
-        "educational_qa_mcq",
+def validate_educational_qa_mcq_math(row: dict[str, Any], *, require_verification: bool = False) -> ValidationResult:
+    extra_expected = MCQ_VERIFICATION_KEYS if require_verification else None
+    issues, choices, supplied_index, explanation = _validate_mcq_base(
+        "educational_qa_mcq_math",
         row,
-        extra_expected=MCQ_VERIFICATION_KEYS if require_verification else None,
+        extra_expected=extra_expected,
+        validate_index=not require_verification,
     )
-    if row.get("type") != "educational_qa_mcq":
-        issues.append("bad_type")
-    if not strip_text(row.get("question")):
-        issues.append("empty_question")
-
-    choices = row.get("choices")
-    if not isinstance(choices, list):
-        issues.append("bad_choices")
-    elif len(choices) != 4:
-        issues.append("choices_not_four")
-    elif not all(isinstance(choice, str) and choice.strip() for choice in choices):
-        issues.append("empty_choice")
-    else:
-        normalized_choices = [normalize_space(choice) for choice in choices]
-        if len(set(normalized_choices)) != len(normalized_choices):
-            issues.append("duplicate_choices")
-
-    supplied_index = row.get("correct_index")
-    corrected_index: int | None = None
-
-    # For legacy/final MCQ rows without raw verification metadata, keep
-    # structural index validation exactly as before. For verified raw rows,
-    # the answer key is derived from the verified numeric answer below.
-    if not require_verification:
-        if isinstance(supplied_index, bool) or not isinstance(supplied_index, int):
-            issues.append("bad_correct_index_type")
-        elif isinstance(choices, list) and not (0 <= supplied_index < len(choices)):
-            issues.append("correct_index_out_of_bounds")
-        else:
-            corrected_index = supplied_index
-
-    explanation = strip_text(row.get("explanation"))
-    if not explanation:
-        issues.append("empty_explanation")
+    corrected_index = supplied_index
 
     if require_verification:
-        question = normalize_space(str(row.get("question", "")))
-        disallowed_stems = (
-            "what should happen next",
-            "best explanation",
-            "best describes",
-            "which statement is true",
-        )
-        if any(stem in question for stem in disallowed_stems):
-            issues.append("mcq_disallowed_ambiguous_stem")
-
         expression = strip_text(row.get("verification_expression"))
         verification_answer = _parse_integer_text(row.get("verification_answer"))
         computed = _eval_numeric_expression(expression)
-
         if not expression:
             issues.append("mcq_missing_verification_expression")
         elif computed is None:
             issues.append("mcq_invalid_verification_expression")
         elif computed.denominator != 1:
             issues.append("mcq_non_integer_verified_answer")
-
         if verification_answer is None:
             issues.append("mcq_bad_verification_answer")
-
-        if (
-            computed is not None
-            and computed.denominator == 1
-            and verification_answer is not None
-            and computed.numerator != verification_answer
-        ):
+        if computed is not None and computed.denominator == 1 and verification_answer is not None and computed.numerator != verification_answer:
             issues.append("mcq_verification_answer_mismatch")
-
-        if isinstance(choices, list) and len(choices) == 4:
+        if choices is not None:
             numeric_choices = [_parse_integer_text(choice) for choice in choices]
             if any(choice is None for choice in numeric_choices):
                 issues.append("mcq_non_integer_choice")
             elif verification_answer is not None:
-                matching_indices = [
-                    index
-                    for index, choice in enumerate(numeric_choices)
-                    if choice == verification_answer
-                ]
+                matching_indices = [index for index, choice in enumerate(numeric_choices) if choice == verification_answer]
                 if not matching_indices:
                     issues.append("mcq_verified_answer_missing_from_choices")
                 elif len(matching_indices) > 1:
                     issues.append("mcq_verified_answer_not_unique")
                 else:
-                    # Do not trust the model's supplied index. When the
-                    # verified answer appears exactly once, derive the
-                    # answer key from the machine-checked choice.
                     corrected_index = matching_indices[0]
-
         if verification_answer is not None and explanation and not _contains_integer(explanation, verification_answer):
             issues.append("mcq_explanation_missing_answer")
 
-        if corrected_index is None and not any(
-            issue in issues
-            for issue in (
-                "bad_choices",
-                "choices_not_four",
-                "empty_choice",
-                "mcq_non_integer_choice",
-                "mcq_bad_verification_answer",
-                "mcq_verified_answer_missing_from_choices",
-                "mcq_verified_answer_not_unique",
-            )
-        ):
-            issues.append("mcq_unable_to_derive_correct_index")
-
-    if issues:
+    if issues or choices is None or corrected_index is None:
         return ValidationResult(False, None, issues)
+    return ValidationResult(True, {
+        "type": "educational_qa_mcq_math",
+        "question": row["question"].strip(),
+        "choices": choices,
+        "correct_index": corrected_index,
+        "explanation": explanation,
+    }, [])
 
-    assert corrected_index is not None
 
-    # Verification fields are intentionally removed before validated/deduped/exported stages.
-    return ValidationResult(
-        True,
-        {
-            "type": "educational_qa_mcq",
-            "question": row["question"].strip(),
-            "choices": [choice.strip() for choice in row["choices"]],
-            "correct_index": corrected_index,
-            "explanation": row["explanation"].strip(),
-        },
-        [],
-    )
+def validate_educational_qa_mcq_general(row: dict[str, Any]) -> ValidationResult:
+    issues, choices, idx, explanation = _validate_mcq_base("educational_qa_mcq_general", row)
+    if issues or choices is None or idx is None:
+        return ValidationResult(False, None, issues)
+    return ValidationResult(True, {
+        "type": "educational_qa_mcq_general",
+        "question": row["question"].strip(),
+        "choices": choices,
+        "correct_index": idx,
+        "explanation": explanation,
+    }, [])
 
 
 def validate_factual_restraint(row: dict[str, Any]) -> ValidationResult:
@@ -348,38 +299,27 @@ def validate_factual_restraint(row: dict[str, Any]) -> ValidationResult:
         issues.append("empty_question")
     if not strip_text(row.get("safe_answer")):
         issues.append("empty_safe_answer")
-
     if issues:
         return ValidationResult(False, None, issues)
-    return ValidationResult(
-        True,
-        {
-            "type": "factual_restraint",
-            "question": row["question"].strip(),
-            "safe_answer": row["safe_answer"].strip(),
-        },
-        [],
-    )
+    return ValidationResult(True, {
+        "type": "factual_restraint",
+        "question": row["question"].strip(),
+        "safe_answer": row["safe_answer"].strip(),
+    }, [])
 
 
-def validate_record(
-    signal: str,
-    row: dict[str, Any],
-    *,
-    require_mcq_verification: bool = False,
-) -> ValidationResult:
+def validate_record(signal: str, row: dict[str, Any], *, require_mcq_verification: bool = False) -> ValidationResult:
     if not isinstance(row, dict):
         return ValidationResult(False, None, ["not_object"])
     if signal == "arithmetic":
         return validate_arithmetic(row)
     if signal == "task_code":
         return validate_task_code(row)
-    if signal == "educational_qa_mcq":
-        has_verification_metadata = bool(MCQ_VERIFICATION_KEYS.intersection(row))
-        return validate_educational_qa_mcq(
-            row,
-            require_verification=require_mcq_verification or has_verification_metadata,
-        )
+    if signal == "educational_qa_mcq_math":
+        has_metadata = bool(MCQ_VERIFICATION_KEYS.intersection(row))
+        return validate_educational_qa_mcq_math(row, require_verification=require_mcq_verification or has_metadata)
+    if signal == "educational_qa_mcq_general":
+        return validate_educational_qa_mcq_general(row)
     if signal == "factual_restraint":
         return validate_factual_restraint(row)
     return ValidationResult(False, None, [f"unknown_signal:{signal}"])

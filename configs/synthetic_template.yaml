@@ -41,14 +41,23 @@ mix:
     max_tokens: __TASK_CODE_MAX_TOKENS__
     avg_tokens_per_sample: 160
     max_rejected_batches: 2000
-  educational_qa_mcq:
-    share: 0.30
-    prompt_file: "prompts/educational_qa_mcq.yaml"
-    source_module: "slm_synth.sources.educational_qa_mcq"
+  educational_qa_mcq_math:
+    share: 0.075
+    prompt_file: "prompts/educational_qa_mcq_math.py"
+    source_module: "slm_synth.sources.educational_qa_mcq_math"
     model: "llama-3.1-8b-instant"
-    batch_size: __EDUCATIONAL_QA_MCQ_BATCH_SIZE__
+    batch_size: __EDUCATIONAL_QA_MCQ_MATH_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
-    max_tokens: __EDUCATIONAL_QA_MCQ_MAX_TOKENS__
+    max_tokens: __EDUCATIONAL_QA_MCQ_MATH_MAX_TOKENS__
+    avg_tokens_per_sample: 100
+  educational_qa_mcq_general:
+    share: 0.225
+    prompt_file: "prompts/educational_qa_mcq_general.py"
+    source_module: "slm_synth.sources.educational_qa_mcq_general"
+    model: "llama-3.1-8b-instant"
+    batch_size: __EDUCATIONAL_QA_MCQ_GENERAL_BATCH_SIZE__
+    parallel_requests: __CONCURRENCY__
+    max_tokens: __EDUCATIONAL_QA_MCQ_GENERAL_MAX_TOKENS__
     avg_tokens_per_sample: 100
   factual_restraint:
     share: 0.10

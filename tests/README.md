@@ -43,7 +43,7 @@ python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage de
 Expected characteristics for a healthy smoke test:
 
 - generation completes with `rejected_batches=0`,
-- validation rejects are zero or very low,
+- validation rejects are zero or very low for general signals; math-MCQ validation rejects must be reviewed against its verification gate,
 - exact duplicate rate before dedup is low,
 - deduped duplicate rate is `0.00%`,
 - no bad JSON is reported.
@@ -58,6 +58,8 @@ Live generation tests should use one of the validated models:
 Other models may be used experimentally, but test results should not be interpreted as production support.
 
 ## Dedup expectations
+
+The test suite covers separate `educational_qa_mcq_math` and `educational_qa_mcq_general` paths. Math MCQs verify raw numeric metadata and strip it before output.
 
 For synthetic data, exact dedup is expected. Fuzzy dedup should not be enabled by default in tests for these signals.
 

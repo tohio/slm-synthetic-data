@@ -388,7 +388,7 @@ TASK_CODE_STATUSES = ["selected", "ready", "reviewed", "complete", "approved"]
 # indexed answer can be machine-checked before publication.
 # ---------------------------------------------------------------------------
 
-MCQ_VERIFIED_PROFILES: List[Dict[str, ProfileValue]] = [
+MCQ_MATH_VERIFIED_PROFILES: List[Dict[str, ProfileValue]] = [
     {
         "family": "integer addition or subtraction",
         "question_shape": "ask for the exact result of one operation using two non-trivial integers",
@@ -457,16 +457,98 @@ MCQ_VERIFIED_PROFILES: List[Dict[str, ProfileValue]] = [
     },
 ]
 
-MCQ_DIFFICULTIES = [
+MCQ_MATH_DIFFICULTIES = [
     "upper elementary with non-trivial integers",
     "middle school review with two-step reasoning",
     "adult beginner practical numeracy",
 ]
 
-MCQ_DISTRACTOR_RULES = [
+MCQ_MATH_DISTRACTOR_RULES = [
     "Use three nearby integer distractors from common arithmetic mistakes.",
     "Use three distinct integer distractors based on omitted or reversed operations.",
     "Use three plausible but incorrect integer results; none may equal the verified answer.",
+]
+
+# ---------------------------------------------------------------------------
+# General non-math MCQ diversity profiles
+#
+# General MCQs deliberately exclude numeric computation. Each profile requires
+# the supporting evidence to appear inside the question itself.
+# ---------------------------------------------------------------------------
+
+MCQ_GENERAL_PROFILES: List[Dict[str, ProfileValue]] = [
+    {
+        "subject": "Python collection behavior",
+        "construction": "include a short Python expression or snippet and ask what non-numeric property it demonstrates",
+        "evidence": "the code fragment in the question",
+        "context": "small programming example",
+    },
+    {
+        "subject": "Python control-flow interpretation",
+        "construction": "include a short conditional or loop condition and ask which branch or stopping rule it represents",
+        "evidence": "the supplied code condition",
+        "context": "simple coding exercise",
+    },
+    {
+        "subject": "computer-science concept",
+        "construction": "describe a small operation on data and ask which concept it illustrates",
+        "evidence": "the operation described in the question",
+        "context": "data organization scenario",
+    },
+    {
+        "subject": "grammar and sentence structure",
+        "construction": "provide one sentence and ask about a clearly identifiable grammatical role or correction",
+        "evidence": "the supplied sentence",
+        "context": "editing exercise",
+    },
+    {
+        "subject": "vocabulary in context",
+        "construction": "provide one sentence containing a target word and ask which meaning best fits its use",
+        "evidence": "context clues in the supplied sentence",
+        "context": "short reading excerpt",
+    },
+    {
+        "subject": "reading comprehension",
+        "construction": "provide a two-sentence passage and ask which conclusion is directly supported",
+        "evidence": "the supplied passage only",
+        "context": "brief informational paragraph",
+    },
+    {
+        "subject": "logic and inference",
+        "construction": "state two or three non-numeric facts and ask which conclusion must follow",
+        "evidence": "the explicitly supplied facts",
+        "context": "categorical reasoning",
+    },
+    {
+        "subject": "technology and privacy literacy",
+        "construction": "state a stable security rule in the scenario and ask which option follows that rule",
+        "evidence": "the stated safety rule",
+        "context": "account-security scenario",
+    },
+    {
+        "subject": "scientific method",
+        "construction": "describe an observation and controlled change and ask which statement identifies the testable variable or evidence",
+        "evidence": "the experiment setup in the question",
+        "context": "classroom observation",
+    },
+    {
+        "subject": "categorical data interpretation",
+        "construction": "provide a small list of labels or ordered categories and ask for a non-calculation interpretation",
+        "evidence": "the listed labels or ordering",
+        "context": "classification record",
+    },
+]
+
+MCQ_GENERAL_STYLES = [
+    "choose the statement directly supported by the supplied information",
+    "identify the interpretation that follows from the supplied example",
+    "select the only option consistent with the provided rule or passage",
+]
+
+MCQ_GENERAL_DISTRACTORS = [
+    "Use plausible alternatives that are contradicted by a detail in the supplied evidence.",
+    "Use nearby concepts, but ensure only one option follows from the supplied evidence.",
+    "Use distinct choices and avoid trivia, opinion, or missing-context distractors.",
 ]
 
 # ---------------------------------------------------------------------------
@@ -564,16 +646,16 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
             ]
         )
 
-    if signal == "educational_qa_mcq":
-        profile = _choose_profile(MCQ_VERIFIED_PROFILES, batch_id, signal, 1)
-        difficulty = _choose(MCQ_DIFFICULTIES, batch_id, signal, 2)
-        distractors = _choose(MCQ_DISTRACTOR_RULES, batch_id, signal, 3)
+    if signal == "educational_qa_mcq_math":
+        profile = _choose_profile(MCQ_MATH_VERIFIED_PROFILES, batch_id, signal, 1)
+        difficulty = _choose(MCQ_MATH_DIFFICULTIES, batch_id, signal, 2)
+        distractors = _choose(MCQ_MATH_DISTRACTOR_RULES, batch_id, signal, 3)
         answer_index = _choose_int(batch_id, signal, 4, 0, 3)
 
         return "\n".join(
             [
                 f"Batch diversity id: {nonce}",
-                "Verified numeric MCQ mode: required.",
+                "Verified mathematical MCQ mode: required.",
                 f"Required family: {profile['family']}",
                 f"Question construction: {profile['question_shape']}",
                 f"Verification-expression shape: {profile['expression_shape']}",
@@ -582,10 +664,34 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 f"Correct-index target: {answer_index}",
                 f"Distractor guidance: {distractors}",
                 "The question must have one exact integer answer computable from the stated quantities.",
-                "Return verification_expression and verification_answer for validator use; both must match the indexed choice.",
+                "Return verification_expression and verification_answer for validator use; both must match a unique answer choice.",
                 "Choices must be four distinct plain integer strings with no units.",
                 "The explanation must show the numeric calculation and include the exact final integer answer.",
                 "Do not generate next-step, best-explanation, conceptual, opinion, trivia, Python, or under-specified questions.",
+                "Do not include the batch diversity id in any generated field.",
+            ]
+        )
+
+    if signal == "educational_qa_mcq_general":
+        profile = _choose_profile(MCQ_GENERAL_PROFILES, batch_id, signal, 1)
+        style = _choose(MCQ_GENERAL_STYLES, batch_id, signal, 2)
+        distractors = _choose(MCQ_GENERAL_DISTRACTORS, batch_id, signal, 3)
+        answer_index = _choose_int(batch_id, signal, 4, 0, 3)
+
+        return "\n".join(
+            [
+                f"Batch diversity id: {nonce}",
+                "General non-math MCQ mode: required.",
+                f"Subject focus: {profile['subject']}",
+                f"Question construction: {profile['construction']}",
+                f"Evidence requirement: {profile['evidence']}",
+                f"Scenario context: {profile['context']}",
+                f"Question style: {style}",
+                f"Correct-index target: {answer_index}",
+                f"Distractor guidance: {distractors}",
+                "The correct answer must be justified entirely by information included in the question.",
+                "Do not generate any arithmetic, fraction, percentage, ratio, geometry, probability, statistics, measurement, or financial calculation question.",
+                "Do not generate trivia, current-fact recall, history/date recall, geography/location recall, next-step, opinion, or under-specified questions.",
                 "Do not include the batch diversity id in any generated field.",
             ]
         )

@@ -1,9 +1,6 @@
 import jsonschema
 
 
-# -------------------------
-# Arithmetic Schema
-# -------------------------
 ARITHMETIC_SCHEMA = {
     "type": "object",
     "properties": {
@@ -15,10 +12,6 @@ ARITHMETIC_SCHEMA = {
     "required": ["type", "question", "steps", "answer"],
 }
 
-
-# -------------------------
-# Task-Code Schema
-# -------------------------
 TASK_CODE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -30,17 +23,11 @@ TASK_CODE_SCHEMA = {
     "required": ["type", "task", "plan", "code"],
 }
 
-
-# -------------------------
-# Educational QA/MCQ Raw Generation Schema
-#
-# verification_expression and verification_answer are temporary raw-stage
-# fields. Validation checks them and removes them from validated/exported rows.
-# -------------------------
-EDUCATIONAL_QA_MCQ_SCHEMA = {
+# Raw math-MCQ records include temporary metadata used during validation.
+EDUCATIONAL_QA_MCQ_MATH_SCHEMA = {
     "type": "object",
     "properties": {
-        "type": {"const": "educational_qa_mcq"},
+        "type": {"const": "educational_qa_mcq_math"},
         "question": {"type": "string"},
         "choices": {
             "type": "array",
@@ -64,10 +51,26 @@ EDUCATIONAL_QA_MCQ_SCHEMA = {
     ],
 }
 
+EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"const": "educational_qa_mcq_general"},
+        "question": {"type": "string"},
+        "choices": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 4,
+            "maxItems": 4,
+        },
+        "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
+        "explanation": {"type": "string"},
+    },
+    "required": ["type", "question", "choices", "correct_index", "explanation"],
+}
 
-# -------------------------
-# Factual Restraint Schema
-# -------------------------
+# Compatibility alias: the old mixed MCQ path is retired in the generated mix.
+EDUCATIONAL_QA_MCQ_SCHEMA = EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA
+
 FACTUAL_RESTRAINT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -79,9 +82,6 @@ FACTUAL_RESTRAINT_SCHEMA = {
 }
 
 
-# -------------------------
-# Validators
-# -------------------------
 def validate_arithmetic(obj):
     jsonschema.validate(obj, ARITHMETIC_SCHEMA)
 
@@ -90,8 +90,17 @@ def validate_task_code(obj):
     jsonschema.validate(obj, TASK_CODE_SCHEMA)
 
 
+def validate_educational_qa_mcq_math(obj):
+    jsonschema.validate(obj, EDUCATIONAL_QA_MCQ_MATH_SCHEMA)
+
+
+def validate_educational_qa_mcq_general(obj):
+    jsonschema.validate(obj, EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA)
+
+
 def validate_educational_qa_mcq(obj):
-    jsonschema.validate(obj, EDUCATIONAL_QA_MCQ_SCHEMA)
+    """Backward-compatible validator for the general, non-math MCQ schema."""
+    validate_educational_qa_mcq_general(obj)
 
 
 def validate_factual_restraint(obj):

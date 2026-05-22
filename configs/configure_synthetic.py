@@ -64,7 +64,8 @@ PROFILES = {
 SIGNAL_DEFAULTS = {
     "arithmetic": {"batch_size": 8, "avg_tokens_per_sample": 60},
     "task_code": {"batch_size": 2, "avg_tokens_per_sample": 160},
-    "educational_qa_mcq": {"batch_size": 8, "avg_tokens_per_sample": 100},
+    "educational_qa_mcq_math": {"batch_size": 8, "avg_tokens_per_sample": 100},
+    "educational_qa_mcq_general": {"batch_size": 8, "avg_tokens_per_sample": 100},
     "factual_restraint": {"batch_size": 4, "avg_tokens_per_sample": 90},
 }
 
@@ -208,8 +209,10 @@ def main():
         "__ARITHMETIC_MAX_TOKENS__": signal_values["arithmetic"]["max_tokens"],
         "__TASK_CODE_BATCH_SIZE__": signal_values["task_code"]["batch_size"],
         "__TASK_CODE_MAX_TOKENS__": signal_values["task_code"]["max_tokens"],
-        "__EDUCATIONAL_QA_MCQ_BATCH_SIZE__": signal_values["educational_qa_mcq"]["batch_size"],
-        "__EDUCATIONAL_QA_MCQ_MAX_TOKENS__": signal_values["educational_qa_mcq"]["max_tokens"],
+        "__EDUCATIONAL_QA_MCQ_MATH_BATCH_SIZE__": signal_values["educational_qa_mcq_math"]["batch_size"],
+        "__EDUCATIONAL_QA_MCQ_MATH_MAX_TOKENS__": signal_values["educational_qa_mcq_math"]["max_tokens"],
+        "__EDUCATIONAL_QA_MCQ_GENERAL_BATCH_SIZE__": signal_values["educational_qa_mcq_general"]["batch_size"],
+        "__EDUCATIONAL_QA_MCQ_GENERAL_MAX_TOKENS__": signal_values["educational_qa_mcq_general"]["max_tokens"],
         "__FACTUAL_RESTRAINT_BATCH_SIZE__": signal_values["factual_restraint"]["batch_size"],
         "__FACTUAL_RESTRAINT_MAX_TOKENS__": signal_values["factual_restraint"]["max_tokens"],
     }

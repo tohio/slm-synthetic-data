@@ -16,7 +16,7 @@ Most Makefile targets accept these variables as overrides.
 | `CONCURRENCY` | profile default | Number of concurrent Groq requests. `8` is the recommended balanced setting. |
 | `SERVICE_TIER` | `flex` | Groq service tier. One of `flex`, `default`, or `auto`. |
 | `MODEL` | profile default | Groq model override. Only `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` are validated. |
-| `SIGNAL` | unset | Optional single-signal override for `make generate`. Values: `arithmetic`, `task_code`, `educational_qa_mcq`, `factual_restraint`. |
+| `SIGNAL` | unset | Optional single-signal override for `make generate`. Values: `arithmetic`, `task_code`, `educational_qa_mcq_math`, `educational_qa_mcq_general`, `factual_restraint`. |
 | `DATA_DIR` | resolver default | Root location for generated run outputs when `${DATA_DIR}` appears in config. |
 
 ---
@@ -169,7 +169,8 @@ The generator uses JSON object output, diversity controls, request backoff, and 
 ```bash
 make generate SIGNAL=arithmetic
 make generate SIGNAL=task_code
-make generate SIGNAL=educational_qa_mcq
+make generate SIGNAL=educational_qa_mcq_math
+make generate SIGNAL=educational_qa_mcq_general
 make generate SIGNAL=factual_restraint
 ```
 
@@ -307,7 +308,8 @@ Expected uploads:
 README.md
 arithmetic.jsonl
 task_code.jsonl
-educational_qa_mcq.jsonl
+educational_qa_mcq_math.jsonl
+educational_qa_mcq_general.jsonl
 factual_restraint.jsonl
 ```
 
@@ -397,7 +399,8 @@ Then continue with remaining signals:
 
 ```bash
 make generate SIGNAL=task_code
-make generate SIGNAL=educational_qa_mcq
+make generate SIGNAL=educational_qa_mcq_math
+make generate SIGNAL=educational_qa_mcq_general
 make generate SIGNAL=factual_restraint
 ```
 
@@ -504,6 +507,7 @@ Push only one signal:
 ```bash
 make push SIGNAL=arithmetic
 make push SIGNAL=task_code
-make push SIGNAL=educational_qa_mcq
+make push SIGNAL=educational_qa_mcq_math
+make push SIGNAL=educational_qa_mcq_general
 make push SIGNAL=factual_restraint
 ```

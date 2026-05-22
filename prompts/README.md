@@ -22,12 +22,13 @@ The pipeline intentionally avoids bare top-level JSON arrays because JSON object
 |---|---|---|
 | `arithmetic` | `arithmetic.py` | Integer arithmetic questions with short reasoning steps. |
 | `task_code` | `task_code.py` | Small Python programming tasks with plans and code snippets. |
-| `educational_qa_mcq` | `educational_qa_mcq.py` | Multiple-choice educational questions with explanations. |
+| `educational_qa_mcq_math` | `educational_qa_mcq_math.py` | Machine-verifiable mathematical multiple-choice questions. |
+| `educational_qa_mcq_general` | `educational_qa_mcq_general.py` | Non-math educational multiple-choice questions grounded in supplied context. |
 | `factual_restraint` | `factual_restraint.py` | Questions that require cautious answers instead of unsupported claims. |
 
 ## Diversity
 
-Per-batch diversity context is added by `slm_synth.diversity`. It rotates attributes such as topic, difficulty, format, scenario, and answer style. This reduces exact duplicates and improves coverage without changing the JSON schema.
+Per-batch diversity context is added by `slm_synth.diversity`. It rotates attributes such as topic, difficulty, format, scenario, and answer style. Mathematical MCQs also carry temporary raw-stage verification fields that are checked and removed before export. General MCQs do not use numeric verification fields.
 
 ## Prompt rules
 

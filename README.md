@@ -7,11 +7,12 @@ continued-pretraining data experiments. It focuses on reproducible synthetic sig
 generation, schema validation, exact deduplication, duplicate reporting, and
 Hugging Face dataset publishing.
 
-The pipeline currently supports four signal families:
+The pipeline currently supports five signal families:
 
 - `arithmetic` — integer arithmetic, word problems, comparisons, missing-value problems, and compact reasoning steps.
 - `task_code` — beginner/intermediate Python tasks with short plans and code snippets.
-- `educational_qa_mcq` — scenario-based multiple-choice questions with answer choices and explanations.
+- `educational_qa_mcq_math` — machine-verifiable mathematical multiple-choice questions with answer choices and explanations.
+- `educational_qa_mcq_general` — non-math educational multiple-choice questions grounded in supplied context.
 - `factual_restraint` — prompts that reward cautious answers and discourage unsupported claims.
 
 ![Architecture](docs/architecture.png)
@@ -52,6 +53,8 @@ The current implementation includes:
 - Shared path resolution for `${DATA_DIR}/<run_name>`.
 - Hugging Face push with `.env` token loading.
 - Hugging Face dataset card generation.
+
+MCQ generation is intentionally split: mathematical MCQs use raw-stage verification metadata and a numeric correctness gate, while general MCQs exclude calculation questions and preserve broader educational-choice coverage. Downstream users may concatenate both datasets during training when a combined MCQ mixture is desired.
 
 
 ---
@@ -120,7 +123,9 @@ slm-synthetic-data/
 │   ├── wrapper.py
 │   ├── arithmetic.py
 │   ├── task_code.py
-│   ├── educational_qa_mcq.py
+│   ├── educational_qa_mcq.py  # compatibility alias
+│   ├── educational_qa_mcq_math.py
+│   ├── educational_qa_mcq_general.py
 │   └── factual_restraint.py
 │
 ├── slm_synth/
@@ -140,7 +145,9 @@ slm-synthetic-data/
 │   └── sources/
 │       ├── arithmetic.py
 │       ├── task_code.py
-│       ├── educational_qa_mcq.py
+│       ├── educational_qa_mcq.py  # compatibility alias
+│       ├── educational_qa_mcq_math.py
+│       ├── educational_qa_mcq_general.py
 │       └── factual_restraint.py
 │
 ├── tests/
@@ -252,7 +259,8 @@ make generate
 Generate one signal:
 
 ```bash
-make generate SIGNAL=educational_qa_mcq
+make generate SIGNAL=educational_qa_mcq_math
+make generate SIGNAL=educational_qa_mcq_general
 ```
 
 Report exact duplicates:

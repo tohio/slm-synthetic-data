@@ -25,13 +25,9 @@ def repair_task_code(obj: Dict[str, Any]) -> Dict[str, Any]:
     return obj
 
 
-def repair_educational_qa_mcq(obj: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize MCQ fields without inventing or clamping the answer key.
-
-    A missing or malformed correct_index must be rejected during validation,
-    rather than repaired to a potentially incorrect choice.
-    """
-    obj.setdefault("type", "educational_qa_mcq")
+def _repair_mcq_fields(obj: Dict[str, Any], signal: str, *, include_verification: bool) -> Dict[str, Any]:
+    """Normalize text fields without inventing or clamping an answer key."""
+    obj.setdefault("type", signal)
     obj.setdefault("question", "")
 
     choices = obj.get("choices")
@@ -45,11 +41,26 @@ def repair_educational_qa_mcq(obj: Dict[str, Any]) -> Dict[str, Any]:
         except ValueError:
             pass
 
-    for key in ("explanation", "verification_expression", "verification_answer"):
+    fields = ["explanation"]
+    if include_verification:
+        fields.extend(["verification_expression", "verification_answer"])
+    for key in fields:
         if isinstance(obj.get(key), str):
             obj[key] = obj[key].strip()
-
     return obj
+
+
+def repair_educational_qa_mcq_math(obj: Dict[str, Any]) -> Dict[str, Any]:
+    return _repair_mcq_fields(obj, "educational_qa_mcq_math", include_verification=True)
+
+
+def repair_educational_qa_mcq_general(obj: Dict[str, Any]) -> Dict[str, Any]:
+    return _repair_mcq_fields(obj, "educational_qa_mcq_general", include_verification=False)
+
+
+def repair_educational_qa_mcq(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Deprecated compatibility alias for general MCQ repair."""
+    return repair_educational_qa_mcq_general(obj)
 
 
 def repair_factual_restraint(obj: Dict[str, Any]) -> Dict[str, Any]:

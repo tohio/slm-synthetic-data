@@ -14,7 +14,8 @@ from slm_synth.llm import LLMBackend
 from slm_synth.model_support import warn_if_unsupported_model
 from slm_synth.rate_limit import RateLimiter
 from slm_synth.sources.arithmetic import ArithmeticGenerator
-from slm_synth.sources.educational_qa_mcq import EducationalQAMCQGenerator
+from slm_synth.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
+from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenerator
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.writer import JSONLWriter
@@ -24,7 +25,8 @@ load_dotenv()
 GENERATOR_MAP = {
     "arithmetic": ArithmeticGenerator,
     "task_code": TaskCodeGenerator,
-    "educational_qa_mcq": EducationalQAMCQGenerator,
+    "educational_qa_mcq_math": EducationalQAMCQMathGenerator,
+    "educational_qa_mcq_general": EducationalQAMCQGeneralGenerator,
     "factual_restraint": FactualRestraintGenerator,
 }
 

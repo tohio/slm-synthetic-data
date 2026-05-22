@@ -56,7 +56,7 @@ Other models may be used for experiments, but they are not validated for product
 | Field | Description |
 |---|---|
 | `output_dir` | Run output directory. Defaults to `${DATA_DIR}/<run_id>`. |
-| `target_total_tokens` | Target token budget used to derive per-signal sample counts. |
+| `target_total_tokens` | Target token budget used to derive per-signal sample counts. The MCQ allocation is split 25% math / 75% general within its original share. |
 | `backend.model` | Groq model used for generation. |
 | `backend.json_mode` | Enables JSON object output. Should remain enabled. |
 | `backend.service_tier` | Groq service tier, commonly `flex` for high-throughput runs. |

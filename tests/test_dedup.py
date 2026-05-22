@@ -1,20 +1,24 @@
 import json
-from pathlib import Path
-from slm_synth.dedup import dedup_file
 
-def test_dedup(tmp_path):
-    file = tmp_path / "in.jsonl"
-    out = tmp_path / "out.jsonl"
+from slm_synth.dedup import dedup_signal
 
-    obj = {"type":"arithmetic","question":"Q","steps":["S"],"answer":"A"}
 
-    with open(file, "w") as f:
-        f.write(json.dumps(obj) + "\n")
-        f.write(json.dumps(obj) + "\n")  # duplicate
+def test_exact_dedup_general_mcq(tmp_path):
+    validated = tmp_path / "validated"
+    deduped = tmp_path / "deduped"
+    validated.mkdir()
+    record = {
+        "type": "educational_qa_mcq_general",
+        "question": "Which word is an adverb in 'Mina quickly packed the box'?",
+        "choices": ["Mina", "quickly", "packed", "box"],
+        "correct_index": 1,
+        "explanation": "Quickly describes the action.",
+    }
+    path = validated / "educational_qa_mcq_general.jsonl"
+    with path.open("w") as handle:
+        handle.write(json.dumps(record) + "\n")
+        handle.write(json.dumps(record) + "\n")
 
-    dedup_file(file, out, threshold=0.85)
-
-    with open(out, "r") as f:
-        lines = f.readlines()
-
-    assert len(lines) == 1
+    kept, dropped = dedup_signal(validated, deduped, "educational_qa_mcq_general")
+    assert kept == 1
+    assert dropped == 1

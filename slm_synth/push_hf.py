@@ -16,21 +16,24 @@ from slm_synth.paths import load_yaml_config, resolve_output_dir
 SIGNAL_REPO_SUFFIXES = {
     "arithmetic": "arithmetic",
     "task_code": "task-code",
-    "educational_qa_mcq": "educational-qa-mcq",
+    "educational_qa_mcq_math": "educational-qa-mcq-math",
+    "educational_qa_mcq_general": "educational-qa-mcq-general",
     "factual_restraint": "factual-restraint",
 }
 
 SIGNAL_DESCRIPTIONS = {
     "arithmetic": "Integer arithmetic, word problems, comparisons, missing-value problems, and compact reasoning steps.",
     "task_code": "Beginner/intermediate Python tasks with short plans and code snippets.",
-    "educational_qa_mcq": "Scenario-based multiple-choice questions with explanations.",
+    "educational_qa_mcq_math": "Machine-verified mathematical multiple-choice questions with explanations.",
+    "educational_qa_mcq_general": "Non-math, self-contained educational multiple-choice questions with explanations.",
     "factual_restraint": "Questions that reward cautious answers and discourage unsupported claims.",
 }
 
 SIGNAL_SCHEMAS = {
     "arithmetic": "`type`, `question`, `steps`, `answer`",
     "task_code": "`type`, `task`, `plan`, `code`",
-    "educational_qa_mcq": "`type`, `question`, `choices`, `correct_index`, `explanation`",
+    "educational_qa_mcq_math": "`type`, `question`, `choices`, `correct_index`, `explanation`",
+    "educational_qa_mcq_general": "`type`, `question`, `choices`, `correct_index`, `explanation`",
     "factual_restraint": "`type`, `question`, `safe_answer`",
 }
 
@@ -103,8 +106,10 @@ def dataset_card_yaml(signal: str, license_name: str) -> str:
     tags = ["synthetic", "llm", "pretraining", "reasoning"]
     if signal == "task_code":
         tags.append("code")
-    if signal == "educational_qa_mcq":
+    if signal in {"educational_qa_mcq_math", "educational_qa_mcq_general"}:
         tags.append("educational")
+    if signal == "educational_qa_mcq_math":
+        tags.append("mathematics")
 
     metadata = {
         "license": license_name,

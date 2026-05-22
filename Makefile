@@ -60,6 +60,8 @@ help:
 > @echo "  make configure PROFILE=speed TOKENS=600000000"
 > @echo "  make configure PROFILE=quality TOKENS=50000000"
 > @echo "  make generate SIGNAL=arithmetic"
+> @echo "  make generate SIGNAL=educational_qa_mcq_math"
+> @echo "  make generate SIGNAL=educational_qa_mcq_general"
 > @echo ""
 
 # -----------------------------
