@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import List
+from typing import Dict, List
 
 
 def _choose(options: List[str], batch_id: int, salt: str, offset: int = 0) -> str:
@@ -12,59 +12,199 @@ def _choose(options: List[str], batch_id: int, salt: str, offset: int = 0) -> st
     return options[idx]
 
 
-ARITHMETIC_FORMATS = [
-    "direct symbolic equation using uncommon operands",
-    "short contextual word problem",
-    "missing-value equation",
-    "comparison of two computed integer values",
-    "ordering of three computed integer values",
-    "two-step arithmetic scenario",
-    "equal-sharing question with exact integer division",
-    "reverse-operation check",
-    "grouped quantity calculation",
-    "budget or allocation calculation",
+def _choose_profile(
+    profiles: List[Dict[str, str]],
+    batch_id: int,
+    salt: str,
+    offset: int = 0,
+) -> Dict[str, str]:
+    if not profiles:
+        return {}
+    digest = hashlib.sha256(f"{salt}:{batch_id}:{offset}".encode("utf-8")).hexdigest()
+    idx = int(digest[:8], 16) % len(profiles)
+    return profiles[idx]
+
+
+# ---------------------------------------------------------------------------
+# Arithmetic diversity profiles
+#
+# These profiles intentionally preserve direct-equation arithmetic as part of
+# the signal, while avoiding concrete operands or reusable example questions.
+# Each profile is internally coherent: the format, operation, number design,
+# and context belong together.
+# ---------------------------------------------------------------------------
+
+ARITHMETIC_PROFILES: List[Dict[str, str]] = [
+    {
+        "format": "direct symbolic equation",
+        "operation": "addition",
+        "numbers": "three- or four-digit integers with uncommon operands",
+        "context": "none; do not add a story context",
+        "answer_focus": "compute the exact sum",
+    },
+    {
+        "format": "direct symbolic equation",
+        "operation": "subtraction",
+        "numbers": "three- or four-digit integers with uncommon operands",
+        "context": "none; do not add a story context",
+        "answer_focus": "compute the exact difference",
+    },
+    {
+        "format": "direct symbolic equation",
+        "operation": "multiplication",
+        "numbers": "a two-digit integer multiplied by a different two- or three-digit integer",
+        "context": "none; do not add a story context",
+        "answer_focus": "compute the exact product",
+    },
+    {
+        "format": "direct symbolic equation",
+        "operation": "exact integer division",
+        "numbers": "a non-trivial divisible total and divisor with no remainder",
+        "context": "none; do not add a story context",
+        "answer_focus": "compute the exact quotient",
+    },
+    {
+        "format": "missing-value equation",
+        "operation": "addition relationship",
+        "numbers": "a medium-sized total and one known addend",
+        "context": "none; use a clear missing-number equation",
+        "answer_focus": "return the missing integer",
+    },
+    {
+        "format": "missing-value equation",
+        "operation": "subtraction relationship",
+        "numbers": "a medium-sized starting value and known result",
+        "context": "none; use a clear missing-number equation",
+        "answer_focus": "return the missing integer",
+    },
+    {
+        "format": "missing-value scenario",
+        "operation": "multiplication relationship",
+        "numbers": "a total made from equal groups with one group quantity unknown",
+        "context": "package quantities",
+        "answer_focus": "return the missing group count or group size",
+    },
+    {
+        "format": "missing-value scenario",
+        "operation": "exact division relationship",
+        "numbers": "an evenly distributed total with one quantity unknown",
+        "context": "team assignments",
+        "answer_focus": "return the missing integer",
+    },
+    {
+        "format": "short contextual word problem",
+        "operation": "addition",
+        "numbers": "two different medium-sized quantities",
+        "context": "event ticket allocation",
+        "answer_focus": "compute the combined total",
+    },
+    {
+        "format": "short contextual word problem",
+        "operation": "subtraction",
+        "numbers": "a medium-sized inventory total and a distinct removed quantity",
+        "context": "warehouse item movement",
+        "answer_focus": "compute the remaining amount",
+    },
+    {
+        "format": "short contextual word problem",
+        "operation": "multiplication",
+        "numbers": "multiple equal groups using non-trivial group counts",
+        "context": "production batches",
+        "answer_focus": "compute the total produced quantity",
+    },
+    {
+        "format": "short contextual word problem",
+        "operation": "exact integer division",
+        "numbers": "an evenly divisible total and group count",
+        "context": "meal-box distribution",
+        "answer_focus": "compute the equal amount per group",
+    },
+    {
+        "format": "two-step contextual scenario",
+        "operation": "multiplication followed by addition",
+        "numbers": "equal groups plus a separate extra quantity",
+        "context": "package shipment quantities",
+        "answer_focus": "compute the final total",
+    },
+    {
+        "format": "two-step contextual scenario",
+        "operation": "multiplication followed by subtraction",
+        "numbers": "equal groups followed by a removed quantity",
+        "context": "parking-space usage",
+        "answer_focus": "compute the remaining total",
+    },
+    {
+        "format": "two-step contextual scenario",
+        "operation": "addition followed by subtraction",
+        "numbers": "two incoming quantities followed by an outgoing quantity",
+        "context": "library checkout counts",
+        "answer_focus": "compute the final count",
+    },
+    {
+        "format": "two-step contextual scenario",
+        "operation": "exact division followed by addition",
+        "numbers": "an evenly divided amount plus an additional amount",
+        "context": "resource planning",
+        "answer_focus": "compute the final amount",
+    },
+    {
+        "format": "comparison question",
+        "operation": "compare two addition totals",
+        "numbers": "different medium-sized operand pairs",
+        "context": "delivery-route quantities",
+        "answer_focus": "return the larger computed integer",
+    },
+    {
+        "format": "comparison question",
+        "operation": "compare a multiplication total with an addition total",
+        "numbers": "easy-to-verify but non-trivial integers",
+        "context": "classroom material counts",
+        "answer_focus": "return the larger computed integer",
+    },
+    {
+        "format": "comparison question",
+        "operation": "compare two remaining quantities after subtraction",
+        "numbers": "different starting and removed values",
+        "context": "store inventory changes",
+        "answer_focus": "return the smaller or larger computed integer as requested",
+    },
+    {
+        "format": "ordering question",
+        "operation": "order three computed totals from addition and subtraction",
+        "numbers": "three distinct calculations using medium-sized integers",
+        "context": "game-score changes",
+        "answer_focus": "return the requested extreme value or ordered numeric results",
+    },
+    {
+        "format": "ordering question",
+        "operation": "order three grouped totals",
+        "numbers": "three distinct multiplication calculations",
+        "context": "crate and carton quantities",
+        "answer_focus": "return the requested extreme value or ordered numeric results",
+    },
+    {
+        "format": "allocation scenario",
+        "operation": "exact integer division",
+        "numbers": "a larger total divided evenly among several groups",
+        "context": "bus or train seat allocation",
+        "answer_focus": "compute the per-group allocation",
+    },
+    {
+        "format": "budget scenario",
+        "operation": "multiplication followed by subtraction",
+        "numbers": "a total cost calculation followed by a budget difference",
+        "context": "simple purchasing plan",
+        "answer_focus": "compute the remaining amount or shortfall",
+    },
+    {
+        "format": "schedule scenario",
+        "operation": "multiplication followed by addition",
+        "numbers": "repeated time blocks plus one additional block",
+        "context": "time-block allocation",
+        "answer_focus": "compute the final number of units",
+    },
 ]
-ARITHMETIC_OPERATIONS = [
-    "addition",
-    "subtraction",
-    "multiplication",
-    "exact integer division",
-    "mixed addition and subtraction",
-    "multiplication followed by addition",
-    "multiplication followed by subtraction",
-    "division followed by addition",
-    "comparison using two different operations",
-    "ordering using multiple operations",
-]
-ARITHMETIC_RANGES = [
-    "small integers with varied operands",
-    "two-digit integers avoiding repeated textbook pairs",
-    "three-digit integers",
-    "four-digit totals with easy verification",
-    "numbers between 100 and 999",
-    "numbers between 1,000 and 9,999",
-    "clear negative result from subtraction or comparison",
-    "exact integer division using non-trivial factor pairs",
-    "mixed ranges with a larger total and smaller adjustment",
-]
-ARITHMETIC_CONTEXTS = [
-    "package shipment quantities",
-    "event ticket allocation",
-    "classroom material counts",
-    "warehouse item totals",
-    "bus or train seat allocation",
-    "meal-box distribution",
-    "delivery-route quantities",
-    "parking-space usage",
-    "store receipt totals",
-    "production batch counts",
-    "library checkout counts",
-    "game-score changes",
-    "time-block allocation",
-    "team assignment counts",
-    "forms, labels, badges, or cards",
-    "crates, cartons, bins, or pallets",
-]
+
 ARITHMETIC_STYLES = [
     "compact calculation steps",
     "plain classroom wording",
@@ -75,72 +215,201 @@ ARITHMETIC_STYLES = [
     "clear compare-or-order wording",
 ]
 
-TASK_CODE_TOPICS = [
-    "aggregate values from a list",
-    "count labels in a dictionary summary",
-    "measure uniqueness in a collection",
-    "sort simple values",
-    "sort structured records by one field",
-    "filter records by one condition",
-    "transform list values with a loop",
-    "apply a numeric calculation to a sequence",
-    "split simple one-line text without punctuation parsing",
-    "group records by a key",
-    "create a frequency summary",
-    "flatten or inspect nested lists",
-    "combine two collections with simple logic",
-    "select values meeting a numeric threshold",
-    "compute a small metric from structured data",
+
+# ---------------------------------------------------------------------------
+# Task-code diversity profiles
+#
+# These profiles align with the function-only task_code prompt:
+# - exactly one complete function
+# - no imports, print calls, examples, f-strings, exceptions, file I/O,
+#   regex, CSV parsing, date parsing, or helper/wrapper pairs
+# - no reusable concrete function names or code examples in the prompt
+# ---------------------------------------------------------------------------
+
+TASK_CODE_PROFILES: List[Dict[str, str]] = [
+    {
+        "family": "build a frequency summary",
+        "input_shape": "list of short string labels",
+        "output_shape": "dictionary mapping labels to counts",
+        "implementation": "one loop with a dictionary accumulator",
+        "domain": "message tags",
+    },
+    {
+        "family": "build a frequency summary",
+        "input_shape": "list of category strings",
+        "output_shape": "dictionary mapping categories to counts",
+        "implementation": "one loop with conditional dictionary updates",
+        "domain": "package statuses",
+    },
+    {
+        "family": "sum values by group",
+        "input_shape": "list of dictionaries containing a category and numeric amount",
+        "output_shape": "dictionary mapping each category to its total amount",
+        "implementation": "one loop with a dictionary accumulator",
+        "domain": "order quantities",
+    },
+    {
+        "family": "sum values by group",
+        "input_shape": "list of dictionaries containing a label and score",
+        "output_shape": "dictionary mapping each label to its total score",
+        "implementation": "one loop with dictionary updates",
+        "domain": "team totals",
+    },
+    {
+        "family": "filter structured records by a condition",
+        "input_shape": "list of dictionaries with a numeric score field",
+        "output_shape": "list of records meeting a numeric threshold",
+        "implementation": "one list comprehension with a comparison",
+        "domain": "student results",
+    },
+    {
+        "family": "filter structured records by a condition",
+        "input_shape": "list of dictionaries with a status field",
+        "output_shape": "list of records with the selected status",
+        "implementation": "one loop that appends matching records",
+        "domain": "delivery items",
+    },
+    {
+        "family": "filter numeric values",
+        "input_shape": "list of integers",
+        "output_shape": "list of values meeting a numeric condition",
+        "implementation": "one list comprehension with arithmetic and comparison",
+        "domain": "daily measurements",
+    },
+    {
+        "family": "transform numeric values",
+        "input_shape": "list of integers",
+        "output_shape": "list of adjusted integers",
+        "implementation": "one loop applying a simple arithmetic transformation",
+        "domain": "score adjustments",
+    },
+    {
+        "family": "transform structured records",
+        "input_shape": "list of dictionaries with a numeric quantity field",
+        "output_shape": "list of computed numeric values",
+        "implementation": "one list comprehension using one field from each record",
+        "domain": "cart quantities",
+    },
+    {
+        "family": "sort structured records",
+        "input_shape": "list of dictionaries with one numeric ordering field",
+        "output_shape": "sorted list of the original records",
+        "implementation": "one call to sorted with a simple key function",
+        "domain": "task priorities",
+    },
+    {
+        "family": "sort structured records",
+        "input_shape": "list of dictionaries with one short string ordering field",
+        "output_shape": "sorted list of the original records",
+        "implementation": "one call to sorted with a simple key function",
+        "domain": "label records",
+    },
+    {
+        "family": "sort simple values after a transformation",
+        "input_shape": "list of short strings",
+        "output_shape": "list sorted according to a computed property",
+        "implementation": "one call to sorted with a simple key function",
+        "domain": "short messages",
+    },
+    {
+        "family": "collect distinct values from structured records",
+        "input_shape": "list of dictionaries with a category field",
+        "output_shape": "sorted list of distinct category values",
+        "implementation": "set accumulation followed by sorted output",
+        "domain": "inventory records",
+    },
+    {
+        "family": "measure distinct values",
+        "input_shape": "list of short string values",
+        "output_shape": "integer count of distinct values",
+        "implementation": "set accumulation with an additional simple condition",
+        "domain": "badge labels",
+    },
+    {
+        "family": "group structured records by one field",
+        "input_shape": "list of dictionaries containing a group field",
+        "output_shape": "dictionary mapping group values to lists of records",
+        "implementation": "one loop using dictionary list accumulation",
+        "domain": "shipment records",
+    },
+    {
+        "family": "group simple strings by a derived property",
+        "input_shape": "list of non-empty short strings",
+        "output_shape": "dictionary mapping a derived key to lists of strings",
+        "implementation": "one loop using a simple string property",
+        "domain": "category labels",
+    },
+    {
+        "family": "compute an aggregate metric",
+        "input_shape": "list of integers",
+        "output_shape": "integer total after applying a condition",
+        "implementation": "one loop with a numeric accumulator and conditional",
+        "domain": "activity counts",
+    },
+    {
+        "family": "compute an aggregate metric",
+        "input_shape": "list of dictionaries with a numeric field",
+        "output_shape": "integer count of records meeting a threshold",
+        "implementation": "one loop with a counter",
+        "domain": "registration records",
+    },
+    {
+        "family": "find an extreme structured value",
+        "input_shape": "list of dictionaries with a numeric field",
+        "output_shape": "one selected record",
+        "implementation": "one loop tracking the current best record",
+        "domain": "product metrics",
+    },
+    {
+        "family": "find an extreme numeric value with filtering",
+        "input_shape": "list of integers",
+        "output_shape": "one selected integer",
+        "implementation": "filter eligible values in a loop while tracking the best",
+        "domain": "performance scores",
+    },
+    {
+        "family": "combine two dictionaries",
+        "input_shape": "two dictionaries mapping labels to integer counts",
+        "output_shape": "new dictionary containing combined totals",
+        "implementation": "one loop over each input dictionary with numeric accumulation",
+        "domain": "warehouse totals",
+    },
+    {
+        "family": "compare paired values",
+        "input_shape": "two equally sized lists of integers",
+        "output_shape": "list containing selected values from each pair",
+        "implementation": "one loop over paired values using a comparison",
+        "domain": "weekly measurements",
+    },
+    {
+        "family": "flatten nested values with filtering",
+        "input_shape": "nested list of integers",
+        "output_shape": "flat list containing values meeting a simple condition",
+        "implementation": "nested loops with conditional append",
+        "domain": "batch readings",
+    },
+    {
+        "family": "summarize a one-line string",
+        "input_shape": "single one-line text value containing space-separated words",
+        "output_shape": "dictionary mapping normalized words to counts",
+        "implementation": "split text then count tokens in one loop",
+        "domain": "short notes",
+    },
 ]
-TASK_CODE_PATTERNS = [
-    "define exactly one pure function returning a list",
-    "define exactly one pure function returning a dictionary",
-    "define exactly one pure function returning an integer",
-    "define exactly one pure function returning a boolean",
-    "define exactly one function using a loop and accumulator",
-    "define exactly one function using a dictionary update pattern",
-    "define exactly one function using a list comprehension",
-    "define exactly one function using sorted with a simple key",
-    "define exactly one function using a set as an intermediate value",
-    "define exactly one function using conditional filtering",
-]
-TASK_CODE_DATA_SHAPES = [
-    "list of integers",
-    "list of short strings",
-    "list of dictionaries with one simple field",
-    "dictionary of labels to integer counts",
-    "dictionary of names to numeric values",
-    "nested list of small values",
-    "single one-line string",
-    "pair of simple lists",
-    "list of tuples represented as lists",
-]
-TASK_CODE_DOMAINS = [
-    "inventory labels",
-    "student scores",
-    "event registrations",
-    "package statuses",
-    "product categories",
-    "task priorities",
-    "seat assignments",
-    "message tags",
-    "daily counts",
-    "order quantities",
-    "route stops",
-    "badge records",
-    "book categories",
-    "team totals",
-    "form statuses",
-]
+
 TASK_CODE_CONSTRAINTS = [
-    "use exactly one function definition and no top-level calls",
-    "avoid imports, printing, examples, exceptions, and formatted strings",
-    "keep the implementation under 12 lines",
-    "return computed data instead of mutating external state",
-    "use clear variable names without copying generic examples",
-    "include meaningful logic beyond wrapping a single built-in call",
-    "avoid repeated function names and repeated one-line solutions",
+    "Use exactly one complete function definition and no top-level calls.",
+    "Do not use imports, printing, examples, exceptions, formatted strings, or external packages.",
+    "Keep the implementation compact but include meaningful logic beyond a trivial built-in wrapper.",
+    "Use clear variable names that do not copy familiar beginner-example function names.",
+    "Return computed data without mutating inputs unless the requested output requires a new accumulator.",
+    "Do not reuse common one-line solutions or generic task titles.",
 ]
+
+
+# ---------------------------------------------------------------------------
+# MCQ diversity settings: unchanged.
+# ---------------------------------------------------------------------------
 
 MCQ_SUBJECTS = [
     "integer arithmetic",
@@ -231,6 +500,11 @@ MCQ_BANNED_EXAMPLES = [
     "What is photosynthesis?",
 ]
 
+
+# ---------------------------------------------------------------------------
+# Factual-restraint diversity settings: unchanged.
+# ---------------------------------------------------------------------------
+
 FACTUAL_CATEGORIES = [
     "unknown future event",
     "private or unavailable information",
@@ -263,30 +537,40 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
     ).hexdigest()[:12]
 
     if signal == "arithmetic":
+        profile = _choose_profile(ARITHMETIC_PROFILES, batch_id, signal, 1)
+        style = _choose(ARITHMETIC_STYLES, batch_id, signal, 2)
+
         return "\n".join(
             [
                 f"Batch diversity id: {nonce}",
-                f"Primary format: {_choose(ARITHMETIC_FORMATS, batch_id, signal, 1)}",
-                f"Operation focus: {_choose(ARITHMETIC_OPERATIONS, batch_id, signal, 2)}",
-                f"Number range: {_choose(ARITHMETIC_RANGES, batch_id, signal, 3)}",
-                f"Context domain: {_choose(ARITHMETIC_CONTEXTS, batch_id, signal, 4)}",
-                f"Writing style: {_choose(ARITHMETIC_STYLES, batch_id, signal, 5)}",
-                "Use new operands, entities, wording, operation structure, and answer values for this record.",
-                "Direct equations are allowed when selected, but use uncommon operands and do not copy any example from instructions.",
-                "For contextual problems, avoid generic textbook stories and vary the nouns and scenario structure.",
+                f"Required format: {profile['format']}",
+                f"Required operation structure: {profile['operation']}",
+                f"Number design: {profile['numbers']}",
+                f"Context guidance: {profile['context']}",
+                f"Answer focus: {profile['answer_focus']}",
+                f"Writing style: {style}",
+                "Treat this as a coherent profile: do not replace it with a different arithmetic form.",
+                "Use new operands, wording, entities, and answer values for every record.",
+                "Direct equations remain allowed only when this profile explicitly requires them.",
+                "Do not copy concrete operands, stories, or phrasing from instructions or familiar textbook examples.",
                 "Do not include the batch diversity id in any generated field.",
             ]
         )
 
     if signal == "task_code":
+        profile = _choose_profile(TASK_CODE_PROFILES, batch_id, signal, 1)
+        constraint = _choose(TASK_CODE_CONSTRAINTS, batch_id, signal, 2)
+
         return "\n".join(
             [
                 f"Batch diversity id: {nonce}",
-                f"Task family: {_choose(TASK_CODE_TOPICS, batch_id, signal, 1)}",
-                f"Implementation shape: {_choose(TASK_CODE_PATTERNS, batch_id, signal, 2)}",
-                f"Input data shape: {_choose(TASK_CODE_DATA_SHAPES, batch_id, signal, 3)}",
-                f"Domain context: {_choose(TASK_CODE_DOMAINS, batch_id, signal, 4)}",
-                f"Constraint: {_choose(TASK_CODE_CONSTRAINTS, batch_id, signal, 5)}",
+                f"Required task family: {profile['family']}",
+                f"Required input shape: {profile['input_shape']}",
+                f"Required output shape: {profile['output_shape']}",
+                f"Required implementation approach: {profile['implementation']}",
+                f"Domain guidance: {profile['domain']}",
+                f"Additional constraint: {constraint}",
+                "Treat this as a coherent profile: the task, input, output, and implementation must agree.",
                 "Generate exactly one complete Python function definition and no example calls.",
                 "Do not import modules, print results, use exceptions, use f-strings, or generate parsing/regex/file-I/O tasks.",
                 "Use a distinct task title, function name, variable naming scheme, and implementation body.",
