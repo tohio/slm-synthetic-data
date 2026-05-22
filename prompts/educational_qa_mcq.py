@@ -36,73 +36,59 @@ Each raw generated item must have exactly these fields:
 - "type": "educational_qa_mcq"
 - "question": one clear numeric educational question
 - "choices": exactly 4 distinct answer choices, each written as a plain integer string
-- "correct_index": an integer from 0 to 3 pointing to the one correct choice
-- "explanation": one short sentence showing the calculation and final integer answer
-- "verification_expression": a plain integer arithmetic expression that computes the correct answer
-- "verification_answer": the exact integer result of verification_expression
+- "correct_index": an integer from 0 to 3 pointing to the correct numeric choice
+- "explanation": one short sentence showing the calculation and final answer
+- "verification_expression": a plain arithmetic expression that computes the correct answer
+- "verification_answer": the exact integer result of verification_expression, matching choices[correct_index]
 
 The verification fields are temporary validation metadata and will not be published.
 
-Use only these verified question families:
-- integer addition or subtraction
-- integer multiplication
-- exact integer division with no remainder
-- two-step integer arithmetic using addition and/or subtraction
-- rectangle area with both integer length and integer width explicitly stated
-- rectangle perimeter with both integer length and integer width explicitly stated
-- one-half of an even integer total
-- one-quarter or three-quarters of a total divisible by 4
-- 10%, 20%, 25%, 50%, or 75% of a total chosen so the result is an integer
-- total or difference from three explicitly stated integer values
-- average of three explicitly stated integer values whose sum is divisible by 3
-
-Do NOT generate:
-- ratio-share questions
-- general fraction questions outside 1/2, 1/4, or 3/4
-- percentages other than 10%, 20%, 25%, 50%, or 75%
-- decimals, money amounts involving cents, rounding, approximations, or remainders
-- open-ended "what should happen next" questions
-- "best explanation", opinion, decision-choice, or conceptual-definition questions
-- questions about changing an area or perimeter
-- geometry questions missing required dimensions
-- trivia, science facts, history, geography, reading, health, or current facts
-- Python or programming questions
-- questions whose answer cannot be verified from a plain integer arithmetic expression
-- countable-item situations that would produce a fractional answer
+Allowed verified question families:
+- integer addition, subtraction, multiplication, or exact integer division
+- two-step integer arithmetic
+- missing integer value where the answer is computable
+- rectangle area with both length and width explicitly provided
+- rectangle perimeter with both length and width explicitly provided
+- exact fractional quantity problems whose answer is an integer
+- exact percentage-of-quantity problems whose answer is an integer
+- ratio-share questions whose answer is an integer
+- totals, differences, or integer averages from a tiny described list or table
 
 Verification-expression rules:
 - Use only integer literals, spaces, parentheses, and the operators +, -, *, and /.
-- Never use decimal literals.
-- Use / only when the computed result is an exact integer.
-- For percentages, encode the calculation using integers, for example `(total * percent) / 100`; do not use decimals.
-- For fractions, encode the calculation using integers, for example `(total * numerator) / denominator`.
-- Do not use variables, units, percentages, fraction notation outside the expression arithmetic, exponentiation, functions, imports, or prose in verification_expression.
-- verification_answer must be a plain integer string with no units or explanation.
+- Use / only when the final computed result is an exact integer.
+- Do not use variables, units, percentages, fractions-as-text, exponentiation, functions, imports, or prose in verification_expression.
+- verification_answer must be a plain integer string, with no units or explanation.
+- choices must also be plain integer strings so the validator can compare them exactly.
 
-Mandatory answer-construction procedure:
-1. Write the self-contained question using the assigned verified family.
-2. Build verification_expression from the exact quantities stated in the question.
-3. Compute the exact integer result and write it as verification_answer.
-4. Build choices only after computing verification_answer.
-5. Put verification_answer in choices exactly once.
-6. Create three distinct nearby incorrect integer choices; none may equal verification_answer and no two choices may be equal.
-7. Set correct_index to the position containing verification_answer.
-8. Write an explanation that includes the same final integer answer and the same calculation.
+Correctness rules:
+- Compute the answer before selecting correct_index.
+- The indexed choice must equal verification_answer.
+- The explanation must state the same final numeric answer and briefly show why it is correct.
+- All distractor choices must be distinct and numerically incorrect.
+- Include every quantity needed to solve the question.
+- For rectangle questions, always give both length and width.
+- For fraction and percent questions, choose values that yield an exact integer answer.
+- For average questions, choose values whose average is an integer.
 
-Choice rules:
-- All four choices must be distinct plain integer strings.
-- Exactly one choice must equal verification_answer.
-- Do not omit the verified answer from choices.
-- Do not place the verified answer in choices more than once.
-- Do not use units, decimals, fractions, percent signs, words, or punctuation in choices.
-- Before returning the JSON object, re-check that `choices[correct_index] == verification_answer`.
+Disallowed question families:
+- open-ended "what should happen next" questions
+- "best explanation" or opinion-based questions
+- arbitrary spending or decision-choice scenarios
+- questions asking how to increase or decrease an area or perimeter
+- geometry questions missing required dimensions
+- conceptual definitions, trivia, history, geography, science facts, health advice, or current facts
+- Python or programming questions
+- questions whose correct answer cannot be verified by the numeric expression
+- numeric situations that result in fractional people, objects, shots, books, pages, or other countable items
 
-Quality rules:
-- Keep each question self-contained and concise.
+Output quality rules:
+- Keep each question self-contained.
+- Use concise wording.
 - Use the per-batch verified profile as a hard constraint.
-- Include every number needed to solve the question.
-- Do not copy concrete values or wording from these instructions.
-- Use varied operands, contexts, distractors, and answer positions across records.
+- Do not copy concrete values or phrasing from these instructions.
+- Do not repeat question wording, operand combinations, answers, or distractor sets within the batch.
+- Vary correct_index across records.
 - Do not include any extra top-level keys.
 """
 
@@ -118,8 +104,7 @@ def build_educational_qa_mcq_prompt() -> str:
         schema=EDU_QA_MCQ_SCHEMA,
         task_instruction=EDU_QA_MCQ_TASK,
         diversity_context=(
-            "Generate one restricted verified numeric MCQ. Compute the exact integer "
-            "answer first, include it exactly once in four distinct integer choices, "
-            "and do not generate ratios, arbitrary fractions, decimals, or rounding."
+            "Generate one deterministic numeric MCQ with a safe arithmetic "
+            "verification_expression and an exact integer verification_answer."
         ),
     )
