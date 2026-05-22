@@ -233,11 +233,19 @@ def validate_educational_qa_mcq(
         if len(set(normalized_choices)) != len(normalized_choices):
             issues.append("duplicate_choices")
 
-    idx = row.get("correct_index")
-    if isinstance(idx, bool) or not isinstance(idx, int):
-        issues.append("bad_correct_index_type")
-    elif isinstance(choices, list) and not (0 <= idx < len(choices)):
-        issues.append("correct_index_out_of_bounds")
+    supplied_index = row.get("correct_index")
+    corrected_index: int | None = None
+
+    # For legacy/final MCQ rows without raw verification metadata, keep
+    # structural index validation exactly as before. For verified raw rows,
+    # the answer key is derived from the verified numeric answer below.
+    if not require_verification:
+        if isinstance(supplied_index, bool) or not isinstance(supplied_index, int):
+            issues.append("bad_correct_index_type")
+        elif isinstance(choices, list) and not (0 <= supplied_index < len(choices)):
+            issues.append("correct_index_out_of_bounds")
+        else:
+            corrected_index = supplied_index
 
     explanation = strip_text(row.get("explanation"))
     if not explanation:
@@ -268,15 +276,6 @@ def validate_educational_qa_mcq(
         if verification_answer is None:
             issues.append("mcq_bad_verification_answer")
 
-        if isinstance(choices, list) and len(choices) == 4:
-            numeric_choices = [_parse_integer_text(choice) for choice in choices]
-            if any(choice is None for choice in numeric_choices):
-                issues.append("mcq_non_integer_choice")
-            elif isinstance(idx, int) and not isinstance(idx, bool) and 0 <= idx < 4:
-                selected_answer = numeric_choices[idx]
-                if verification_answer is not None and selected_answer != verification_answer:
-                    issues.append("mcq_indexed_choice_mismatch")
-
         if (
             computed is not None
             and computed.denominator == 1
@@ -285,11 +284,47 @@ def validate_educational_qa_mcq(
         ):
             issues.append("mcq_verification_answer_mismatch")
 
+        if isinstance(choices, list) and len(choices) == 4:
+            numeric_choices = [_parse_integer_text(choice) for choice in choices]
+            if any(choice is None for choice in numeric_choices):
+                issues.append("mcq_non_integer_choice")
+            elif verification_answer is not None:
+                matching_indices = [
+                    index
+                    for index, choice in enumerate(numeric_choices)
+                    if choice == verification_answer
+                ]
+                if not matching_indices:
+                    issues.append("mcq_verified_answer_missing_from_choices")
+                elif len(matching_indices) > 1:
+                    issues.append("mcq_verified_answer_not_unique")
+                else:
+                    # Do not trust the model's supplied index. When the
+                    # verified answer appears exactly once, derive the
+                    # answer key from the machine-checked choice.
+                    corrected_index = matching_indices[0]
+
         if verification_answer is not None and explanation and not _contains_integer(explanation, verification_answer):
             issues.append("mcq_explanation_missing_answer")
 
+        if corrected_index is None and not any(
+            issue in issues
+            for issue in (
+                "bad_choices",
+                "choices_not_four",
+                "empty_choice",
+                "mcq_non_integer_choice",
+                "mcq_bad_verification_answer",
+                "mcq_verified_answer_missing_from_choices",
+                "mcq_verified_answer_not_unique",
+            )
+        ):
+            issues.append("mcq_unable_to_derive_correct_index")
+
     if issues:
         return ValidationResult(False, None, issues)
+
+    assert corrected_index is not None
 
     # Verification fields are intentionally removed before validated/deduped/exported stages.
     return ValidationResult(
@@ -298,7 +333,7 @@ def validate_educational_qa_mcq(
             "type": "educational_qa_mcq",
             "question": row["question"].strip(),
             "choices": [choice.strip() for choice in row["choices"]],
-            "correct_index": int(row["correct_index"]),
+            "correct_index": corrected_index,
             "explanation": row["explanation"].strip(),
         },
         [],
