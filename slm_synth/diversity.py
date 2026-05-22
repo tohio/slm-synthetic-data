@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Dict, List
+from typing import Dict, List, Union
+
+
+ProfileValue = Union[str, List[str]]
 
 
 def _choose(options: List[str], batch_id: int, salt: str, offset: int = 0) -> str:
@@ -13,11 +16,11 @@ def _choose(options: List[str], batch_id: int, salt: str, offset: int = 0) -> st
 
 
 def _choose_profile(
-    profiles: List[Dict[str, str]],
+    profiles: List[Dict[str, ProfileValue]],
     batch_id: int,
     salt: str,
     offset: int = 0,
-) -> Dict[str, str]:
+) -> Dict[str, ProfileValue]:
     if not profiles:
         return {}
     digest = hashlib.sha256(f"{salt}:{batch_id}:{offset}".encode("utf-8")).hexdigest()
@@ -25,16 +28,19 @@ def _choose_profile(
     return profiles[idx]
 
 
+def _choose_int(batch_id: int, salt: str, offset: int, minimum: int, maximum: int) -> int:
+    digest = hashlib.sha256(f"{salt}:{batch_id}:{offset}".encode("utf-8")).hexdigest()
+    return minimum + (int(digest[:8], 16) % (maximum - minimum + 1))
+
+
 # ---------------------------------------------------------------------------
 # Arithmetic diversity profiles
 #
-# These profiles intentionally preserve direct-equation arithmetic as part of
-# the signal, while avoiding concrete operands or reusable example questions.
-# Each profile is internally coherent: the format, operation, number design,
-# and context belong together.
+# Direct-equation arithmetic remains part of the signal. These profiles avoid
+# fixed example operands and keep each selected format internally coherent.
 # ---------------------------------------------------------------------------
 
-ARITHMETIC_PROFILES: List[Dict[str, str]] = [
+ARITHMETIC_PROFILES: List[Dict[str, ProfileValue]] = [
     {
         "format": "direct symbolic equation",
         "operation": "addition",
@@ -219,192 +225,160 @@ ARITHMETIC_STYLES = [
 # ---------------------------------------------------------------------------
 # Task-code diversity profiles
 #
-# These profiles align with the function-only task_code prompt:
-# - exactly one complete function
-# - no imports, print calls, examples, f-strings, exceptions, file I/O,
-#   regex, CSV parsing, date parsing, or helper/wrapper pairs
-# - no reusable concrete function names or code examples in the prompt
+# Every profile requires one complete Python function only. Profiles require
+# an additional transformation, filter, comparison, or aggregation step to
+# avoid collapse into trivial canonical snippets at scale.
 # ---------------------------------------------------------------------------
 
-TASK_CODE_PROFILES: List[Dict[str, str]] = [
+TASK_CODE_PROFILES: List[Dict[str, ProfileValue]] = [
     {
-        "family": "build a frequency summary",
-        "input_shape": "list of short string labels",
-        "output_shape": "dictionary mapping labels to counts",
-        "implementation": "one loop with a dictionary accumulator",
-        "domain": "message tags",
+        "family": "conditionally total values by group",
+        "input_shape": "list of dictionaries containing a group label, numeric amount, and simple status field",
+        "output_shape": "dictionary mapping qualifying groups to summed amounts",
+        "implementation": "one loop that filters by status before updating group totals",
+        "domains": ["shipment entries", "equipment requests", "resource allocations", "supply movements"],
+        "rule": "Only include records whose status matches the selected one-word category.",
     },
     {
-        "family": "build a frequency summary",
-        "input_shape": "list of category strings",
-        "output_shape": "dictionary mapping categories to counts",
-        "implementation": "one loop with conditional dictionary updates",
-        "domain": "package statuses",
+        "family": "conditionally count records by category",
+        "input_shape": "list of dictionaries containing a category and numeric quantity",
+        "output_shape": "dictionary mapping categories to counts of qualifying records",
+        "implementation": "one loop that tests a numeric cutoff before incrementing category counts",
+        "domains": ["service requests", "material batches", "attendance entries", "reservation records"],
+        "rule": "Use the assigned cutoff and count records whose quantity meets or exceeds it.",
     },
     {
-        "family": "sum values by group",
-        "input_shape": "list of dictionaries containing a category and numeric amount",
-        "output_shape": "dictionary mapping each category to its total amount",
-        "implementation": "one loop with a dictionary accumulator",
-        "domain": "order quantities",
+        "family": "aggregate adjusted values by label",
+        "input_shape": "list of dictionaries containing a label and numeric value",
+        "output_shape": "dictionary mapping labels to totals after applying an adjustment",
+        "implementation": "one loop that adjusts each numeric value then accumulates it by label",
+        "domains": ["usage entries", "allocation records", "survey tallies", "workload records"],
+        "rule": "Apply the assigned integer adjustment before accumulating values.",
     },
     {
-        "family": "sum values by group",
-        "input_shape": "list of dictionaries containing a label and score",
-        "output_shape": "dictionary mapping each label to its total score",
-        "implementation": "one loop with dictionary updates",
-        "domain": "team totals",
+        "family": "filter then sort structured records",
+        "input_shape": "list of dictionaries with a numeric measure and a short text identifier",
+        "output_shape": "list of qualifying records sorted by the numeric measure",
+        "implementation": "one list comprehension for filtering followed by sorted with a simple key",
+        "domains": ["quality checks", "capacity readings", "duration records", "inventory observations"],
+        "rule": "Filter using the assigned cutoff and sort in the assigned direction.",
     },
     {
-        "family": "filter structured records by a condition",
-        "input_shape": "list of dictionaries with a numeric score field",
-        "output_shape": "list of records meeting a numeric threshold",
-        "implementation": "one list comprehension with a comparison",
-        "domain": "student results",
-    },
-    {
-        "family": "filter structured records by a condition",
-        "input_shape": "list of dictionaries with a status field",
-        "output_shape": "list of records with the selected status",
-        "implementation": "one loop that appends matching records",
-        "domain": "delivery items",
-    },
-    {
-        "family": "filter numeric values",
-        "input_shape": "list of integers",
-        "output_shape": "list of values meeting a numeric condition",
-        "implementation": "one list comprehension with arithmetic and comparison",
-        "domain": "daily measurements",
-    },
-    {
-        "family": "transform numeric values",
-        "input_shape": "list of integers",
-        "output_shape": "list of adjusted integers",
-        "implementation": "one loop applying a simple arithmetic transformation",
-        "domain": "score adjustments",
-    },
-    {
-        "family": "transform structured records",
-        "input_shape": "list of dictionaries with a numeric quantity field",
-        "output_shape": "list of computed numeric values",
-        "implementation": "one list comprehension using one field from each record",
-        "domain": "cart quantities",
-    },
-    {
-        "family": "sort structured records",
-        "input_shape": "list of dictionaries with one numeric ordering field",
+        "family": "sort records after deriving a numeric measure",
+        "input_shape": "list of dictionaries containing a short text field and another identifier",
         "output_shape": "sorted list of the original records",
-        "implementation": "one call to sorted with a simple key function",
-        "domain": "task priorities",
+        "implementation": "one call to sorted using the length of the selected text field as the key",
+        "domains": ["request labels", "route descriptions", "catalog titles", "annotation records"],
+        "rule": "Use text length as the ordering measure and sort in the assigned direction.",
     },
     {
-        "family": "sort structured records",
-        "input_shape": "list of dictionaries with one short string ordering field",
-        "output_shape": "sorted list of the original records",
-        "implementation": "one call to sorted with a simple key function",
-        "domain": "label records",
+        "family": "transform then filter numeric values",
+        "input_shape": "list of integers",
+        "output_shape": "list of transformed integers that satisfy a condition",
+        "implementation": "one loop that transforms each value and appends only qualifying results",
+        "domains": ["sensor readings", "production measurements", "distance samples", "daily totals"],
+        "rule": "Apply the assigned multiplier and offset, then keep transformed values meeting the cutoff.",
     },
     {
-        "family": "sort simple values after a transformation",
-        "input_shape": "list of short strings",
-        "output_shape": "list sorted according to a computed property",
-        "implementation": "one call to sorted with a simple key function",
-        "domain": "short messages",
+        "family": "calculate bucketed frequencies from numbers",
+        "input_shape": "list of integers",
+        "output_shape": "dictionary mapping bucket labels to counts",
+        "implementation": "one loop that assigns each number to one of two buckets using a cutoff",
+        "domains": ["load estimates", "session durations", "queue sizes", "volume readings"],
+        "rule": "Use the assigned cutoff to produce two clearly named buckets.",
     },
     {
-        "family": "collect distinct values from structured records",
-        "input_shape": "list of dictionaries with a category field",
-        "output_shape": "sorted list of distinct category values",
-        "implementation": "set accumulation followed by sorted output",
-        "domain": "inventory records",
-    },
-    {
-        "family": "measure distinct values",
-        "input_shape": "list of short string values",
-        "output_shape": "integer count of distinct values",
-        "implementation": "set accumulation with an additional simple condition",
-        "domain": "badge labels",
-    },
-    {
-        "family": "group structured records by one field",
-        "input_shape": "list of dictionaries containing a group field",
-        "output_shape": "dictionary mapping group values to lists of records",
-        "implementation": "one loop using dictionary list accumulation",
-        "domain": "shipment records",
-    },
-    {
-        "family": "group simple strings by a derived property",
+        "family": "group strings by a derived key after normalization",
         "input_shape": "list of non-empty short strings",
-        "output_shape": "dictionary mapping a derived key to lists of strings",
-        "implementation": "one loop using a simple string property",
-        "domain": "category labels",
+        "output_shape": "dictionary mapping a derived key to lists of normalized strings",
+        "implementation": "one loop that normalizes each string and groups it by a simple derived property",
+        "domains": ["topic labels", "reference codes", "short descriptors", "region tags"],
+        "rule": "Normalize case and group by the assigned derived-key rule.",
     },
     {
-        "family": "compute an aggregate metric",
-        "input_shape": "list of integers",
-        "output_shape": "integer total after applying a condition",
-        "implementation": "one loop with a numeric accumulator and conditional",
-        "domain": "activity counts",
+        "family": "count normalized tokens meeting a length rule",
+        "input_shape": "single one-line text string",
+        "output_shape": "dictionary mapping qualifying normalized tokens to counts",
+        "implementation": "split into tokens, normalize each token, and count only tokens satisfying a length cutoff",
+        "domains": ["short summaries", "status notes", "category descriptions", "single-line comments"],
+        "rule": "Use the assigned minimum token length and ignore shorter tokens.",
     },
     {
-        "family": "compute an aggregate metric",
-        "input_shape": "list of dictionaries with a numeric field",
-        "output_shape": "integer count of records meeting a threshold",
-        "implementation": "one loop with a counter",
-        "domain": "registration records",
+        "family": "find the best qualifying structured record",
+        "input_shape": "list of dictionaries containing a numeric measure and an identifier",
+        "output_shape": "one selected record or an empty result when none qualify",
+        "implementation": "one loop that applies a cutoff and tracks the best qualifying record",
+        "domains": ["inspection results", "request estimates", "route metrics", "resource options"],
+        "rule": "Use the assigned cutoff and direction when selecting the best record.",
     },
     {
-        "family": "find an extreme structured value",
-        "input_shape": "list of dictionaries with a numeric field",
-        "output_shape": "one selected record",
-        "implementation": "one loop tracking the current best record",
-        "domain": "product metrics",
+        "family": "combine two numeric summaries with a rule",
+        "input_shape": "two dictionaries mapping labels to integer quantities",
+        "output_shape": "new dictionary containing combined values that meet a condition",
+        "implementation": "accumulate both dictionaries into a new dictionary, then filter by a cutoff",
+        "domains": ["monthly totals", "location counts", "category tallies", "stock movements"],
+        "rule": "Use the assigned cutoff to decide which combined totals remain in the output.",
     },
     {
-        "family": "find an extreme numeric value with filtering",
-        "input_shape": "list of integers",
-        "output_shape": "one selected integer",
-        "implementation": "filter eligible values in a loop while tracking the best",
-        "domain": "performance scores",
+        "family": "compare paired numeric sequences",
+        "input_shape": "two equal-length lists of integers",
+        "output_shape": "dictionary summarizing pairwise comparison outcomes",
+        "implementation": "one loop over paired values that increments outcome counters",
+        "domains": ["trial readings", "weekly counts", "capacity snapshots", "forecast comparisons"],
+        "rule": "Count greater-than, less-than, and equal outcomes without returning raw pairs.",
     },
     {
-        "family": "combine two dictionaries",
-        "input_shape": "two dictionaries mapping labels to integer counts",
-        "output_shape": "new dictionary containing combined totals",
-        "implementation": "one loop over each input dictionary with numeric accumulation",
-        "domain": "warehouse totals",
-    },
-    {
-        "family": "compare paired values",
-        "input_shape": "two equally sized lists of integers",
-        "output_shape": "list containing selected values from each pair",
-        "implementation": "one loop over paired values using a comparison",
-        "domain": "weekly measurements",
-    },
-    {
-        "family": "flatten nested values with filtering",
+        "family": "flatten nested values while applying a numeric rule",
         "input_shape": "nested list of integers",
-        "output_shape": "flat list containing values meeting a simple condition",
-        "implementation": "nested loops with conditional append",
-        "domain": "batch readings",
+        "output_shape": "flat list of adjusted values satisfying a condition",
+        "implementation": "nested loops that transform and conditionally append values",
+        "domains": ["batch outputs", "group measurements", "daily segments", "partition totals"],
+        "rule": "Apply the assigned offset and retain values meeting the assigned divisibility rule.",
     },
     {
-        "family": "summarize a one-line string",
-        "input_shape": "single one-line text value containing space-separated words",
-        "output_shape": "dictionary mapping normalized words to counts",
-        "implementation": "split text then count tokens in one loop",
-        "domain": "short notes",
+        "family": "summarize records using a derived group and numeric total",
+        "input_shape": "list of dictionaries containing a short label and numeric amount",
+        "output_shape": "dictionary mapping derived groups to summed amounts",
+        "implementation": "one loop that derives a group from the label then accumulates amounts",
+        "domains": ["item codes", "region labels", "request tags", "asset categories"],
+        "rule": "Derive groups using the assigned text-position rule.",
+    },
+    {
+        "family": "select labels by combined conditions",
+        "input_shape": "dictionary mapping short labels to integer values",
+        "output_shape": "sorted list of labels whose values satisfy two simple conditions",
+        "implementation": "one list comprehension followed by sorted output",
+        "domains": ["category totals", "daily usage", "allocation limits", "record counts"],
+        "rule": "Apply the assigned cutoff and parity requirement before sorting labels.",
+    },
+    {
+        "family": "calculate changes between aligned numeric sequences",
+        "input_shape": "two equal-length lists of integers",
+        "output_shape": "list of signed differences that meet a magnitude condition",
+        "implementation": "one loop that computes differences and filters by absolute magnitude",
+        "domains": ["before-after readings", "weekly adjustments", "allocation changes", "usage changes"],
+        "rule": "Use the assigned minimum magnitude for retained changes.",
     },
 ]
 
 TASK_CODE_CONSTRAINTS = [
     "Use exactly one complete function definition and no top-level calls.",
     "Do not use imports, printing, examples, exceptions, formatted strings, or external packages.",
-    "Keep the implementation compact but include meaningful logic beyond a trivial built-in wrapper.",
-    "Use clear variable names that do not copy familiar beginner-example function names.",
-    "Return computed data without mutating inputs unless the requested output requires a new accumulator.",
-    "Do not reuse common one-line solutions or generic task titles.",
+    "Use the assigned rule in the implementation; do not simplify it into a generic one-line task.",
+    "Keep the implementation compact while preserving the required transformation and condition.",
+    "Use distinct field names and function naming; avoid familiar beginner-example names.",
+    "Return new computed data without mutating input objects.",
 ]
+
+TASK_CODE_GROUP_RULES = [
+    "the first normalized character",
+    "the last normalized character",
+    "the first two normalized characters",
+    "a short-versus-long label bucket using the assigned cutoff",
+]
+
+TASK_CODE_SORT_DIRECTIONS = ["ascending order", "descending order"]
+TASK_CODE_STATUSES = ["selected", "ready", "reviewed", "complete", "approved"]
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +534,14 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
     if signal == "task_code":
         profile = _choose_profile(TASK_CODE_PROFILES, batch_id, signal, 1)
         constraint = _choose(TASK_CODE_CONSTRAINTS, batch_id, signal, 2)
+        domains = profile.get("domains", [])
+        domain = _choose(domains if isinstance(domains, list) else [], batch_id, signal, 3)
+        cutoff = _choose_int(batch_id, signal, 4, 11, 97)
+        secondary = _choose_int(batch_id, signal, 5, 2, 13)
+        divisor = _choose_int(batch_id, signal, 6, 2, 9)
+        direction = _choose(TASK_CODE_SORT_DIRECTIONS, batch_id, signal, 7)
+        status = _choose(TASK_CODE_STATUSES, batch_id, signal, 8)
+        group_rule = _choose(TASK_CODE_GROUP_RULES, batch_id, signal, 9)
 
         return "\n".join(
             [
@@ -568,12 +550,21 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 f"Required input shape: {profile['input_shape']}",
                 f"Required output shape: {profile['output_shape']}",
                 f"Required implementation approach: {profile['implementation']}",
-                f"Domain guidance: {profile['domain']}",
+                f"Domain guidance: {domain}",
+                f"Required rule: {profile['rule']}",
+                (
+                    "Record-specific variation requirements: "
+                    f"primary cutoff={cutoff}; secondary integer={secondary}; "
+                    f"divisor={divisor}; ordering={direction}; status label={status}; "
+                    f"derived-key rule={group_rule}."
+                ),
                 f"Additional constraint: {constraint}",
-                "Treat this as a coherent profile: the task, input, output, and implementation must agree.",
+                "Use only the record-specific parameters relevant to the selected task family.",
+                "Treat this as a coherent profile: the task, input, output, rule, and implementation must agree.",
                 "Generate exactly one complete Python function definition and no example calls.",
                 "Do not import modules, print results, use exceptions, use f-strings, or generate parsing/regex/file-I/O tasks.",
                 "Use a distinct task title, function name, variable naming scheme, and implementation body.",
+                "Do not fall back to simple temperature filters, package-status frequencies, task-priority sorts, score scaling, or other common repeated beginner tasks.",
                 "Do not copy task names or function bodies from the prompt or from familiar beginner examples.",
                 "Do not include the batch diversity id in any generated field.",
             ]
