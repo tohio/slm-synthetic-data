@@ -56,12 +56,20 @@ def _bool_cfg(*values: Any, default: bool) -> bool:
     return bool(default)
 
 
-def build_llm(base_cfg: Dict[str, Any], signal_cfg: Optional[Dict[str, Any]] = None) -> LLMBackend:
+def build_llm(
+    base_cfg: Dict[str, Any],
+    signal_cfg: Optional[Dict[str, Any]] = None,
+    *,
+    role: str = "candidate",
+) -> LLMBackend:
     signal_cfg = signal_cfg or {}
     retry_cfg = base_cfg.get("retries", {}) or {}
 
-    model_name = signal_cfg.get("model", base_cfg["model"])
-    warn_if_unsupported_model(model_name, context="synthetic generation")
+    model_name = signal_cfg.get(
+        f"{role}_model",
+        signal_cfg.get("model", base_cfg["model"]),
+    )
+    warn_if_unsupported_model(model_name, context=f"synthetic {role} generation")
 
     return LLMBackend(
         provider=base_cfg.get("provider", "groq"),
@@ -126,7 +134,8 @@ def generate_with_split(generator: Any, batch_size: int, min_batch_size: int) ->
 def submit_next(
     executor: ThreadPoolExecutor,
     GenClass: Any,
-    llm: LLMBackend,
+    candidate_llm: LLMBackend,
+    response_llm: LLMBackend,
     prompt_file: Optional[str],
     batch_size: int,
     min_batch_size: int,
@@ -136,8 +145,9 @@ def submit_next(
 ):
     diversity_context = build_diversity_context(signal_name, batch_id) if diversity_enabled else ""
     generator = GenClass(
-        llm,
-        prompt_file,
+        candidate_llm,
+        response_llm=response_llm,
+        prompt_file=prompt_file,
         batch_size=batch_size,
         diversity_context=diversity_context,
     )
@@ -174,9 +184,13 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     diversity_enabled = bool(mix_cfg.get("diversity_enabled", diversity_cfg.get("enabled", True)))
     samples = signal_sample_target(name, cfg, mix_cfg)
 
+    candidate_llm = build_llm(backend_cfg, mix_cfg, role="candidate")
+    response_llm = build_llm(backend_cfg, mix_cfg, role="response")
+
     print(
         f"[generate] Starting signal: {name} "
-        f"({samples} samples, batch_size={batch_size}, parallel_requests={parallel_requests}, diversity={diversity_enabled})"
+        f"({samples} samples, batch_size={batch_size}, parallel_requests={parallel_requests}, diversity={diversity_enabled}, "
+        f"candidate_model={candidate_llm.model}, response_model={response_llm.model})"
     )
 
     raw_path = output_dir / "raw" / f"{name}.jsonl"
@@ -186,7 +200,6 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     reject_writer = JSONLWriter(rejected_path)
 
     GenClass = GENERATOR_MAP[name]
-    llm = build_llm(backend_cfg, mix_cfg)
 
     generated = 0
     rejected_batches = 0
@@ -197,7 +210,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
         with ThreadPoolExecutor(max_workers=max(1, parallel_requests)) as executor:
             while len(pending) < parallel_requests and submitted * batch_size < samples:
                 _submit_delay(rate_limiter)
-                pending.add(submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled))
+                pending.add(submit_next(executor, GenClass, candidate_llm, response_llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled))
                 submitted += 1
 
             last_log = time.time()
@@ -230,7 +243,7 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
                     while len(pending) < parallel_requests and generated + len(pending) * batch_size < samples:
                         _submit_delay(rate_limiter)
                         pending.add(
-                            submit_next(executor, GenClass, llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled)
+                            submit_next(executor, GenClass, candidate_llm, response_llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled)
                         )
                         submitted += 1
 

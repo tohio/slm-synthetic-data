@@ -26,7 +26,8 @@ mix:
     share: 0.30
     prompt_file: "prompts/arithmetic.yaml"
     source_module: "slm_synth.sources.arithmetic"
-    model: "llama-3.1-8b-instant"
+    candidate_model: "__MODEL__"
+    response_model: "__MODEL__"
     batch_size: __ARITHMETIC_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
     max_tokens: __ARITHMETIC_MAX_TOKENS__
@@ -35,7 +36,8 @@ mix:
     share: 0.30
     prompt_file: "prompts/task_code.yaml"
     source_module: "slm_synth.sources.task_code"
-    model: "llama-3.1-8b-instant"
+    candidate_model: "__MODEL__"
+    response_model: "__MODEL__"
     batch_size: __TASK_CODE_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
     max_tokens: __TASK_CODE_MAX_TOKENS__
@@ -45,7 +47,8 @@ mix:
     share: 0.075
     prompt_file: "prompts/educational_qa_mcq_math.py"
     source_module: "slm_synth.sources.educational_qa_mcq_math"
-    model: "llama-3.3-70b-versatile"
+    candidate_model: "__MODEL__"
+    response_model: "__MODEL__"
     batch_size: __EDUCATIONAL_QA_MCQ_MATH_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
     max_tokens: __EDUCATIONAL_QA_MCQ_MATH_MAX_TOKENS__
@@ -54,7 +57,8 @@ mix:
     share: 0.225
     prompt_file: "prompts/educational_qa_mcq_general.py"
     source_module: "slm_synth.sources.educational_qa_mcq_general"
-    model: "llama-3.3-70b-versatile"
+    candidate_model: "__MODEL__"
+    response_model: "__MODEL__"
     batch_size: __EDUCATIONAL_QA_MCQ_GENERAL_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
     max_tokens: __EDUCATIONAL_QA_MCQ_GENERAL_MAX_TOKENS__
@@ -63,7 +67,8 @@ mix:
     share: 0.10
     prompt_file: "prompts/factual_restraint.yaml"
     source_module: "slm_synth.sources.factual_restraint"
-    model: "llama-3.1-8b-instant"
+    candidate_model: "__MODEL__"
+    response_model: "__MODEL__"
     batch_size: __FACTUAL_RESTRAINT_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
     max_tokens: __FACTUAL_RESTRAINT_MAX_TOKENS__

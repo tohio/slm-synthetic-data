@@ -597,10 +597,11 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 f"Required operation structure: {profile['operation']}",
                 f"Number design: {profile['numbers']}",
                 f"Context guidance: {profile['context']}",
-                f"Answer focus: {profile['answer_focus']}",
+                f"Question objective: {profile['answer_focus']}",
                 f"Writing style: {style}",
                 "Treat this as a coherent profile: do not replace it with a different arithmetic form.",
-                "Use new operands, wording, entities, and answer values for every record.",
+                "Use new operands, wording, entities, and implied solution values for every candidate.",
+                "Generate the unsolved question only; do not output calculation steps or an answer.",
                 "Direct equations remain allowed only when this profile explicitly requires them.",
                 "Do not copy concrete operands, stories, or phrasing from instructions or familiar textbook examples.",
                 "Do not include the batch diversity id in any generated field.",
@@ -609,7 +610,18 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
 
     if signal == "task_code":
         profile = _choose_profile(TASK_CODE_PROFILES, batch_id, signal, 1)
-        constraint = _choose(TASK_CODE_CONSTRAINTS, batch_id, signal, 2)
+        constraint = _choose(
+            [
+                "Specify a task solvable by exactly one function and no top-level calls.",
+                "Specify a task solvable without imports, printing, examples, exceptions, or external packages.",
+                "Require the assigned transformation and condition rather than a generic one-step task.",
+                "Use distinct field names and avoid familiar beginner-example naming.",
+                "Require a returned computed value without mutating input objects.",
+            ],
+            batch_id,
+            signal,
+            2,
+        )
         domains = profile.get("domains", [])
         domain = _choose(domains if isinstance(domains, list) else [], batch_id, signal, 3)
         cutoff = _choose_int(batch_id, signal, 4, 11, 97)
@@ -636,10 +648,11 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 ),
                 f"Additional constraint: {constraint}",
                 "Use only the record-specific parameters relevant to the selected task family.",
-                "Treat this as a coherent profile: the task, input, output, rule, and implementation must agree.",
-                "Generate exactly one complete Python function definition and no example calls.",
-                "Do not import modules, print results, use exceptions, use f-strings, or generate parsing/regex/file-I/O tasks.",
-                "Use a distinct task title, function name, variable naming scheme, and implementation body.",
+                "Treat this as a coherent profile: the task, input, output, and rule must agree.",
+                "Generate only the task specification; do not output a plan, function definition, or solution code.",
+                "The requested solution must be feasible as exactly one compact Python function with no imports or example calls.",
+                "Do not request printing, exceptions, formatted strings, parsing, regex, or file-I/O tasks.",
+                "Use a distinct task title and avoid copied beginner-task wording.",
                 "Do not fall back to simple temperature filters, package-status frequencies, task-priority sorts, score scaling, or other common repeated beginner tasks.",
                 "Do not copy task names or function bodies from the prompt or from familiar beginner examples.",
                 "Do not include the batch diversity id in any generated field.",
@@ -661,11 +674,9 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 f"Difficulty guidance: {difficulty}",
                 f"Distractor guidance: {distractors}",
                 "The question must have one exact integer answer computable from the stated quantities.",
-                "Return verification_expression and verification_answer for validator use; both must match a unique answer choice.",
-                "Build choices after computing the verified answer and do not target a predetermined correct_index position.",
-                "Choices must be four distinct plain integer strings with no units.",
-                "The explanation must show only the numeric calculation and exact final integer answer.",
-                "Do not mention the choices, answer-key selection, question generation, errors, corrections, or alternate interpretations.",
+                "Generate only a candidate question and four distinct plain integer-string choices with no units.",
+                "Do not output correct_index, explanation, verification_expression, or verification_answer in the candidate pass.",
+                "Do not signal which choice is correct; the independent response pass will solve and finalize the item.",
                 "Do not generate next-step, best-explanation, conceptual, opinion, trivia, Python, or under-specified questions.",
                 "Do not include the batch diversity id in any generated field.",
             ]
@@ -685,9 +696,9 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 f"Scenario context: {profile['context']}",
                 f"Question style: {style}",
                 f"Distractor guidance: {distractors}",
-                "The correct answer must be justified entirely by information included in the question.",
-                "Determine the supported answer first; then set correct_index to its actual position rather than targeting an answer location.",
-                "Before returning, verify that the explanation supports choices[correct_index] and no other choice follows from the evidence.",
+                "Exactly one candidate choice must be supported entirely by information included in the question.",
+                "Generate only the candidate question and choices; do not output correct_index or an explanation.",
+                "Do not identify the supported choice; the independent response pass will answer and finalize it.",
                 "For Python items, include the literal snippet. For rule items, use fictional labels and a direct consequence only.",
                 "For security items, state one policy with exactly one compliant option. For experiments, ask only for the one deliberately changed variable.",
                 "Do not generate any arithmetic, fraction, percentage, ratio, geometry, probability, statistics, measurement, or financial calculation question.",
@@ -701,9 +712,9 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
             [
                 f"Batch diversity id: {nonce}",
                 f"Uncertainty category: {_choose(FACTUAL_CATEGORIES, batch_id, signal, 1)}",
-                f"Safe-answer style: {_choose(FACTUAL_ANSWER_STYLES, batch_id, signal, 2)}",
-                "Within this batch, vary the topic, wording, and safe-answer phrasing.",
-                "Avoid repeating generic answers such as 'It depends on various factors' unless followed by a specific explanation of what is missing.",
+                f"Intended safe-answer style for the later response: {_choose(FACTUAL_ANSWER_STYLES, batch_id, signal, 2)}",
+                "Within this batch, vary the topic and question wording.",
+                "Generate the question only; do not answer it or include uncertainty guidance in an output field.",
             ]
         )
 

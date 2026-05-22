@@ -15,3 +15,7 @@ The generated signals are designed to supplement broader training data with targ
 ## Intended Use
 
 Use these datasets as targeted signals in a broader pretraining or continued-pretraining data mix. The two MCQ datasets may be combined downstream when a unified MCQ mixture is desired. They are not intended to be described as SFT, DPO, or standalone training datasets.
+
+## Generation Method
+
+Each published record is produced through two independent model calls: a candidate-authoring pass creates an unanswered question or task, and a response-completion pass supplies the answer, solution, or MCQ answer key. The default scalable configuration uses `llama-3.1-8b-instant` for both passes.

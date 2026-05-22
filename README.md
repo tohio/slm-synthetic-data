@@ -24,8 +24,10 @@ The pipeline currently supports five signal families:
 The supported end-to-end pipeline is:
 
 ```text
-generate -> validate -> dedup -> push_hf
+generate candidates -> independently complete responses -> validate -> dedup -> push_hf
 ```
+
+`make generate` performs both LLM passes for each signal. By default, the scalable profiles use `llama-3.1-8b-instant` for both candidate authoring and independent response completion.
 
 Validated default posture:
 
@@ -41,7 +43,7 @@ make push
 
 The current implementation includes:
 
-- Groq-hosted Llama generation.
+- Two-pass Groq-hosted Llama generation: candidate authoring followed by independent response completion.
 - JSON object generation contract: `{"items": [...]}`.
 - Groq JSON object mode support.
 - Groq Flex service-tier support.
@@ -54,7 +56,7 @@ The current implementation includes:
 - Hugging Face push with `.env` token loading.
 - Hugging Face dataset card generation.
 
-MCQ generation is intentionally split: mathematical MCQs use raw-stage verification metadata and a numeric correctness gate, while general MCQs exclude calculation questions and preserve broader educational-choice coverage. Both MCQ signals default to `llama-3.3-70b-versatile` because MCQ authoring requires stronger question/choice/explanation consistency than the narrower signals. Downstream users may concatenate both datasets during training when a combined MCQ mixture is desired.
+MCQ generation is intentionally split: mathematical MCQs use raw-stage verification metadata and a numeric correctness gate, while general MCQs exclude calculation questions and preserve broader educational-choice coverage. All signals now use two passes: the first call authors an unanswered candidate and the second call independently supplies the training response or final answer key. Downstream users may concatenate both MCQ datasets during training when a combined MCQ mixture is desired.
 
 
 ---
@@ -65,8 +67,8 @@ This project is validated with the following Groq models:
 
 | Model | Use |
 |---|---|
-| `llama-3.1-8b-instant` | Recommended default for scalable non-MCQ synthetic generation. |
-| `llama-3.3-70b-versatile` | Default for both MCQ signals; higher-quality option for other smaller or quality-focused runs. |
+| `llama-3.1-8b-instant` | Recommended default for both candidate and response passes in scalable generation. |
+| `llama-3.3-70b-versatile` | Optional higher-quality model for explicit comparison runs. |
 
 Other models may work, but they are not currently validated for production-scale generation. The pipeline requires reliable JSON object output, strict schema following, and stable batched responses.
 
@@ -93,7 +95,7 @@ Recommended progression:
 | `balanced` | `llama-3.1-8b-instant` | Moderate concurrency, diversity controls, backoff. | Recommended default. |
 | `quality` | `llama-3.3-70b-versatile` | Lower concurrency, higher-quality model. | Smaller quality-focused runs or comparisons. |
 
-`speed` and `balanced` intentionally use the same default model. The difference is runtime posture, not model family.
+`speed` and `balanced` intentionally use the same default model for both passes. The difference is runtime posture, not model family. Per-signal `candidate_model` and `response_model` fields may override either role for controlled experiments.
 
 ---
 

@@ -1,173 +1,48 @@
-TASK_CODE_SCHEMA = r"""
-{
-  "type": "object",
-  "properties": {
-    "type": { "const": "task_code" },
-    "task": { "type": "string" },
-    "plan": {
-      "type": "array",
-      "items": { "type": "string" }
+TASK_CODE_CANDIDATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"const": "task_code_candidate"},
+        "task": {"type": "string"},
     },
-    "code": { "type": "string" }
-  },
-  "required": ["type", "task", "plan", "code"]
+    "required": ["type", "task"],
 }
+
+TASK_CODE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "candidate_id": {"type": "integer"},
+        "plan": {"type": "array", "items": {"type": "string"}},
+        "code": {"type": "string"},
+    },
+    "required": ["candidate_id", "plan", "code"],
+}
+
+TASK_CODE_CANDIDATE_TASK = r"""Generate independent beginner/intermediate Python programming tasks without solutions.
+
+Each item must contain only:
+- "type": "task_code_candidate"
+- "task": one short, complete task specification that can be solved by exactly one Python function
+
+Allowed task families include filtering plus aggregation, grouping, transformed totals, comparisons, sorting structured values, normalized token counting, and nested-list transformations.
+
+Rules:
+- State the input shape, output shape, and required rule in the task.
+- The intended solution must use one function only, under 20 lines, with no imports or external packages.
+- Do not request regex, file I/O, CSV parsing, classes, exceptions, shell commands, printing, or example calls.
+- Do not provide a plan, code, solution hint, or completed function.
+- Avoid trivial repeated beginner tasks and familiar copied function names.
 """
 
-TASK_CODE_TASK = r"""Generate independent beginner Python programming task records.
+TASK_CODE_RESPONSE_TASK = r"""Solve each fixed Python task independently.
 
-Each item must have:
-- "type": "task_code"
-- "task": a short programming task
-- "plan": 2 to 4 short solution steps
-- "code": a short Python code snippet solving the task
+For each candidate_id, return only:
+- "candidate_id": the supplied id
+- "plan": 2 to 4 short implementation steps
+- "code": one complete valid Python 3 function definition solving the task
 
-Allowed task families include:
-- list aggregation
-- dictionary counting
-- set uniqueness
-- sorting values
-- filtering values
-- loops and conditionals
-- basic math helper functions
-- simple string casing and splitting without regular expressions
-- grouping items by key
-- frequency tables
-- nested lists
-
-Disallowed task topics:
-- regular expressions
-- importing `re`
-- CSV parsing
-- file I/O
-- external packages
-- multiline string parsing
-- shell commands
-- extracting emails, phone numbers, dates, or numeric patterns from text
-- phone number formatting
-- date parsing or date formatting
-- punctuation removal or punctuation replacement
-- quote-heavy string constants
-- tasks that require pattern matching syntax
-- custom classes
-- custom exceptions
-- simple error handling
-- input validation that raises exceptions
-
-Rules for the "code" field:
-- Use Python only.
-- Keep code under 20 lines.
-- Do not use markdown fences.
-- Do not include triple backticks.
-- Avoid very long strings.
-- Avoid overused tasks such as rectangle area, palindrome, factorial, Fibonacci, and prime checks.
-- Use varied function names and varied problem statements.
-- The code must be a complete, valid Python 3 snippet.
-- The code must pass `ast.parse(code)` with no `SyntaxError` and no `SyntaxWarning`.
-
-Function-only code requirements:
-- Generate exactly one function definition per record.
-- Do NOT generate helper functions.
-- Do NOT generate wrapper functions.
-- Do NOT include `print(...)` calls.
-- Do NOT include example calls.
-- Do NOT include `if __name__ == "__main__":`.
-- Do NOT include top-level executable statements.
-- Do NOT use f-strings.
-- Do NOT use `format(...)`.
-- Do NOT generate classes.
-- Do NOT raise exceptions.
-- Do NOT use `try` or `except`.
-- Do NOT import anything.
-- Return only the single function definition.
-
-JSON and newline rules:
-- The response must be valid JSON.
-- The `code` field must be a JSON string.
-- It is okay for raw JSON text to encode line breaks as `\n`.
-- After JSON parsing, the `code` value must contain normal Python line breaks.
-- Do not double-escape code so that the parsed `code` value contains literal backslash+n text.
-- Do not put Python code in a JSON key.
-- Do not output code outside the `code` value.
-- Do not leave `code` empty.
-- Do not use escaped-code dumps.
-
-Additional strict generation rules for task_code:
-- The generated Python code MUST be the value of the `code` field only.
-- Do NOT create any extra JSON fields.
-- Do NOT create a JSON key whose name contains Python code.
-- Every item MUST contain exactly these keys: `type`, `task`, `plan`, `code`.
-- `type` MUST be exactly `task_code`.
-- `task` MUST be a short non-empty string.
-- `plan` MUST be a non-empty list of short strings.
-- `code` MUST be a non-empty string containing complete valid Python 3 code.
-- Do NOT use markdown code fences.
-- Do NOT generate partial code.
-- Do NOT generate truncated code.
-- Do NOT include prose inside the `code` field.
-- Do NOT use regex tasks.
-- Do NOT use regex escapes such as `\d`, `\s`, `\w`, or `\b`.
-- Do NOT use invalid string escapes such as `\d`, `\s`, `\w`, `\.`, or `\/`.
-- Do NOT use CSV parsing tasks.
-- Do NOT use file I/O tasks.
-- Do NOT use external packages.
-- Do NOT include string literals that contain embedded real newlines.
-- Do NOT include punctuation tables such as strings containing many punctuation symbols.
-- If sample input needs multiple values, use Python lists, dictionaries, or simple one-line strings.
-- Prefer simple list, dictionary, string, sorting, counting, filtering, grouping, and numeric helper functions.
-- Avoid duplicate tasks within a batch.
-- The plan must describe the code that is actually returned.
-
-Function definition rules:
-- Every function definition must have a complete signature with a closing parenthesis and colon.
-- Good: `def summarize_scores(scores):`
-- Good: `def combine_inventory(current, incoming):`
-- Good: `def select_active_users(users):`
-- Bad: `def summarize_scores(scores:`
-- Bad: `def combine_inventory(current, incoming:`
-- Bad: `def select_active_users(users:`
-
-Task diversity requirements:
-- Do not copy task names, function names, sample inputs, or code patterns from these instructions.
-- Do not repeatedly generate generic tasks named `count_items`, `remove_duplicates`, `merge_dicts`, or `filter_even_numbers`.
-- Do not generate `summarize_products`, `count_items`, `remove_duplicates`, `merge_dicts`, `filter_active_users`, `find_max_value`, `sort_grades`, or `word_frequency`.
-- Do not reuse the same function body with only minor changes to the task or plan.
-- Vary function names, input variable names, sample values, and data shapes.
-- Prefer domain-flavored beginner examples over generic examples.
-- Use varied domains such as inventory, grades, tags, usernames, product IDs, scores, categories, logs, labels, short messages, shopping carts, classroom records, and simple metrics.
-- For each item in a batch, use a different task family and a different sample input shape.
-- Prefer task names that describe a realistic small utility without copying names from this prompt.
-- Avoid using the same list values, dictionary keys, or examples repeatedly.
-- Avoid code that only wraps a single built-in call unless the task includes a small transformation, validation, or grouping step.
-
-Bad output pattern to avoid:
-{
-  "type": "task_code",
-  "task": "Count words",
-  "plan": ["Split text", "Count words"],
-  "code": "",
-  "def count_words(text):\n    return len(text.split())": ""
-}
-
-Correct output pattern:
-{
-  "type": "task_code",
-  "task": "<short realistic beginner utility task>",
-  "plan": ["<short step>", "<short step>", "<short step>"],
-  "code": "<one complete Python function definition only>"
-}
-
-Do not copy placeholder text from the correct output pattern.
-Do not copy task names, function names, variable names, sample inputs, or code structure from examples in this prompt.
+Code rules:
+- Produce exactly one function definition and no top-level executable statements.
+- Do not import modules, print, include example calls, use classes, raise exceptions, or use try/except.
+- Do not use f-strings, format calls, regex, file I/O, or external packages.
+- Keep code under 20 lines and faithfully implement the requested transformation and conditions.
 """
-
-
-def build_task_code_prompt() -> str:
-    from prompts.wrapper import BATCHED_WRAPPER_TEMPLATE
-
-    return BATCHED_WRAPPER_TEMPLATE.format(
-        batch_size=1,
-        schema=TASK_CODE_SCHEMA,
-        task_instruction=TASK_CODE_TASK,
-        diversity_context="Use a varied beginner Python topic, implementation pattern, data shape, and domain context. Generate exactly one function only. Avoid print calls, imports, helper functions, f-strings, exceptions, regex, file I/O, CSV parsing, date or phone formatting, punctuation tables, repeated generic task names, copied examples, and malformed function signatures.",
-    )

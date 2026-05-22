@@ -6,8 +6,8 @@ This package implements the synthetic data pipeline.
 
 | Module | Purpose |
 |---|---|
-| `generate.py` | Runs synthetic generation for one or more signals. |
-| `llm.py` | Groq/OpenAI-compatible chat backend wrapper with JSON object mode and retry handling. |
+| `generate.py` | Runs two-pass candidate generation and independent response completion for one or more signals. |
+| `llm.py` | Groq/OpenAI-compatible chat backend wrapper with JSON object mode and retry handling for both passes. |
 | `rate_limit.py` | Request pacing and jitter helpers. |
 | `diversity.py` | Per-batch diversity context generation. |
 | `validate.py` | Schema and signal-specific validation from `raw/` to `validated/`; math MCQs receive numeric verification. |
@@ -17,8 +17,12 @@ This package implements the synthetic data pipeline.
 | `paths.py` | Shared config loading and output-path resolution. |
 | `model_support.py` | Lightweight supported-model warning helper. |
 | `schemas.py` | Signal schema validators. |
-| `repair.py` | Lightweight record normalization helpers; MCQ answer keys are not invented during repair. |
+| `repair.py` | Lightweight final-record normalization helpers; answer keys are supplied by the response pass, not invented during repair. |
 | `writer.py` | JSONL writer utility. |
+
+## Two-pass generation
+
+For every signal, the candidate model first writes an unanswered task or question. A separate response-model call then answers the fixed candidate and produces the final record written to `raw/`. The default template configures both roles as `llama-3.1-8b-instant`; `candidate_model` and `response_model` can be overridden per signal.
 
 ## Pipeline stages
 

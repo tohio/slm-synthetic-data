@@ -29,8 +29,9 @@ load_dotenv()
 # ---------------------------------------------------------
 # Profile presets
 # ---------------------------------------------------------
-# Developer-plan scaling should use 8B as the default bulk generator and
-# reserve 70B for targeted quality/audit passes outside the bulk path.
+# Both candidate generation and independent response completion use the
+# selected profile model. Balanced/speed default to 8B for economical bulk
+# generation; quality remains available for explicit 70B comparisons.
 PROFILES = {
     "speed": {
         "model": "llama-3.1-8b-instant",
