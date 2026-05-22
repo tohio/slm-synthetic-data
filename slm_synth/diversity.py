@@ -384,89 +384,108 @@ TASK_CODE_STATUSES = ["selected", "ready", "reviewed", "complete", "approved"]
 # ---------------------------------------------------------------------------
 # MCQ verified numeric profiles
 #
-# This signal is temporarily restricted to numeric question families whose
-# indexed answer can be machine-checked before publication.
+# The MCQ signal is temporarily restricted to low-risk numeric families whose
+# indexed answer can be machine-checked before publication. High-failure
+# ratio/general-fraction/decimal families are deliberately excluded.
 # ---------------------------------------------------------------------------
 
 MCQ_VERIFIED_PROFILES: List[Dict[str, ProfileValue]] = [
     {
-        "family": "integer addition or subtraction",
-        "question_shape": "ask for the exact result of one operation using two non-trivial integers",
-        "expression_shape": "one addition or subtraction expression",
-        "context": "plain numeric reasoning",
+        "family": "integer addition",
+        "question_shape": "ask for the exact sum of two non-trivial positive integers",
+        "expression_shape": "a + b",
+        "context": "daily item totals",
     },
     {
-        "family": "integer multiplication",
-        "question_shape": "ask for the exact product of two non-trivial integer quantities",
-        "expression_shape": "one multiplication expression",
-        "context": "grouped supply counts",
-    },
-    {
-        "family": "exact integer division",
-        "question_shape": "ask for an equal share from an exactly divisible integer total",
-        "expression_shape": "one division expression whose result is an integer",
-        "context": "allocation groups",
-    },
-    {
-        "family": "two-step integer arithmetic",
-        "question_shape": "provide two incoming quantities and one outgoing quantity, then ask for the final count",
-        "expression_shape": "addition followed by subtraction",
+        "family": "integer subtraction",
+        "question_shape": "ask for the exact remaining quantity after subtracting a smaller positive integer from a larger one",
+        "expression_shape": "a - b",
         "context": "inventory movement",
     },
     {
+        "family": "integer multiplication",
+        "question_shape": "ask for the exact total from equal groups with positive integer counts",
+        "expression_shape": "a * b",
+        "context": "packed item totals",
+    },
+    {
+        "family": "exact integer division",
+        "question_shape": "ask for an equal share from a total chosen to divide evenly",
+        "expression_shape": "a / b where a is exactly divisible by b",
+        "context": "allocation groups",
+    },
+    {
+        "family": "two-step integer total",
+        "question_shape": "give a starting quantity, add a second quantity, subtract a smaller outgoing quantity, and ask for the final count",
+        "expression_shape": "a + b - c",
+        "context": "stock movement",
+    },
+    {
         "family": "rectangle area",
-        "question_shape": "provide both integer length and integer width, then ask for area",
-        "expression_shape": "length multiplied by width",
+        "question_shape": "provide both integer length and integer width and ask for the area",
+        "expression_shape": "length * width",
         "context": "measurement practice",
     },
     {
         "family": "rectangle perimeter",
-        "question_shape": "provide both integer length and integer width, then ask for perimeter",
-        "expression_shape": "two multiplied by the sum of length and width",
+        "question_shape": "provide both integer length and integer width and ask for the perimeter",
+        "expression_shape": "2 * (length + width)",
         "context": "measurement practice",
     },
     {
-        "family": "fraction of a whole quantity",
-        "question_shape": "give an integer total and a fractional part selected so the result is an integer",
-        "expression_shape": "total multiplied by numerator then divided by denominator",
-        "context": "items in a collection",
+        "family": "one-half of a total",
+        "question_shape": "give an even integer total and ask for one-half of it",
+        "expression_shape": "(total * 1) / 2 with an even total",
+        "context": "counted items",
     },
     {
-        "family": "percentage of a whole quantity",
-        "question_shape": "give an integer total and a percentage selected so the result is an integer",
-        "expression_shape": "total multiplied by percent then divided by one hundred",
+        "family": "one-quarter of a total",
+        "question_shape": "give an integer total divisible by 4 and ask for one-quarter of it",
+        "expression_shape": "(total * 1) / 4 with total divisible by 4",
         "context": "completed units",
     },
     {
-        "family": "ratio share",
-        "question_shape": "give a two-part ratio and a total divisible by the sum of ratio parts, then ask for one share",
-        "expression_shape": "total multiplied by requested part then divided by sum of parts",
-        "context": "distributed materials",
+        "family": "three-quarters of a total",
+        "question_shape": "give an integer total divisible by 4 and ask for three-quarters of it",
+        "expression_shape": "(total * 3) / 4 with total divisible by 4",
+        "context": "selected items",
     },
     {
-        "family": "tiny table total or difference",
-        "question_shape": "describe three integer values and ask for a total or a difference between computed totals",
-        "expression_shape": "a short addition or addition-and-subtraction expression",
+        "family": "restricted percentage of a total",
+        "question_shape": "ask for 10%, 20%, 25%, 50%, or 75% of a total chosen to yield an integer answer",
+        "expression_shape": "(total * percent) / 100 using only an allowed percentage",
+        "context": "completed tasks",
+    },
+    {
+        "family": "tiny table total",
+        "question_shape": "state three integer counts in text and ask for their total",
+        "expression_shape": "a + b + c",
         "context": "daily counts",
     },
     {
+        "family": "tiny table difference",
+        "question_shape": "state three integer counts and ask for the difference between one count and the sum of the other two",
+        "expression_shape": "a - (b + c) where the result is a non-negative integer",
+        "context": "remaining units",
+    },
+    {
         "family": "integer average",
-        "question_shape": "give three integer values whose arithmetic mean is an integer, then ask for the mean",
-        "expression_shape": "sum of values divided by three",
+        "question_shape": "state three integers whose sum is divisible by 3 and ask for their arithmetic mean",
+        "expression_shape": "(a + b + c) / 3 with an exact integer result",
         "context": "measurement summary",
     },
 ]
 
 MCQ_DIFFICULTIES = [
-    "upper elementary with non-trivial integers",
-    "middle school review with two-step reasoning",
-    "adult beginner practical numeracy",
+    "upper elementary with non-trivial integer values",
+    "middle school review with exact integer calculations",
+    "adult beginner practical numeracy with concise wording",
 ]
 
 MCQ_DISTRACTOR_RULES = [
-    "Use three nearby integer distractors from common arithmetic mistakes.",
-    "Use three distinct integer distractors based on omitted or reversed operations.",
-    "Use three plausible but incorrect integer results; none may equal the verified answer.",
+    "After computing the verified answer, include it once and use three distinct nearby incorrect integers.",
+    "After computing the verified answer, use three distinct integer distractors from small arithmetic mistakes; never duplicate the correct answer.",
+    "Build the four choices after computing the answer; exactly one choice must equal the verified answer.",
 ]
 
 # ---------------------------------------------------------------------------
@@ -568,24 +587,23 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
         profile = _choose_profile(MCQ_VERIFIED_PROFILES, batch_id, signal, 1)
         difficulty = _choose(MCQ_DIFFICULTIES, batch_id, signal, 2)
         distractors = _choose(MCQ_DISTRACTOR_RULES, batch_id, signal, 3)
-        answer_index = _choose_int(batch_id, signal, 4, 0, 3)
 
         return "\n".join(
             [
                 f"Batch diversity id: {nonce}",
-                "Verified numeric MCQ mode: required.",
+                "Restricted verified numeric MCQ mode: required.",
                 f"Required family: {profile['family']}",
                 f"Question construction: {profile['question_shape']}",
                 f"Verification-expression shape: {profile['expression_shape']}",
                 f"Context guidance: {profile['context']}",
                 f"Difficulty guidance: {difficulty}",
-                f"Correct-index target: {answer_index}",
-                f"Distractor guidance: {distractors}",
-                "The question must have one exact integer answer computable from the stated quantities.",
-                "Return verification_expression and verification_answer for validator use; both must match the indexed choice.",
-                "Choices must be four distinct plain integer strings with no units.",
+                f"Choice construction rule: {distractors}",
+                "Compute verification_expression and verification_answer before constructing choices.",
+                "Choices must contain the verified integer answer exactly once plus three distinct integer distractors.",
+                "Set correct_index to the position containing verification_answer; validation will independently derive the final index.",
+                "The question must state every quantity needed to compute one exact integer answer.",
                 "The explanation must show the numeric calculation and include the exact final integer answer.",
-                "Do not generate next-step, best-explanation, conceptual, opinion, trivia, Python, or under-specified questions.",
+                "Do not generate ratio-share, general-fraction, decimal, rounding, next-step, best-explanation, conceptual, opinion, trivia, Python, or under-specified questions.",
                 "Do not include the batch diversity id in any generated field.",
             ]
         )
