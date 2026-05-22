@@ -33,12 +33,12 @@ Each raw generated item must have exactly these fields:
 - "type": "educational_qa_mcq_math"
 - "question": one clear numeric educational question
 - "choices": exactly 4 distinct answer choices, each written as a plain integer string
-- "correct_index": an integer from 0 to 3 pointing to the correct numeric choice
+- "correct_index": the actual position of the correct numeric choice after the choices are written
 - "explanation": one short sentence showing the calculation and final answer
 - "verification_expression": a plain arithmetic expression that computes the correct answer
 - "verification_answer": the exact integer result of verification_expression, matching one choice
 
-The verification fields are temporary validation metadata and will not be published.
+The verification fields are temporary validation metadata and will not be published. Validation independently derives the final correct_index from the unique verified answer choice.
 
 Allowed verified question families:
 - integer addition, subtraction, multiplication, or exact integer division
@@ -59,14 +59,18 @@ Verification-expression rules:
 - choices must also be plain integer strings so the validator can compare them exactly.
 
 Correctness rules:
-- Compute the answer before building choices.
+- Compute verification_expression and verification_answer before building choices.
 - Include verification_answer exactly once in choices.
-- The validator derives the final correct_index from the unique verified answer choice.
-- The explanation must state the same final numeric answer and briefly show why it is correct.
-- All distractor choices must be distinct and numerically incorrect.
-- Include every quantity needed to solve the question.
-- For rectangle questions, always give both length and width.
-- For fraction, percent, ratio, and average questions, choose values that yield an exact integer answer.
+- Create three distinct numerically incorrect distractors.
+- Set correct_index to the actual position containing verification_answer; do not target a predetermined position.
+- Include every quantity used in verification_expression in the question.
+- Ensure the nouns in the question match the quantity being computed: do not ask for slices when the supplied total is people, or boxes when the supplied total is books.
+- The explanation must state the same final numeric answer and briefly show the same computation.
+
+Explanation rules:
+- Explain only the calculation and result.
+- Do not mention the options, provided choices, answer-key selection, question generation, an error, a correction, or a different interpretation.
+- Do not include self-critique, apologies, or commentary about whether the question is valid.
 
 Disallowed question families:
 - open-ended "what should happen next" questions
@@ -96,6 +100,8 @@ def build_educational_qa_mcq_math_prompt() -> str:
         task_instruction=EDUCATIONAL_QA_MCQ_MATH_TASK,
         diversity_context=(
             "Generate one deterministic math MCQ with a safe arithmetic "
-            "verification_expression and an exact integer verification_answer."
+            "verification_expression and an exact integer verification_answer. "
+            "Do not target a predetermined answer position and do not write "
+            "meta-commentary in the explanation."
         ),
     )

@@ -44,3 +44,18 @@ def test_general_mcq_uses_regular_mcq_schema_without_verification():
     }
     result = validate_record("educational_qa_mcq_general", row)
     assert result.ok
+
+
+def test_math_mcq_rejects_meta_commentary_in_explanation():
+    raw = {
+        "type": "educational_qa_mcq_math",
+        "question": "A shelf has 24 books packed into boxes of 4. How many boxes are needed?",
+        "choices": ["4", "6", "8", "12"],
+        "correct_index": 1,
+        "explanation": "24 / 4 = 6, but the provided choices suggest a different interpretation and an error in the question generation.",
+        "verification_expression": "24 / 4",
+        "verification_answer": "6",
+    }
+    result = validate_record("educational_qa_mcq_math", raw, require_mcq_verification=True)
+    assert not result.ok
+    assert "mcq_math_meta_commentary" in result.issues

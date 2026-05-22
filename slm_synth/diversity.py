@@ -479,76 +479,76 @@ MCQ_MATH_DISTRACTOR_RULES = [
 MCQ_GENERAL_PROFILES: List[Dict[str, ProfileValue]] = [
     {
         "subject": "Python collection behavior",
-        "construction": "include a short Python expression or snippet and ask what non-numeric property it demonstrates",
-        "evidence": "the code fragment in the question",
+        "construction": "include one literal short collection expression and ask which stated behavior it demonstrates",
+        "evidence": "the literal Python expression supplied in the question",
         "context": "small programming example",
     },
     {
         "subject": "Python control-flow interpretation",
-        "construction": "include a short conditional or loop condition and ask which branch or stopping rule it represents",
-        "evidence": "the supplied code condition",
+        "construction": "include one literal short if, break, or continue snippet and ask what that construct does in the snippet",
+        "evidence": "the supplied code snippet itself",
         "context": "simple coding exercise",
     },
     {
-        "subject": "computer-science concept",
-        "construction": "describe a small operation on data and ask which concept it illustrates",
-        "evidence": "the operation described in the question",
-        "context": "data organization scenario",
-    },
-    {
         "subject": "grammar and sentence structure",
-        "construction": "provide one sentence and ask about a clearly identifiable grammatical role or correction",
-        "evidence": "the supplied sentence",
+        "construction": "provide one sentence and ask about one directly identifiable grammatical role or correction",
+        "evidence": "the exact supplied sentence",
         "context": "editing exercise",
     },
     {
         "subject": "vocabulary in context",
-        "construction": "provide one sentence containing a target word and ask which meaning best fits its use",
-        "evidence": "context clues in the supplied sentence",
+        "construction": "provide one sentence containing a target word and ask which meaning is supported by its context",
+        "evidence": "the supplied sentence and target word",
         "context": "short reading excerpt",
     },
     {
         "subject": "reading comprehension",
-        "construction": "provide a two-sentence passage and ask which conclusion is directly supported",
+        "construction": "provide a two-sentence passage and ask which conclusion is explicitly supported",
         "evidence": "the supplied passage only",
         "context": "brief informational paragraph",
     },
     {
-        "subject": "logic and inference",
-        "construction": "state two or three non-numeric facts and ask which conclusion must follow",
-        "evidence": "the explicitly supplied facts",
-        "context": "categorical reasoning",
+        "subject": "direct rule application",
+        "construction": "state one if-then rule about fictional labels or objects, provide one matching fact, and ask for the direct consequence",
+        "evidence": "the explicit rule and matching fact",
+        "context": "fictional classification exercise",
     },
     {
         "subject": "technology and privacy literacy",
-        "construction": "state a stable security rule in the scenario and ask which option follows that rule",
-        "evidence": "the stated safety rule",
+        "construction": "state one explicit account-security policy and ask which single option complies exactly with that policy",
+        "evidence": "the policy written in the question",
         "context": "account-security scenario",
     },
     {
         "subject": "scientific method",
-        "construction": "describe an observation and controlled change and ask which statement identifies the testable variable or evidence",
-        "evidence": "the experiment setup in the question",
-        "context": "classroom observation",
+        "construction": "describe an experiment with exactly one deliberately changed variable and ask which variable was changed",
+        "evidence": "the single change explicitly described in the setup",
+        "context": "classroom experiment",
     },
     {
-        "subject": "categorical data interpretation",
-        "construction": "provide a small list of labels or ordered categories and ask for a non-calculation interpretation",
-        "evidence": "the listed labels or ordering",
+        "subject": "categorical interpretation",
+        "construction": "state a rule assigning fictional labels to categories and ask for the category of one labelled item",
+        "evidence": "the stated assignment rule and supplied label",
         "context": "classification record",
+    },
+    {
+        "subject": "ordered-label interpretation",
+        "construction": "provide an explicit non-numeric order of three named stages and ask which stage occurs before or after another",
+        "evidence": "the explicitly stated ordering",
+        "context": "process-label exercise",
     },
 ]
 
 MCQ_GENERAL_STYLES = [
-    "choose the statement directly supported by the supplied information",
-    "identify the interpretation that follows from the supplied example",
-    "select the only option consistent with the provided rule or passage",
+    "choose the one statement directly supported by the supplied information",
+    "identify the one interpretation that follows directly from the supplied example",
+    "select the one option consistent with the provided rule or passage",
 ]
 
 MCQ_GENERAL_DISTRACTORS = [
-    "Use plausible alternatives that are contradicted by a detail in the supplied evidence.",
-    "Use nearby concepts, but ensure only one option follows from the supplied evidence.",
-    "Use distinct choices and avoid trivia, opinion, or missing-context distractors.",
+    "Use alternatives contradicted by a stated detail; only one choice may be supported.",
+    "Use nearby concepts, but make only the indexed choice follow directly from the evidence.",
+    "Use distinct choices with no trivia, opinion, computation, or missing-context distractors.",
 ]
 
 # ---------------------------------------------------------------------------
@@ -650,8 +650,6 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
         profile = _choose_profile(MCQ_MATH_VERIFIED_PROFILES, batch_id, signal, 1)
         difficulty = _choose(MCQ_MATH_DIFFICULTIES, batch_id, signal, 2)
         distractors = _choose(MCQ_MATH_DISTRACTOR_RULES, batch_id, signal, 3)
-        answer_index = _choose_int(batch_id, signal, 4, 0, 3)
-
         return "\n".join(
             [
                 f"Batch diversity id: {nonce}",
@@ -661,12 +659,13 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 f"Verification-expression shape: {profile['expression_shape']}",
                 f"Context guidance: {profile['context']}",
                 f"Difficulty guidance: {difficulty}",
-                f"Correct-index target: {answer_index}",
                 f"Distractor guidance: {distractors}",
                 "The question must have one exact integer answer computable from the stated quantities.",
                 "Return verification_expression and verification_answer for validator use; both must match a unique answer choice.",
+                "Build choices after computing the verified answer and do not target a predetermined correct_index position.",
                 "Choices must be four distinct plain integer strings with no units.",
-                "The explanation must show the numeric calculation and include the exact final integer answer.",
+                "The explanation must show only the numeric calculation and exact final integer answer.",
+                "Do not mention the choices, answer-key selection, question generation, errors, corrections, or alternate interpretations.",
                 "Do not generate next-step, best-explanation, conceptual, opinion, trivia, Python, or under-specified questions.",
                 "Do not include the batch diversity id in any generated field.",
             ]
@@ -676,8 +675,6 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
         profile = _choose_profile(MCQ_GENERAL_PROFILES, batch_id, signal, 1)
         style = _choose(MCQ_GENERAL_STYLES, batch_id, signal, 2)
         distractors = _choose(MCQ_GENERAL_DISTRACTORS, batch_id, signal, 3)
-        answer_index = _choose_int(batch_id, signal, 4, 0, 3)
-
         return "\n".join(
             [
                 f"Batch diversity id: {nonce}",
@@ -687,11 +684,14 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
                 f"Evidence requirement: {profile['evidence']}",
                 f"Scenario context: {profile['context']}",
                 f"Question style: {style}",
-                f"Correct-index target: {answer_index}",
                 f"Distractor guidance: {distractors}",
                 "The correct answer must be justified entirely by information included in the question.",
+                "Determine the supported answer first; then set correct_index to its actual position rather than targeting an answer location.",
+                "Before returning, verify that the explanation supports choices[correct_index] and no other choice follows from the evidence.",
+                "For Python items, include the literal snippet. For rule items, use fictional labels and a direct consequence only.",
+                "For security items, state one policy with exactly one compliant option. For experiments, ask only for the one deliberately changed variable.",
                 "Do not generate any arithmetic, fraction, percentage, ratio, geometry, probability, statistics, measurement, or financial calculation question.",
-                "Do not generate trivia, current-fact recall, history/date recall, geography/location recall, next-step, opinion, or under-specified questions.",
+                "Do not generate quantifier-chain logic, trivia, current-fact recall, history/date recall, geography/location recall, next-step, opinion, or under-specified questions.",
                 "Do not include the batch diversity id in any generated field.",
             ]
         )

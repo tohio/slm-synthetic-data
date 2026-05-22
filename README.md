@@ -54,7 +54,7 @@ The current implementation includes:
 - Hugging Face push with `.env` token loading.
 - Hugging Face dataset card generation.
 
-MCQ generation is intentionally split: mathematical MCQs use raw-stage verification metadata and a numeric correctness gate, while general MCQs exclude calculation questions and preserve broader educational-choice coverage. Downstream users may concatenate both datasets during training when a combined MCQ mixture is desired.
+MCQ generation is intentionally split: mathematical MCQs use raw-stage verification metadata and a numeric correctness gate, while general MCQs exclude calculation questions and preserve broader educational-choice coverage. Both MCQ signals default to `llama-3.3-70b-versatile` because MCQ authoring requires stronger question/choice/explanation consistency than the narrower signals. Downstream users may concatenate both datasets during training when a combined MCQ mixture is desired.
 
 
 ---
@@ -65,8 +65,8 @@ This project is validated with the following Groq models:
 
 | Model | Use |
 |---|---|
-| `llama-3.1-8b-instant` | Recommended default for scalable synthetic generation. |
-| `llama-3.3-70b-versatile` | Higher-quality option for smaller or quality-focused runs. |
+| `llama-3.1-8b-instant` | Recommended default for scalable non-MCQ synthetic generation. |
+| `llama-3.3-70b-versatile` | Default for both MCQ signals; higher-quality option for other smaller or quality-focused runs. |
 
 Other models may work, but they are not currently validated for production-scale generation. The pipeline requires reliable JSON object output, strict schema following, and stable batched responses.
 

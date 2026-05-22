@@ -28,7 +28,7 @@ The pipeline intentionally avoids bare top-level JSON arrays because JSON object
 
 ## Diversity
 
-Per-batch diversity context is added by `slm_synth.diversity`. It rotates attributes such as topic, difficulty, format, scenario, and answer style. Mathematical MCQs also carry temporary raw-stage verification fields that are checked and removed before export. General MCQs do not use numeric verification fields.
+Per-batch diversity context is added by `slm_synth.diversity`. It rotates attributes such as topic, difficulty, format, scenario, and answer style. Mathematical MCQs also carry temporary raw-stage verification fields that are checked and removed before export, and explanations containing answer-key or generation-error commentary are rejected. General MCQs do not use numeric verification fields; their prompts require the answer to be chosen from explicit supplied evidence without a forced answer position.
 
 ## Prompt rules
 

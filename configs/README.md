@@ -40,7 +40,7 @@ Profiles set defaults for model choice, generation temperature, max-token headro
 | `balanced` | `llama-3.1-8b-instant` | Moderate concurrency, diversity controls, backoff | Recommended default. |
 | `quality` | `llama-3.3-70b-versatile` | Lower concurrency, higher-quality model | Smaller quality-focused runs. |
 
-`speed` and `balanced` intentionally use the same default model. The difference is runtime posture, not model family.
+`speed` and `balanced` intentionally use the same backend default model. The difference is runtime posture, not model family. The generated template applies signal-specific overrides so `educational_qa_mcq_math` and `educational_qa_mcq_general` use `llama-3.3-70b-versatile` while the narrower signals continue to use `llama-3.1-8b-instant`.
 
 ## Supported models
 
@@ -57,7 +57,7 @@ Other models may be used for experiments, but they are not validated for product
 |---|---|
 | `output_dir` | Run output directory. Defaults to `${DATA_DIR}/<run_id>`. |
 | `target_total_tokens` | Target token budget used to derive per-signal sample counts. The MCQ allocation is split 25% math / 75% general within its original share. |
-| `backend.model` | Groq model used for generation. |
+| `backend.model` | Default Groq model used for generation; signal-specific `mix.<signal>.model` overrides take precedence. |
 | `backend.json_mode` | Enables JSON object output. Should remain enabled. |
 | `backend.service_tier` | Groq service tier, commonly `flex` for high-throughput runs. |
 | `backend.parallel_requests` | Concurrent request count. Scale this carefully. |

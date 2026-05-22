@@ -45,7 +45,7 @@ mix:
     share: 0.075
     prompt_file: "prompts/educational_qa_mcq_math.py"
     source_module: "slm_synth.sources.educational_qa_mcq_math"
-    model: "llama-3.1-8b-instant"
+    model: "llama-3.3-70b-versatile"
     batch_size: __EDUCATIONAL_QA_MCQ_MATH_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
     max_tokens: __EDUCATIONAL_QA_MCQ_MATH_MAX_TOKENS__
@@ -54,7 +54,7 @@ mix:
     share: 0.225
     prompt_file: "prompts/educational_qa_mcq_general.py"
     source_module: "slm_synth.sources.educational_qa_mcq_general"
-    model: "llama-3.1-8b-instant"
+    model: "llama-3.3-70b-versatile"
     batch_size: __EDUCATIONAL_QA_MCQ_GENERAL_BATCH_SIZE__
     parallel_requests: __CONCURRENCY__
     max_tokens: __EDUCATIONAL_QA_MCQ_GENERAL_MAX_TOKENS__

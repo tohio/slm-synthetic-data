@@ -27,8 +27,8 @@ This project is validated with two Groq models:
 
 | Model | Use |
 |---|---|
-| `llama-3.1-8b-instant` | Recommended default for scalable bulk generation. |
-| `llama-3.3-70b-versatile` | Higher-quality option for smaller or quality-focused runs. |
+| `llama-3.1-8b-instant` | Recommended default for scalable non-MCQ bulk generation. |
+| `llama-3.3-70b-versatile` | Default for `educational_qa_mcq_math` and `educational_qa_mcq_general`; also suitable for quality-focused comparisons. |
 
 Other models may work, but they are not validated for production generation. The pipeline depends on reliable JSON object output, strict schema following, and stable batched generation.
 
@@ -42,7 +42,7 @@ Other models may work, but they are not validated for production generation. The
 | `balanced` | `llama-3.1-8b-instant` | Moderate concurrency, diversity controls, JSON object mode, and backoff. | Recommended default for scalable runs. |
 | `quality` | `llama-3.3-70b-versatile` | Lower concurrency, higher-cost model. | Smaller quality-focused runs or comparison runs. |
 
-`speed` and `balanced` intentionally use the same default model. The difference is runtime posture, not model family.
+`speed` and `balanced` intentionally use the same backend default model. The difference is runtime posture, not model family. MCQ signals are configured with a signal-level `llama-3.3-70b-versatile` override in `configs/synthetic_template.yaml`.
 
 ---
 

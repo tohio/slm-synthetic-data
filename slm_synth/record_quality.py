@@ -19,6 +19,18 @@ EXPECTED_KEYS: dict[str, set[str]] = {
 
 MCQ_VERIFICATION_KEYS = {"verification_expression", "verification_answer"}
 
+MCQ_MATH_META_EXPLANATION_MARKERS = (
+    "provided choices",
+    "provided options",
+    "answer should be based on",
+    "different interpretation",
+    "error in the question",
+    "error in question",
+    "question generation",
+    "incorrectly generated",
+    "seems to be an error",
+)
+
 SIGNAL_FROM_FILE = {
     "arithmetic.jsonl": "arithmetic",
     "task_code.jsonl": "task_code",
@@ -228,6 +240,11 @@ def _contains_integer(text: str, value: int) -> bool:
     return bool(re.search(pattern, text.replace(",", "")))
 
 
+def _contains_math_meta_commentary(explanation: str) -> bool:
+    normalized = normalize_space(explanation)
+    return any(marker in normalized for marker in MCQ_MATH_META_EXPLANATION_MARKERS)
+
+
 def validate_educational_qa_mcq_math(row: dict[str, Any], *, require_verification: bool = False) -> ValidationResult:
     extra_expected = MCQ_VERIFICATION_KEYS if require_verification else None
     issues, choices, supplied_index, explanation = _validate_mcq_base(
@@ -266,6 +283,9 @@ def validate_educational_qa_mcq_math(row: dict[str, Any], *, require_verificatio
                     corrected_index = matching_indices[0]
         if verification_answer is not None and explanation and not _contains_integer(explanation, verification_answer):
             issues.append("mcq_explanation_missing_answer")
+
+    if explanation and _contains_math_meta_commentary(explanation):
+        issues.append("mcq_math_meta_commentary")
 
     if issues or choices is None or corrected_index is None:
         return ValidationResult(False, None, issues)
