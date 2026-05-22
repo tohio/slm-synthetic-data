@@ -1,8 +1,7 @@
-
 from __future__ import annotations
 
 import hashlib
-from typing import Dict, List
+from typing import List
 
 
 def _choose(options: List[str], batch_id: int, salt: str, offset: int = 0) -> str:
@@ -14,14 +13,16 @@ def _choose(options: List[str], batch_id: int, salt: str, offset: int = 0) -> st
 
 
 ARITHMETIC_FORMATS = [
-    "symbolic equation, e.g. 47 + 29 = ?",
-    "short word problem with named objects",
-    "missing-value equation, e.g. 12 + ? = 31",
-    "comparison question, e.g. which is larger after calculation",
-    "two-step arithmetic word problem",
-    "unit-like quantity problem without real-world facts",
-    "table-free numeric reasoning question",
-    "reverse operation check",
+    "direct symbolic equation using uncommon operands",
+    "short contextual word problem",
+    "missing-value equation",
+    "comparison of two computed integer values",
+    "ordering of three computed integer values",
+    "two-step arithmetic scenario",
+    "equal-sharing question with exact integer division",
+    "reverse-operation check",
+    "grouped quantity calculation",
+    "budget or allocation calculation",
 ]
 ARITHMETIC_OPERATIONS = [
     "addition",
@@ -29,64 +30,116 @@ ARITHMETIC_OPERATIONS = [
     "multiplication",
     "exact integer division",
     "mixed addition and subtraction",
-    "mixed multiplication and addition",
-    "mixed division and subtraction",
+    "multiplication followed by addition",
+    "multiplication followed by subtraction",
+    "division followed by addition",
+    "comparison using two different operations",
+    "ordering using multiple operations",
 ]
 ARITHMETIC_RANGES = [
-    "single-digit numbers",
-    "two-digit numbers",
-    "three-digit numbers",
-    "numbers between 10 and 99",
+    "small integers with varied operands",
+    "two-digit integers avoiding repeated textbook pairs",
+    "three-digit integers",
+    "four-digit totals with easy verification",
     "numbers between 100 and 999",
-    "small negatives with one operation",
-    "multiples of 5, 10, or 25",
-    "exact division pairs such as 144 / 12",
+    "numbers between 1,000 and 9,999",
+    "clear negative result from subtraction or comparison",
+    "exact integer division using non-trivial factor pairs",
+    "mixed ranges with a larger total and smaller adjustment",
+]
+ARITHMETIC_CONTEXTS = [
+    "package shipment quantities",
+    "event ticket allocation",
+    "classroom material counts",
+    "warehouse item totals",
+    "bus or train seat allocation",
+    "meal-box distribution",
+    "delivery-route quantities",
+    "parking-space usage",
+    "store receipt totals",
+    "production batch counts",
+    "library checkout counts",
+    "game-score changes",
+    "time-block allocation",
+    "team assignment counts",
+    "forms, labels, badges, or cards",
+    "crates, cartons, bins, or pallets",
 ]
 ARITHMETIC_STYLES = [
-    "very concise",
-    "plain classroom style",
-    "practical shopping/counting style",
-    "measurement-style quantities",
-    "number puzzle style",
-    "check-the-result style",
+    "compact calculation steps",
+    "plain classroom wording",
+    "practical quantity wording",
+    "short verification wording",
+    "concise planning wording",
+    "measurement-like quantity wording",
+    "clear compare-or-order wording",
 ]
 
 TASK_CODE_TOPICS = [
-    "strings and text cleanup",
-    "lists and simple aggregation",
-    "dictionaries and counting",
-    "sets and uniqueness",
-    "sorting records",
-    "filtering values",
-    "loops and conditionals",
-    "basic math helper functions",
-    "date-like string parsing without external libraries",
-    "CSV-like line parsing without file IO",
-    "input validation helpers",
-    "nested lists",
-    "grouping items by key",
-    "frequency tables",
-    "simple class or dataclass-free object representation",
-    "error handling with ValueError",
+    "aggregate values from a list",
+    "count labels in a dictionary summary",
+    "measure uniqueness in a collection",
+    "sort simple values",
+    "sort structured records by one field",
+    "filter records by one condition",
+    "transform list values with a loop",
+    "apply a numeric calculation to a sequence",
+    "split simple one-line text without punctuation parsing",
+    "group records by a key",
+    "create a frequency summary",
+    "flatten or inspect nested lists",
+    "combine two collections with simple logic",
+    "select values meeting a numeric threshold",
+    "compute a small metric from structured data",
 ]
 TASK_CODE_PATTERNS = [
-    "write one pure function",
-    "write a function plus two example calls",
-    "write a helper function and a wrapper function",
-    "transform a list into a new list",
-    "return a dictionary summary",
-    "validate inputs before computing",
-    "parse a small string format",
-    "compute a score or ranking",
+    "define exactly one pure function returning a list",
+    "define exactly one pure function returning a dictionary",
+    "define exactly one pure function returning an integer",
+    "define exactly one pure function returning a boolean",
+    "define exactly one function using a loop and accumulator",
+    "define exactly one function using a dictionary update pattern",
+    "define exactly one function using a list comprehension",
+    "define exactly one function using sorted with a simple key",
+    "define exactly one function using a set as an intermediate value",
+    "define exactly one function using conditional filtering",
+]
+TASK_CODE_DATA_SHAPES = [
+    "list of integers",
+    "list of short strings",
+    "list of dictionaries with one simple field",
+    "dictionary of labels to integer counts",
+    "dictionary of names to numeric values",
+    "nested list of small values",
+    "single one-line string",
+    "pair of simple lists",
+    "list of tuples represented as lists",
+]
+TASK_CODE_DOMAINS = [
+    "inventory labels",
+    "student scores",
+    "event registrations",
+    "package statuses",
+    "product categories",
+    "task priorities",
+    "seat assignments",
+    "message tags",
+    "daily counts",
+    "order quantities",
+    "route stops",
+    "badge records",
+    "book categories",
+    "team totals",
+    "form statuses",
 ]
 TASK_CODE_CONSTRAINTS = [
-    "avoid imports",
-    "use only the Python standard library",
-    "keep code under 12 lines",
-    "include one edge-case check",
-    "do not print except in a tiny example call",
-    "use clear variable names",
-    "return data instead of printing it",
+    "use exactly one function definition and no top-level calls",
+    "avoid imports, printing, examples, exceptions, and formatted strings",
+    "keep the implementation under 12 lines",
+    "return computed data instead of mutating external state",
+    "use clear variable names without copying generic examples",
+    "include meaningful logic beyond wrapping a single built-in call",
+    "avoid repeated function names and repeated one-line solutions",
 ]
 
 MCQ_SUBJECTS = [
@@ -205,55 +258,76 @@ FACTUAL_ANSWER_STYLES = [
 def build_diversity_context(signal: str, batch_id: int) -> str:
     """Return deterministic per-batch diversity constraints for prompt construction."""
     signal = signal.strip().lower()
-    nonce = hashlib.sha256(f"synthetic-diversity:{signal}:{batch_id}".encode("utf-8")).hexdigest()[:12]
+    nonce = hashlib.sha256(
+        f"synthetic-diversity:{signal}:{batch_id}".encode("utf-8")
+    ).hexdigest()[:12]
 
     if signal == "arithmetic":
-        return "\n".join([
-            f"Batch diversity id: {nonce}",
-            f"Primary format: {_choose(ARITHMETIC_FORMATS, batch_id, signal, 1)}",
-            f"Operation focus: {_choose(ARITHMETIC_OPERATIONS, batch_id, signal, 2)}",
-            f"Number range: {_choose(ARITHMETIC_RANGES, batch_id, signal, 3)}",
-            f"Writing style: {_choose(ARITHMETIC_STYLES, batch_id, signal, 4)}",
-            "Within this batch, use different numbers, wording, and answer values for every item.",
-            "Do not use 2 + 2, 2 + 5, rectangle area, or other common toy examples unless the context specifically requires it.",
-        ])
+        return "\n".join(
+            [
+                f"Batch diversity id: {nonce}",
+                f"Primary format: {_choose(ARITHMETIC_FORMATS, batch_id, signal, 1)}",
+                f"Operation focus: {_choose(ARITHMETIC_OPERATIONS, batch_id, signal, 2)}",
+                f"Number range: {_choose(ARITHMETIC_RANGES, batch_id, signal, 3)}",
+                f"Context domain: {_choose(ARITHMETIC_CONTEXTS, batch_id, signal, 4)}",
+                f"Writing style: {_choose(ARITHMETIC_STYLES, batch_id, signal, 5)}",
+                "Use new operands, entities, wording, operation structure, and answer values for this record.",
+                "Direct equations are allowed when selected, but use uncommon operands and do not copy any example from instructions.",
+                "For contextual problems, avoid generic textbook stories and vary the nouns and scenario structure.",
+                "Do not include the batch diversity id in any generated field.",
+            ]
+        )
 
     if signal == "task_code":
-        return "\n".join([
-            f"Batch diversity id: {nonce}",
-            f"Topic focus: {_choose(TASK_CODE_TOPICS, batch_id, signal, 1)}",
-            f"Implementation pattern: {_choose(TASK_CODE_PATTERNS, batch_id, signal, 2)}",
-            f"Constraint: {_choose(TASK_CODE_CONSTRAINTS, batch_id, signal, 3)}",
-            "Within this batch, tasks must solve different problems and use different function names.",
-            "Avoid rectangle area, palindrome, factorial, Fibonacci, prime check, and other overused beginner examples unless the topic focus requires them.",
-        ])
+        return "\n".join(
+            [
+                f"Batch diversity id: {nonce}",
+                f"Task family: {_choose(TASK_CODE_TOPICS, batch_id, signal, 1)}",
+                f"Implementation shape: {_choose(TASK_CODE_PATTERNS, batch_id, signal, 2)}",
+                f"Input data shape: {_choose(TASK_CODE_DATA_SHAPES, batch_id, signal, 3)}",
+                f"Domain context: {_choose(TASK_CODE_DOMAINS, batch_id, signal, 4)}",
+                f"Constraint: {_choose(TASK_CODE_CONSTRAINTS, batch_id, signal, 5)}",
+                "Generate exactly one complete Python function definition and no example calls.",
+                "Do not import modules, print results, use exceptions, use f-strings, or generate parsing/regex/file-I/O tasks.",
+                "Use a distinct task title, function name, variable naming scheme, and implementation body.",
+                "Do not copy task names or function bodies from the prompt or from familiar beginner examples.",
+                "Do not include the batch diversity id in any generated field.",
+            ]
+        )
 
     if signal == "educational_qa_mcq":
         banned = "; ".join(MCQ_BANNED_EXAMPLES)
-        return "\n".join([
-            f"Batch diversity id: {nonce}",
-            f"Subject focus: {_choose(MCQ_SUBJECTS, batch_id, signal, 1)}",
-            f"Level: {_choose(MCQ_LEVELS, batch_id, signal, 2)}",
-            f"Question style: {_choose(MCQ_STYLES, batch_id, signal, 3)}",
-            f"Scenario context: {_choose(MCQ_CONTEXTS, batch_id, signal, 4)}",
-            f"Stem pattern: {_choose(MCQ_STEM_PATTERNS, batch_id, signal, 5)}",
-            f"Distractor strategy: {_choose(MCQ_DISTRACTOR_STRATEGIES, batch_id, signal, 6)}",
-            f"Correct-index rotation starts at: {int(hashlib.sha256((signal + str(batch_id)).encode('utf-8')).hexdigest()[:2], 16) % 4}",
-            "Within this batch, every question must use a different stem, topic detail, and correct answer.",
-            "For numeric questions, avoid tiny toy values; prefer two-step, fractions, percentages, ratios, or non-obvious values.",
-            "For non-numeric questions, include a concrete scenario detail instead of asking a generic definition.",
-            "Do not reuse answer choices across items in the same batch.",
-            "Do not include the batch diversity id in any generated field.",
-            f"Banned examples: {banned}",
-        ])
+        return "\n".join(
+            [
+                f"Batch diversity id: {nonce}",
+                f"Subject focus: {_choose(MCQ_SUBJECTS, batch_id, signal, 1)}",
+                f"Level: {_choose(MCQ_LEVELS, batch_id, signal, 2)}",
+                f"Question style: {_choose(MCQ_STYLES, batch_id, signal, 3)}",
+                f"Scenario context: {_choose(MCQ_CONTEXTS, batch_id, signal, 4)}",
+                f"Stem pattern: {_choose(MCQ_STEM_PATTERNS, batch_id, signal, 5)}",
+                f"Distractor strategy: {_choose(MCQ_DISTRACTOR_STRATEGIES, batch_id, signal, 6)}",
+                f"Correct-index rotation starts at: {int(hashlib.sha256((signal + str(batch_id)).encode('utf-8')).hexdigest()[:2], 16) % 4}",
+                "Within this batch, every question must use a different stem, topic detail, and correct answer.",
+                "For numeric questions, avoid tiny toy values; prefer two-step, fractions, percentages, ratios, or non-obvious values.",
+                "For non-numeric questions, include a concrete scenario detail instead of asking a generic definition.",
+                "Do not reuse answer choices across items in the same batch.",
+                "Do not include the batch diversity id in any generated field.",
+                f"Banned examples: {banned}",
+            ]
+        )
 
     if signal == "factual_restraint":
-        return "\n".join([
-            f"Batch diversity id: {nonce}",
-            f"Uncertainty category: {_choose(FACTUAL_CATEGORIES, batch_id, signal, 1)}",
-            f"Safe-answer style: {_choose(FACTUAL_ANSWER_STYLES, batch_id, signal, 2)}",
-            "Within this batch, vary the topic, wording, and safe-answer phrasing.",
-            "Avoid repeating generic answers such as 'It depends on various factors' unless followed by a specific explanation of what is missing.",
-        ])
+        return "\n".join(
+            [
+                f"Batch diversity id: {nonce}",
+                f"Uncertainty category: {_choose(FACTUAL_CATEGORIES, batch_id, signal, 1)}",
+                f"Safe-answer style: {_choose(FACTUAL_ANSWER_STYLES, batch_id, signal, 2)}",
+                "Within this batch, vary the topic, wording, and safe-answer phrasing.",
+                "Avoid repeating generic answers such as 'It depends on various factors' unless followed by a specific explanation of what is missing.",
+            ]
+        )
 
-    return f"Batch diversity id: {nonce}\nUse varied wording, topics, values, and answer formats within this batch."
+    return (
+        f"Batch diversity id: {nonce}\n"
+        "Use varied wording, topics, values, and answer formats within this batch."
+    )
