@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Iterable
 
 from slm_synth.paths import load_yaml_config, resolve_output_dir
 from slm_synth.record_quality import SIGNAL_FROM_FILE, iter_jsonl, signal_to_filename, validate_record
@@ -39,7 +38,11 @@ def validate_signal(raw_dir: Path, validated_dir: Path, rejected_dir: Path, sign
                 rejected += 1
                 continue
             assert row is not None
-            result = validate_record(signal, row)
+            result = validate_record(
+                signal,
+                row,
+                require_mcq_verification=(signal == "educational_qa_mcq"),
+            )
             if result.ok and result.record is not None:
                 out.write(json.dumps(result.record, ensure_ascii=False) + "\n")
                 accepted += 1

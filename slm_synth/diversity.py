@@ -382,98 +382,92 @@ TASK_CODE_STATUSES = ["selected", "ready", "reviewed", "complete", "approved"]
 
 
 # ---------------------------------------------------------------------------
-# MCQ diversity settings: unchanged.
+# MCQ verified numeric profiles
+#
+# This signal is temporarily restricted to numeric question families whose
+# indexed answer can be machine-checked before publication.
 # ---------------------------------------------------------------------------
 
-MCQ_SUBJECTS = [
-    "integer arithmetic",
-    "fractions and decimals",
-    "percentages and ratios",
-    "basic algebra equations",
-    "geometry shapes and area",
-    "measurement and units",
-    "physical science forces and motion",
-    "earth science weather and rocks",
-    "biology cells and ecosystems",
-    "computer science algorithms",
-    "Python data types",
-    "Python control flow",
-    "history timelines and sources",
-    "geography maps and regions",
-    "grammar and sentence structure",
-    "vocabulary in context",
-    "logic puzzles and inference",
-    "data interpretation from small tables",
-    "technology literacy and privacy",
-    "reading comprehension",
-    "scientific method",
-    "basic probability",
-    "statistics averages and spread",
-    "financial literacy basics",
-]
-MCQ_LEVELS = [
-    "upper elementary",
-    "middle school",
-    "high school intro",
-    "adult beginner",
-    "mixed-review beginner",
-]
-MCQ_STYLES = [
-    "definition question with a concrete example",
-    "worked example question using non-trivial values",
-    "identify the best explanation",
-    "classification question with four distinct categories",
-    "cause-and-effect question",
-    "choose the next step in a process",
-    "spot the misconception",
-    "short scenario question with named objects",
-    "compare two options and choose the better answer",
-    "interpret a tiny table or list described in text",
-    "fill in the missing step",
-    "choose the statement that must be true",
-]
-MCQ_CONTEXTS = [
-    "classroom practice",
-    "workplace note",
-    "science lab observation",
-    "small business example",
-    "sports or games example",
-    "garden or nature example",
-    "library or reading example",
-    "travel or map example",
-    "simple coding exercise",
-    "home budget example",
-    "weather report example",
-    "recipe or measurement example",
-]
-MCQ_STEM_PATTERNS = [
-    "Start with 'A student...' and ask for the best answer.",
-    "Start with 'Which statement...' and ask for the correct statement.",
-    "Start with 'In this example...' and include concrete details.",
-    "Start with 'What should happen next...' and ask for a next step.",
-    "Start with 'Why...' and ask for an explanation, not a bare fact.",
-    "Start with 'Which choice best describes...' and compare concepts.",
-    "Start with 'Given...' and include a small value, list, or condition.",
-    "Start with 'A teacher asks...' and include a specific scenario.",
-]
-MCQ_DISTRACTOR_STRATEGIES = [
-    "use common misconceptions as distractors",
-    "use near-miss numeric answers",
-    "use same-category but wrong concepts",
-    "use plausible but incomplete explanations",
-    "use wrong order or wrong next step",
-    "use overgeneralized statements as distractors",
-]
-MCQ_BANNED_EXAMPLES = [
-    "What is 2 + 2?",
-    "What is the capital of France?",
-    "What color is the sky?",
-    "Which planet is known as the Red Planet?",
-    "What is the largest mammal?",
-    "Who wrote Hamlet?",
-    "What is photosynthesis?",
+MCQ_VERIFIED_PROFILES: List[Dict[str, ProfileValue]] = [
+    {
+        "family": "integer addition or subtraction",
+        "question_shape": "ask for the exact result of one operation using two non-trivial integers",
+        "expression_shape": "one addition or subtraction expression",
+        "context": "plain numeric reasoning",
+    },
+    {
+        "family": "integer multiplication",
+        "question_shape": "ask for the exact product of two non-trivial integer quantities",
+        "expression_shape": "one multiplication expression",
+        "context": "grouped supply counts",
+    },
+    {
+        "family": "exact integer division",
+        "question_shape": "ask for an equal share from an exactly divisible integer total",
+        "expression_shape": "one division expression whose result is an integer",
+        "context": "allocation groups",
+    },
+    {
+        "family": "two-step integer arithmetic",
+        "question_shape": "provide two incoming quantities and one outgoing quantity, then ask for the final count",
+        "expression_shape": "addition followed by subtraction",
+        "context": "inventory movement",
+    },
+    {
+        "family": "rectangle area",
+        "question_shape": "provide both integer length and integer width, then ask for area",
+        "expression_shape": "length multiplied by width",
+        "context": "measurement practice",
+    },
+    {
+        "family": "rectangle perimeter",
+        "question_shape": "provide both integer length and integer width, then ask for perimeter",
+        "expression_shape": "two multiplied by the sum of length and width",
+        "context": "measurement practice",
+    },
+    {
+        "family": "fraction of a whole quantity",
+        "question_shape": "give an integer total and a fractional part selected so the result is an integer",
+        "expression_shape": "total multiplied by numerator then divided by denominator",
+        "context": "items in a collection",
+    },
+    {
+        "family": "percentage of a whole quantity",
+        "question_shape": "give an integer total and a percentage selected so the result is an integer",
+        "expression_shape": "total multiplied by percent then divided by one hundred",
+        "context": "completed units",
+    },
+    {
+        "family": "ratio share",
+        "question_shape": "give a two-part ratio and a total divisible by the sum of ratio parts, then ask for one share",
+        "expression_shape": "total multiplied by requested part then divided by sum of parts",
+        "context": "distributed materials",
+    },
+    {
+        "family": "tiny table total or difference",
+        "question_shape": "describe three integer values and ask for a total or a difference between computed totals",
+        "expression_shape": "a short addition or addition-and-subtraction expression",
+        "context": "daily counts",
+    },
+    {
+        "family": "integer average",
+        "question_shape": "give three integer values whose arithmetic mean is an integer, then ask for the mean",
+        "expression_shape": "sum of values divided by three",
+        "context": "measurement summary",
+    },
 ]
 
+MCQ_DIFFICULTIES = [
+    "upper elementary with non-trivial integers",
+    "middle school review with two-step reasoning",
+    "adult beginner practical numeracy",
+]
+
+MCQ_DISTRACTOR_RULES = [
+    "Use three nearby integer distractors from common arithmetic mistakes.",
+    "Use three distinct integer distractors based on omitted or reversed operations.",
+    "Use three plausible but incorrect integer results; none may equal the verified answer.",
+]
 
 # ---------------------------------------------------------------------------
 # Factual-restraint diversity settings: unchanged.
@@ -571,23 +565,28 @@ def build_diversity_context(signal: str, batch_id: int) -> str:
         )
 
     if signal == "educational_qa_mcq":
-        banned = "; ".join(MCQ_BANNED_EXAMPLES)
+        profile = _choose_profile(MCQ_VERIFIED_PROFILES, batch_id, signal, 1)
+        difficulty = _choose(MCQ_DIFFICULTIES, batch_id, signal, 2)
+        distractors = _choose(MCQ_DISTRACTOR_RULES, batch_id, signal, 3)
+        answer_index = _choose_int(batch_id, signal, 4, 0, 3)
+
         return "\n".join(
             [
                 f"Batch diversity id: {nonce}",
-                f"Subject focus: {_choose(MCQ_SUBJECTS, batch_id, signal, 1)}",
-                f"Level: {_choose(MCQ_LEVELS, batch_id, signal, 2)}",
-                f"Question style: {_choose(MCQ_STYLES, batch_id, signal, 3)}",
-                f"Scenario context: {_choose(MCQ_CONTEXTS, batch_id, signal, 4)}",
-                f"Stem pattern: {_choose(MCQ_STEM_PATTERNS, batch_id, signal, 5)}",
-                f"Distractor strategy: {_choose(MCQ_DISTRACTOR_STRATEGIES, batch_id, signal, 6)}",
-                f"Correct-index rotation starts at: {int(hashlib.sha256((signal + str(batch_id)).encode('utf-8')).hexdigest()[:2], 16) % 4}",
-                "Within this batch, every question must use a different stem, topic detail, and correct answer.",
-                "For numeric questions, avoid tiny toy values; prefer two-step, fractions, percentages, ratios, or non-obvious values.",
-                "For non-numeric questions, include a concrete scenario detail instead of asking a generic definition.",
-                "Do not reuse answer choices across items in the same batch.",
+                "Verified numeric MCQ mode: required.",
+                f"Required family: {profile['family']}",
+                f"Question construction: {profile['question_shape']}",
+                f"Verification-expression shape: {profile['expression_shape']}",
+                f"Context guidance: {profile['context']}",
+                f"Difficulty guidance: {difficulty}",
+                f"Correct-index target: {answer_index}",
+                f"Distractor guidance: {distractors}",
+                "The question must have one exact integer answer computable from the stated quantities.",
+                "Return verification_expression and verification_answer for validator use; both must match the indexed choice.",
+                "Choices must be four distinct plain integer strings with no units.",
+                "The explanation must show the numeric calculation and include the exact final integer answer.",
+                "Do not generate next-step, best-explanation, conceptual, opinion, trivia, Python, or under-specified questions.",
                 "Do not include the batch diversity id in any generated field.",
-                f"Banned examples: {banned}",
             ]
         )
 

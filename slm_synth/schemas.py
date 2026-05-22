@@ -32,7 +32,10 @@ TASK_CODE_SCHEMA = {
 
 
 # -------------------------
-# Educational QA/MCQ Schema
+# Educational QA/MCQ Raw Generation Schema
+#
+# verification_expression and verification_answer are temporary raw-stage
+# fields. Validation checks them and removes them from validated/exported rows.
 # -------------------------
 EDUCATIONAL_QA_MCQ_SCHEMA = {
     "type": "object",
@@ -47,8 +50,18 @@ EDUCATIONAL_QA_MCQ_SCHEMA = {
         },
         "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
         "explanation": {"type": "string"},
+        "verification_expression": {"type": "string"},
+        "verification_answer": {"type": "string"},
     },
-    "required": ["type", "question", "choices", "correct_index", "explanation"],
+    "required": [
+        "type",
+        "question",
+        "choices",
+        "correct_index",
+        "explanation",
+        "verification_expression",
+        "verification_answer",
+    ],
 }
 
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import ast
+from fractions import Fraction
 import json
-import warnings
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -14,6 +15,8 @@ EXPECTED_KEYS: dict[str, set[str]] = {
     "educational_qa_mcq": {"type", "question", "choices", "correct_index", "explanation"},
     "factual_restraint": {"type", "question", "safe_answer"},
 }
+
+MCQ_VERIFICATION_KEYS = {"verification_expression", "verification_answer"}
 
 SIGNAL_FROM_FILE = {
     "arithmetic.jsonl": "arithmetic",
@@ -36,11 +39,7 @@ def normalize_space(value: str) -> str:
 
 
 def normalize_code(code: str) -> str:
-    """Normalize code strings emitted by the LLM.
-
-    Some generations store escaped newlines literally ("\\n") instead of real
-    newlines. Those are valid JSON strings but bad Python source until normalized.
-    """
+    """Normalize code strings emitted by the LLM."""
     code = code.strip()
     if "\\n" in code and "\n" not in code:
         code = code.replace("\\n", "\n")
@@ -49,12 +48,7 @@ def normalize_code(code: str) -> str:
 
 
 def parse_python_code_cleanly(code: str) -> tuple[bool, str | None]:
-    """Return whether generated Python code parses without SyntaxError or SyntaxWarning.
-
-    SyntaxWarning is treated as invalid for the published task_code signal so
-    warning-producing code, such as non-raw regex strings with invalid escape
-    sequences, is not exported.
-    """
+    """Return whether generated Python code parses without SyntaxError or SyntaxWarning."""
     try:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", SyntaxWarning)
@@ -75,8 +69,15 @@ class ValidationResult:
     issues: list[str] = field(default_factory=list)
 
 
-def _validate_exact_keys(signal: str, row: dict[str, Any]) -> list[str]:
-    expected = EXPECTED_KEYS[signal]
+def _validate_exact_keys(
+    signal: str,
+    row: dict[str, Any],
+    *,
+    extra_expected: set[str] | None = None,
+) -> list[str]:
+    expected = set(EXPECTED_KEYS[signal])
+    if extra_expected:
+        expected.update(extra_expected)
     keys = set(row)
     issues: list[str] = []
     extra = sorted(keys - expected)
@@ -150,35 +151,153 @@ def validate_task_code(row: dict[str, Any], *, require_syntax: bool = True) -> V
     )
 
 
-def validate_educational_qa_mcq(row: dict[str, Any]) -> ValidationResult:
-    issues = _validate_exact_keys("educational_qa_mcq", row)
+def _parse_integer_text(value: Any) -> int | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().replace(",", "")
+    if not re.fullmatch(r"[+-]?\d+", normalized):
+        return None
+    return int(normalized)
+
+
+def _eval_numeric_expression(expression: Any) -> Fraction | None:
+    """Safely evaluate +, -, *, and / over integer literals only."""
+    if not isinstance(expression, str):
+        return None
+    expression = expression.strip()
+    if not expression or len(expression) > 120:
+        return None
+
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError:
+        return None
+
+    def evaluate(node: ast.AST) -> Fraction:
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+            return Fraction(node.value)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = evaluate(node.operand)
+            return value if isinstance(node.op, ast.UAdd) else -value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
+            left = evaluate(node.left)
+            right = evaluate(node.right)
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if right == 0:
+                raise ValueError("division by zero")
+            return left / right
+        raise ValueError("unsupported expression")
+
+    try:
+        return evaluate(tree)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _contains_integer(text: str, value: int) -> bool:
+    pattern = rf"(?<!\d){re.escape(str(value))}(?!\d)"
+    return bool(re.search(pattern, text.replace(",", "")))
+
+
+def validate_educational_qa_mcq(
+    row: dict[str, Any],
+    *,
+    require_verification: bool = False,
+) -> ValidationResult:
+    issues = _validate_exact_keys(
+        "educational_qa_mcq",
+        row,
+        extra_expected=MCQ_VERIFICATION_KEYS if require_verification else None,
+    )
     if row.get("type") != "educational_qa_mcq":
         issues.append("bad_type")
     if not strip_text(row.get("question")):
         issues.append("empty_question")
+
     choices = row.get("choices")
     if not isinstance(choices, list):
         issues.append("bad_choices")
     elif len(choices) != 4:
         issues.append("choices_not_four")
-    elif not all(isinstance(c, str) and c.strip() for c in choices):
+    elif not all(isinstance(choice, str) and choice.strip() for choice in choices):
         issues.append("empty_choice")
+    else:
+        normalized_choices = [normalize_space(choice) for choice in choices]
+        if len(set(normalized_choices)) != len(normalized_choices):
+            issues.append("duplicate_choices")
+
     idx = row.get("correct_index")
-    if not isinstance(idx, int):
+    if isinstance(idx, bool) or not isinstance(idx, int):
         issues.append("bad_correct_index_type")
     elif isinstance(choices, list) and not (0 <= idx < len(choices)):
         issues.append("correct_index_out_of_bounds")
-    if not strip_text(row.get("explanation")):
+
+    explanation = strip_text(row.get("explanation"))
+    if not explanation:
         issues.append("empty_explanation")
+
+    if require_verification:
+        question = normalize_space(str(row.get("question", "")))
+        disallowed_stems = (
+            "what should happen next",
+            "best explanation",
+            "best describes",
+            "which statement is true",
+        )
+        if any(stem in question for stem in disallowed_stems):
+            issues.append("mcq_disallowed_ambiguous_stem")
+
+        expression = strip_text(row.get("verification_expression"))
+        verification_answer = _parse_integer_text(row.get("verification_answer"))
+        computed = _eval_numeric_expression(expression)
+
+        if not expression:
+            issues.append("mcq_missing_verification_expression")
+        elif computed is None:
+            issues.append("mcq_invalid_verification_expression")
+        elif computed.denominator != 1:
+            issues.append("mcq_non_integer_verified_answer")
+
+        if verification_answer is None:
+            issues.append("mcq_bad_verification_answer")
+
+        if isinstance(choices, list) and len(choices) == 4:
+            numeric_choices = [_parse_integer_text(choice) for choice in choices]
+            if any(choice is None for choice in numeric_choices):
+                issues.append("mcq_non_integer_choice")
+            elif isinstance(idx, int) and not isinstance(idx, bool) and 0 <= idx < 4:
+                selected_answer = numeric_choices[idx]
+                if verification_answer is not None and selected_answer != verification_answer:
+                    issues.append("mcq_indexed_choice_mismatch")
+
+        if (
+            computed is not None
+            and computed.denominator == 1
+            and verification_answer is not None
+            and computed.numerator != verification_answer
+        ):
+            issues.append("mcq_verification_answer_mismatch")
+
+        if verification_answer is not None and explanation and not _contains_integer(explanation, verification_answer):
+            issues.append("mcq_explanation_missing_answer")
 
     if issues:
         return ValidationResult(False, None, issues)
+
+    # Verification fields are intentionally removed before validated/deduped/exported stages.
     return ValidationResult(
         True,
         {
             "type": "educational_qa_mcq",
             "question": row["question"].strip(),
-            "choices": [c.strip() for c in row["choices"]],
+            "choices": [choice.strip() for choice in row["choices"]],
             "correct_index": int(row["correct_index"]),
             "explanation": row["explanation"].strip(),
         },
@@ -208,7 +327,12 @@ def validate_factual_restraint(row: dict[str, Any]) -> ValidationResult:
     )
 
 
-def validate_record(signal: str, row: dict[str, Any]) -> ValidationResult:
+def validate_record(
+    signal: str,
+    row: dict[str, Any],
+    *,
+    require_mcq_verification: bool = False,
+) -> ValidationResult:
     if not isinstance(row, dict):
         return ValidationResult(False, None, ["not_object"])
     if signal == "arithmetic":
@@ -216,7 +340,11 @@ def validate_record(signal: str, row: dict[str, Any]) -> ValidationResult:
     if signal == "task_code":
         return validate_task_code(row)
     if signal == "educational_qa_mcq":
-        return validate_educational_qa_mcq(row)
+        has_verification_metadata = bool(MCQ_VERIFICATION_KEYS.intersection(row))
+        return validate_educational_qa_mcq(
+            row,
+            require_verification=require_mcq_verification or has_verification_metadata,
+        )
     if signal == "factual_restraint":
         return validate_factual_restraint(row)
     return ValidationResult(False, None, [f"unknown_signal:{signal}"])
@@ -245,8 +373,8 @@ class FileAudit:
 
 
 def iter_jsonl(path: Path) -> Iterable[tuple[int, dict[str, Any] | None, list[str]]]:
-    with path.open("r", encoding="utf-8") as f:
-        for lineno, line in enumerate(f, 1):
+    with path.open("r", encoding="utf-8") as file:
+        for lineno, line in enumerate(file, 1):
             line = line.strip()
             if not line:
                 yield lineno, None, ["empty_line"]
@@ -268,7 +396,7 @@ def audit_jsonl_file(path: Path, signal: str) -> FileAudit:
         audit.total += 1
         if parse_issues:
             audit.invalid += 1
-            if any(i.startswith("bad_json") for i in parse_issues):
+            if any(issue.startswith("bad_json") for issue in parse_issues):
                 audit.bad_json += 1
             for issue in parse_issues:
                 audit.add_issue(issue)

@@ -1,5 +1,3 @@
-# slm_synth/repair.py
-
 from typing import Any, Dict, List
 
 
@@ -28,45 +26,29 @@ def repair_task_code(obj: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def repair_educational_qa_mcq(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize MCQ fields without inventing or clamping the answer key.
+
+    A missing or malformed correct_index must be rejected during validation,
+    rather than repaired to a potentially incorrect choice.
+    """
     obj.setdefault("type", "educational_qa_mcq")
     obj.setdefault("question", "")
 
-    choices = obj.get("choices") or []
-    if not isinstance(choices, list):
-        choices = [str(choices)]
-    choices = [str(c).strip() for c in choices]
-
-    while len(choices) < 4:
-        choices.append("")
-    if len(choices) > 4:
-        choices = choices[:4]
-    obj["choices"] = choices
+    choices = obj.get("choices")
+    if isinstance(choices, list):
+        obj["choices"] = [str(choice).strip() for choice in choices]
 
     correct_index = obj.get("correct_index")
-    if correct_index is None:
-        answer = obj.get("answer")
-        if isinstance(answer, str) and answer in choices:
-            correct_index = choices.index(answer)
-        else:
-            correct_index = 0
-
     if isinstance(correct_index, str):
         try:
-            correct_index = int(correct_index.strip())
+            obj["correct_index"] = int(correct_index.strip())
         except ValueError:
-            correct_index = 0
+            pass
 
-    if not isinstance(correct_index, int):
-        correct_index = 0
+    for key in ("explanation", "verification_expression", "verification_answer"):
+        if isinstance(obj.get(key), str):
+            obj[key] = obj[key].strip()
 
-    # Clamp instead of rejecting otherwise-good model outputs with 1-based indices.
-    if correct_index < 0:
-        correct_index = 0
-    if correct_index > 3:
-        correct_index = 3
-    obj["correct_index"] = correct_index
-
-    obj.setdefault("explanation", "")
     return obj
 
 
