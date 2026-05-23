@@ -41,10 +41,24 @@ Allowed families:
 - exact ratio share with an integer result
 - total, difference, or integer mean from supplied integers
 
+Coherence requirements:
+- Generate only a coherent question that can be solved exactly as written.
+- Before returning a candidate, privately solve the complete question and confirm that its final requested answer is one exact integer.
+- Every quantity in the question must have a clear role in the calculation; do not add irrelevant or conflicting quantities.
+- The requested answer must use the same unit and object described by the calculation.
+- Include the privately solved final integer answer exactly once among the four candidate choices, but do not identify which choice it is.
+- If a candidate fails any coherence check below, replace it with a new candidate before returning the batch.
+
+Family-specific coherence checks:
+- For fraction or percentage count questions, choose totals and fractions/percentages that produce exact whole-number counts. Never require rounding or truncation.
+- For ratio-share questions, state one total being divided, state the complete ratio, identify the requested share, and choose a total divisible by the sum of the ratio parts.
+- For ratio-share questions, do not ask for a per-person or per-group value unless the number of people or groups is separately and explicitly stated.
+- For mean or average questions, choose values whose mean is an exact integer.
+
 Rules:
 - Do not include correct_index, explanation, solution steps, verification_expression, or verification_answer.
 - The question must state every quantity needed to solve it.
-- Use integer-answer questions only; no rounding or ambiguous units.
+- Use integer-answer questions only; no rounding, approximation, ambiguous units, or missing information.
 - Do not signal which choice is correct.
 """
 
