@@ -17,7 +17,21 @@ EXPECTED_KEYS: dict[str, set[str]] = {
     "factual_restraint": {"type", "question", "safe_answer"},
 }
 
+ARITHMETIC_VERIFICATION_KEYS = {"verification_expression", "verification_answer"}
 MCQ_VERIFICATION_KEYS = {"verification_expression", "verification_answer"}
+
+ARITHMETIC_META_STEP_MARKERS = (
+    "cannot determine",
+    "can't determine",
+    "without knowing",
+    "not enough information",
+    "assuming",
+    "if initially",
+    "question implies",
+    "correct the understanding",
+    "ambiguous",
+    "unclear",
+)
 
 MCQ_MATH_META_EXPLANATION_MARKERS = (
     "provided choices",
@@ -96,25 +110,60 @@ def _validate_exact_keys(signal: str, row: dict[str, Any], *, extra_expected: se
     return issues
 
 
-def validate_arithmetic(row: dict[str, Any]) -> ValidationResult:
-    issues = _validate_exact_keys("arithmetic", row)
+def validate_arithmetic(row: dict[str, Any], *, require_verification: bool = False) -> ValidationResult:
+    extra_expected = ARITHMETIC_VERIFICATION_KEYS if require_verification else None
+    issues = _validate_exact_keys("arithmetic", row, extra_expected=extra_expected)
     if row.get("type") != "arithmetic":
         issues.append("bad_type")
     if not strip_text(row.get("question")):
         issues.append("empty_question")
-    if not isinstance(row.get("steps"), list) or not row.get("steps"):
+
+    steps = row.get("steps")
+    cleaned_steps: list[str] | None = None
+    if not isinstance(steps, list) or not steps:
         issues.append("bad_steps")
-    elif not all(isinstance(step, str) and step.strip() for step in row["steps"]):
+    elif not all(isinstance(step, str) and step.strip() for step in steps):
         issues.append("bad_steps")
-    if not strip_text(row.get("answer")):
+    else:
+        cleaned_steps = [step.strip() for step in steps]
+        step_text = normalize_space(" ".join(cleaned_steps))
+        if any(marker in step_text for marker in ARITHMETIC_META_STEP_MARKERS):
+            issues.append("arithmetic_meta_commentary")
+
+    answer_text = strip_text(row.get("answer"))
+    if not answer_text:
         issues.append("empty_answer")
-    if issues:
+
+    if require_verification:
+        expression = strip_text(row.get("verification_expression"))
+        verification_answer = _parse_integer_text(row.get("verification_answer"))
+        answer = _parse_integer_text(answer_text)
+        computed = _eval_numeric_expression(expression)
+
+        if not expression:
+            issues.append("arithmetic_missing_verification_expression")
+        elif computed is None:
+            issues.append("arithmetic_invalid_verification_expression")
+        elif computed.denominator != 1:
+            issues.append("arithmetic_non_integer_verified_answer")
+
+        if verification_answer is None:
+            issues.append("arithmetic_bad_verification_answer")
+        if answer is None:
+            issues.append("arithmetic_bad_answer")
+        if computed is not None and computed.denominator == 1 and verification_answer is not None:
+            if computed.numerator != verification_answer:
+                issues.append("arithmetic_verification_answer_mismatch")
+        if answer is not None and verification_answer is not None and answer != verification_answer:
+            issues.append("arithmetic_answer_mismatch")
+
+    if issues or cleaned_steps is None:
         return ValidationResult(False, None, issues)
     return ValidationResult(True, {
         "type": "arithmetic",
         "question": row["question"].strip(),
-        "steps": [step.strip() for step in row["steps"]],
-        "answer": row["answer"].strip(),
+        "steps": cleaned_steps,
+        "answer": answer_text,
     }, [])
 
 
@@ -328,11 +377,18 @@ def validate_factual_restraint(row: dict[str, Any]) -> ValidationResult:
     }, [])
 
 
-def validate_record(signal: str, row: dict[str, Any], *, require_mcq_verification: bool = False) -> ValidationResult:
+def validate_record(
+    signal: str,
+    row: dict[str, Any],
+    *,
+    require_arithmetic_verification: bool = False,
+    require_mcq_verification: bool = False,
+) -> ValidationResult:
     if not isinstance(row, dict):
         return ValidationResult(False, None, ["not_object"])
     if signal == "arithmetic":
-        return validate_arithmetic(row)
+        has_metadata = bool(ARITHMETIC_VERIFICATION_KEYS.intersection(row))
+        return validate_arithmetic(row, require_verification=require_arithmetic_verification or has_metadata)
     if signal == "task_code":
         return validate_task_code(row)
     if signal == "educational_qa_mcq_math":

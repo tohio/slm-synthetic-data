@@ -41,6 +41,8 @@ class ArithmeticGenerator:
                         "question": candidate.get("question", ""),
                         "steps": response.get("steps"),
                         "answer": response.get("answer"),
+                        "verification_expression": response.get("verification_expression"),
+                        "verification_answer": response.get("verification_answer"),
                     }
                 )
             )

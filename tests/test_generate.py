@@ -16,7 +16,16 @@ class MockArithmeticCandidateLLM:
 class MockArithmeticResponseLLM:
     def generate_batch(self, prompt, batch_size):
         assert "Candidates to answer" in prompt
-        return [{"candidate_id": i, "steps": ["2 + 2 = 4"], "answer": "4"} for i in range(batch_size)]
+        return [
+            {
+                "candidate_id": i,
+                "steps": ["2 + 2 = 4"],
+                "answer": "4",
+                "verification_expression": "2 + 2",
+                "verification_answer": "4",
+            }
+            for i in range(batch_size)
+        ]
 
 
 class MockMathCandidateLLM:
@@ -95,7 +104,14 @@ class MockFactualResponseLLM:
 def test_arithmetic_generator_runs_candidate_then_response_pass():
     batch = ArithmeticGenerator(MockArithmeticCandidateLLM(), response_llm=MockArithmeticResponseLLM(), batch_size=2).generate_batch()
     assert len(batch) == 2
-    assert batch[0] == {"type": "arithmetic", "question": "What is 2 + 2?", "steps": ["2 + 2 = 4"], "answer": "4"}
+    assert batch[0] == {
+        "type": "arithmetic",
+        "question": "What is 2 + 2?",
+        "steps": ["2 + 2 = 4"],
+        "answer": "4",
+        "verification_expression": "2 + 2",
+        "verification_answer": "4",
+    }
 
 
 def test_math_mcq_generator_runs_candidate_then_response_pass():

@@ -13,8 +13,16 @@ ARITHMETIC_RESPONSE_SCHEMA = {
         "candidate_id": {"type": "integer"},
         "steps": {"type": "array", "items": {"type": "string"}},
         "answer": {"type": "string"},
+        "verification_expression": {"type": "string"},
+        "verification_answer": {"type": "string"},
     },
-    "required": ["candidate_id", "steps", "answer"],
+    "required": [
+        "candidate_id",
+        "steps",
+        "answer",
+        "verification_expression",
+        "verification_answer",
+    ],
 }
 
 ARITHMETIC_CANDIDATE_TASK = r"""Generate independent unsolved integer-arithmetic questions.
@@ -25,11 +33,21 @@ Each item must contain only:
 
 Allowed forms:
 - direct equation with uncommon operands
-- short word problem
+- short word problem with one requested integer result
 - missing integer operand
-- compare or order computed values
+- comparison of computed values only when asking for the unique largest or smallest numeric value
 - two-step quantity problem
 - exact integer division or allocation problem
+
+Coherence requirements:
+- Generate only one coherent question with one uniquely determined integer answer.
+- Before returning a candidate, privately solve it and confirm that every stated quantity is required by the calculation.
+- Do not include irrelevant quantities, conflicting facts, or a story detail that is unused in the answer.
+- Do not require an unstated assumption, such as initial occupancy, an omitted price, or an omitted group count.
+- If comparing computed values, ensure there is a unique largest or smallest value; do not create ties.
+- Ask for a numeric answer only. Do not ask "who" or "which item" when the output is expected to be an integer.
+- Do not create budget or cost problems unless every required amount is explicitly stated.
+- If any rule fails, replace the candidate before returning the batch.
 
 Rules:
 - Use only integer arithmetic: addition, subtraction, multiplication, and exact division.
@@ -44,10 +62,21 @@ For each candidate_id, return only:
 - "candidate_id": the supplied id
 - "steps": 2 to 4 compact calculation-focused strings
 - "answer": the exact final integer as a string
+- "verification_expression": one complete integer arithmetic expression that computes the requested final answer
+- "verification_answer": the exact final integer result of verification_expression as a string
+
+Answer-verification requirements:
+- Solve exactly the question stated by the candidate and verify the arithmetic before returning.
+- verification_expression MUST compute the final requested answer, not an intermediate subtotal.
+- answer MUST exactly equal verification_answer, and the final result stated in steps MUST equal both fields.
+- Use only integer literals, spaces, parentheses, and +, -, *, and / in verification_expression.
+- Use division only when the final result is an exact integer.
+- For a missing-value problem, verification_expression must compute the missing integer.
+- For a comparison problem, answer only if the question asks for one unique numeric largest or smallest result.
+- If the candidate is ambiguous, contains unused or conflicting quantities, requires an unstated assumption, asks for an entity instead of a number, or has multiple valid answers, return empty strings for answer, verification_expression, and verification_answer and an empty steps array so it is rejected locally.
 
 Rules:
 - Answer the supplied question exactly as written.
 - Do not alter numbers or silently repair the question.
-- If the item asks for a missing value, answer with that missing integer.
-- Keep steps concise; do not include meta-commentary or discuss the answer choices.
+- Keep steps concise and calculation-focused; do not include assumptions, self-corrections, or meta-commentary.
 """

@@ -41,6 +41,7 @@ def validate_signal(raw_dir: Path, validated_dir: Path, rejected_dir: Path, sign
             result = validate_record(
                 signal,
                 row,
+                require_arithmetic_verification=(signal == "arithmetic"),
                 require_mcq_verification=(signal == "educational_qa_mcq_math"),
             )
             if result.ok and result.record is not None:

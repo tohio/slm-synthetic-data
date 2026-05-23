@@ -59,3 +59,48 @@ def test_math_mcq_rejects_meta_commentary_in_explanation():
     result = validate_record("educational_qa_mcq_math", raw, require_mcq_verification=True)
     assert not result.ok
     assert "mcq_math_meta_commentary" in result.issues
+
+
+def test_arithmetic_verifies_answer_and_strips_temporary_metadata():
+    raw = {
+        "type": "arithmetic",
+        "question": "What is 19 multiplied by 654?",
+        "steps": ["19 * 654 = 12426"],
+        "answer": "12426",
+        "verification_expression": "19 * 654",
+        "verification_answer": "12426",
+    }
+    result = validate_record("arithmetic", raw, require_arithmetic_verification=True)
+    assert result.ok
+    assert result.record is not None
+    assert result.record["answer"] == "12426"
+    assert "verification_expression" not in result.record
+    assert "verification_answer" not in result.record
+
+
+def test_arithmetic_rejects_wrong_verified_answer():
+    raw = {
+        "type": "arithmetic",
+        "question": "What is 19 multiplied by 654?",
+        "steps": ["19 * 654 = 12431"],
+        "answer": "12431",
+        "verification_expression": "19 * 654",
+        "verification_answer": "12431",
+    }
+    result = validate_record("arithmetic", raw, require_arithmetic_verification=True)
+    assert not result.ok
+    assert "arithmetic_verification_answer_mismatch" in result.issues
+
+
+def test_arithmetic_rejects_response_meta_commentary():
+    raw = {
+        "type": "arithmetic",
+        "question": "A garage has 70 occupied spaces and 14 cars leave. How many spaces remain occupied?",
+        "steps": ["Without knowing initial occupancy, assuming all spaces were occupied, 70 - 14 = 56."],
+        "answer": "56",
+        "verification_expression": "70 - 14",
+        "verification_answer": "56",
+    }
+    result = validate_record("arithmetic", raw, require_arithmetic_verification=True)
+    assert not result.ok
+    assert "arithmetic_meta_commentary" in result.issues
