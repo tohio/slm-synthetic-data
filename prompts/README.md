@@ -24,13 +24,13 @@ The pipeline intentionally avoids bare top-level JSON arrays because JSON object
 |---|---|---|
 | `arithmetic` | Unanswered integer question | Steps and exact answer |
 | `task_code` | Task specification only | Plan and Python function |
-| `educational_qa_mcq_math` | Question and choices without a key | Corrected final choices/key/explanation plus numeric verification metadata |
-| `educational_qa_mcq_general` | Grounded question and choices without a key | Corrected final choices/key/explanation |
+| `educational_qa_mcq_math` | Question and choices without a key | Solved answer, explanation, and numeric verification metadata; Python repairs choices and derives the key |
+| `educational_qa_mcq_general` | Grounded question and choices without a key | Supported answer text and explanation; Python locates/inserts the answer and derives the key |
 | `factual_restraint` | Question only | Safe restrained answer |
 
 ## Diversity
 
-Per-batch diversity context is applied to the candidate-authoring pass. The independent response pass answers the resulting fixed candidates. Mathematical MCQ responses carry temporary raw-stage verification fields that are checked and removed before export, and explanations containing answer-key or generation-error commentary are rejected. General MCQ responses must ground the answer in explicit supplied evidence.
+Per-batch diversity context is applied to the candidate-authoring pass. The independent response pass answers the resulting fixed candidates. Mathematical MCQ responses carry temporary raw-stage verification fields that are checked and removed before export, and explanations containing answer-key or generation-error commentary are rejected. General MCQ responses must ground the answer in explicit supplied evidence. For both MCQ signals, the response model no longer writes `correct_index`; Python derives it from the returned answer text and repairs a missing answer choice when possible.
 
 ## Prompt rules
 

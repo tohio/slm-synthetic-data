@@ -17,21 +17,12 @@ EDUCATIONAL_QA_MCQ_MATH_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
         "candidate_id": {"type": "integer"},
-        "question": {"type": "string"},
-        "choices": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 4,
-            "maxItems": 4,
-        },
-        "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
         "explanation": {"type": "string"},
         "verification_expression": {"type": "string"},
         "verification_answer": {"type": "string"},
     },
     "required": [
-        "candidate_id", "question", "choices", "correct_index", "explanation",
-        "verification_expression", "verification_answer"
+        "candidate_id", "explanation", "verification_expression", "verification_answer"
     ],
 }
 
@@ -57,20 +48,19 @@ Rules:
 - Do not signal which choice is correct.
 """
 
-EDUCATIONAL_QA_MCQ_MATH_RESPONSE_TASK = r"""Independently solve and finalize each mathematical MCQ candidate.
+EDUCATIONAL_QA_MCQ_MATH_RESPONSE_TASK = r"""Independently solve each mathematical MCQ candidate.
 
-For each candidate_id, return a complete corrected answer record containing:
+For each candidate_id, return only the answer-side fields:
 - "candidate_id": the supplied id
-- "question": preserve the supplied question unless a minimal wording repair is required for clarity
-- "choices": preserve usable choices, but replace a choice when needed so the correct answer appears exactly once among four distinct plain integer strings
-- "correct_index": the actual position of the correct answer in the returned choices
 - "explanation": one concise calculation statement with the final numeric answer
-- "verification_expression": a plain integer arithmetic expression matching the returned question
+- "verification_expression": a plain integer arithmetic expression matching the supplied question
 - "verification_answer": the exact integer result as a string
 
 Rules:
-- Solve from the question, not from the supplied choices.
-- Ensure returned question, choices, index, expression, answer, and explanation all agree.
-- Do not change operands to make a distractor correct.
+- Solve from the supplied question, not from its candidate choices.
+- Do not return question, choices, or correct_index. Python assembles those fields from your solved answer.
+- Do not change operands, quantities, units, or wording from the supplied question.
+- Use only integer literals, spaces, parentheses, and +, -, *, / in verification_expression.
+- Use division only when the final answer is an exact integer.
 - Do not mention corrections, errors, options, answer keys, or the generation process.
 """

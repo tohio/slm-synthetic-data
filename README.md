@@ -56,7 +56,7 @@ The current implementation includes:
 - Hugging Face push with `.env` token loading.
 - Hugging Face dataset card generation.
 
-MCQ generation is intentionally split: mathematical MCQs use raw-stage verification metadata and a numeric correctness gate, while general MCQs exclude calculation questions and preserve broader educational-choice coverage. All signals now use two passes: the first call authors an unanswered candidate and the second call independently supplies the training response or final answer key. Downstream users may concatenate both MCQ datasets during training when a combined MCQ mixture is desired.
+MCQ generation is intentionally split: mathematical MCQs use raw-stage verification metadata and a numeric correctness gate, while general MCQs exclude calculation questions and preserve broader educational-choice coverage. All signals now use two passes: the first call authors an unanswered candidate and the second call independently supplies the training response. For MCQ signals, Python owns answer-choice insertion and `correct_index` derivation from the solved answer. Downstream users may concatenate both MCQ datasets during training when a combined MCQ mixture is desired.
 
 
 ---

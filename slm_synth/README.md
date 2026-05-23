@@ -17,12 +17,12 @@ This package implements the synthetic data pipeline.
 | `paths.py` | Shared config loading and output-path resolution. |
 | `model_support.py` | Lightweight supported-model warning helper. |
 | `schemas.py` | Signal schema validators. |
-| `repair.py` | Lightweight final-record normalization helpers; answer keys are supplied by the response pass, not invented during repair. |
+| `repair.py` | Lightweight final-record normalization helpers; MCQ answer keys are assembled deterministically after the response pass. |
 | `writer.py` | JSONL writer utility. |
 
 ## Two-pass generation
 
-For every signal, the candidate model first writes an unanswered task or question. A separate response-model call then answers the fixed candidate and produces the final record written to `raw/`. The default template configures both roles as `llama-3.1-8b-instant`; `candidate_model` and `response_model` can be overridden per signal.
+For every signal, the candidate model first writes an unanswered task or question. A separate response-model call then answers the fixed candidate. For MCQ signals, Python inserts or locates the returned answer among the choices and derives `correct_index` before writing the final record to `raw/`. The default template configures both roles as `llama-3.1-8b-instant`; `candidate_model` and `response_model` can be overridden per signal.
 
 ## Pipeline stages
 

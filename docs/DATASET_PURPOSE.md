@@ -18,4 +18,4 @@ Use these datasets as targeted signals in a broader pretraining or continued-pre
 
 ## Generation Method
 
-Each published record is produced through two independent model calls: a candidate-authoring pass creates an unanswered question or task, and a response-completion pass supplies the answer, solution, or MCQ answer key. The default scalable configuration uses `llama-3.1-8b-instant` for both passes.
+Each published record is produced through two independent model calls: a candidate-authoring pass creates an unanswered question or task, and a response-completion pass supplies the answer or solution. For MCQ records, Python derives the final answer key from the returned answer and repairs missing answer choices when possible. The default scalable configuration uses `llama-3.1-8b-instant` for both passes.

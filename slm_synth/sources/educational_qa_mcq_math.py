@@ -6,7 +6,7 @@ from prompts.educational_qa_mcq_math import (
 )
 from prompts.wrapper import build_batched_prompt, build_response_prompt
 from slm_synth.repair import repair_educational_qa_mcq_math
-from slm_synth.sources.two_pass import attach_candidate_ids, order_responses
+from slm_synth.sources.two_pass import attach_candidate_ids, finalize_math_mcq, order_responses
 
 
 class EducationalQAMCQMathGenerator:
@@ -32,19 +32,7 @@ class EducationalQAMCQMathGenerator:
         responses = order_responses(
             self.response_llm.generate_batch(response_prompt, self.batch_size), self.batch_size
         )
-        records = []
-        for candidate, response in zip(candidates, responses):
-            records.append(
-                repair_educational_qa_mcq_math(
-                    {
-                        "type": "educational_qa_mcq_math",
-                        "question": response.get("question", candidate.get("question", "")),
-                        "choices": response.get("choices", candidate.get("choices", [])),
-                        "correct_index": response.get("correct_index"),
-                        "explanation": response.get("explanation", ""),
-                        "verification_expression": response.get("verification_expression", ""),
-                        "verification_answer": response.get("verification_answer", ""),
-                    }
-                )
-            )
-        return records
+        return [
+            repair_educational_qa_mcq_math(finalize_math_mcq(candidate, response))
+            for candidate, response in zip(candidates, responses)
+        ]

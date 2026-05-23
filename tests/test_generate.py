@@ -38,9 +38,6 @@ class MockMathResponseLLM:
         return [
             {
                 "candidate_id": i,
-                "question": "What is 8 * 5?",
-                "choices": ["30", "35", "40", "45"],
-                "correct_index": 2,
                 "explanation": "8 * 5 = 40.",
                 "verification_expression": "8 * 5",
                 "verification_answer": "40",
@@ -68,9 +65,7 @@ class MockGeneralResponseLLM:
         return [
             {
                 "candidate_id": i,
-                "question": "Which word is an adverb in 'Mina quickly packed the box'?",
-                "choices": ["Mina", "quickly", "packed", "box"],
-                "correct_index": 1,
+                "answer": "quickly",
                 "explanation": "Quickly describes how Mina packed the box.",
             }
             for i in range(batch_size)
@@ -107,12 +102,44 @@ def test_math_mcq_generator_runs_candidate_then_response_pass():
     batch = EducationalQAMCQMathGenerator(MockMathCandidateLLM(), response_llm=MockMathResponseLLM(), batch_size=1).generate_batch()
     assert batch[0]["type"] == "educational_qa_mcq_math"
     assert batch[0]["verification_answer"] == "40"
+    assert batch[0]["choices"].count("40") == 1
+    assert batch[0]["choices"][batch[0]["correct_index"]] == "40"
 
 
 def test_general_mcq_generator_runs_candidate_then_response_pass():
     batch = EducationalQAMCQGeneralGenerator(MockGeneralCandidateLLM(), response_llm=MockGeneralResponseLLM(), batch_size=1).generate_batch()
     assert batch[0]["type"] == "educational_qa_mcq_general"
-    assert batch[0]["correct_index"] == 1
+    assert batch[0]["choices"][batch[0]["correct_index"]] == "quickly"
+
+
+def test_math_mcq_python_inserts_missing_solved_answer_into_choices():
+    class CandidateWithoutAnswer(MockMathCandidateLLM):
+        def generate_batch(self, prompt, batch_size):
+            return [{"type": "educational_qa_mcq_math_candidate", "question": "What is 24 / 4?", "choices": ["4", "5", "7", "8"]}]
+
+    class SolvedAnswer:
+        def generate_batch(self, prompt, batch_size):
+            return [{"candidate_id": 0, "explanation": "24 / 4 = 6.", "verification_expression": "24 / 4", "verification_answer": "6"}]
+
+    row = EducationalQAMCQMathGenerator(CandidateWithoutAnswer(), response_llm=SolvedAnswer(), batch_size=1).generate_batch()[0]
+    assert len(row["choices"]) == 4
+    assert row["choices"].count("6") == 1
+    assert row["choices"][row["correct_index"]] == "6"
+
+
+def test_general_mcq_python_replaces_distractor_when_answer_is_missing():
+    class CandidateWithoutAnswer:
+        def generate_batch(self, prompt, batch_size):
+            return [{"type": "educational_qa_mcq_general_candidate", "question": "Which word is an adverb in 'Mina quickly packed the box'?", "choices": ["Mina", "packed", "box", "the"]}]
+
+    class SolvedAnswer:
+        def generate_batch(self, prompt, batch_size):
+            return [{"candidate_id": 0, "answer": "quickly", "explanation": "Quickly describes how Mina packed the box."}]
+
+    row = EducationalQAMCQGeneralGenerator(CandidateWithoutAnswer(), response_llm=SolvedAnswer(), batch_size=1).generate_batch()[0]
+    assert len(row["choices"]) == 4
+    assert row["choices"].count("quickly") == 1
+    assert row["choices"][row["correct_index"]] == "quickly"
 
 
 def test_task_code_generator_runs_candidate_then_response_pass():
