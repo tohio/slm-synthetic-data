@@ -46,10 +46,13 @@ Coherence requirements:
 - If a candidate fails any coherence check below, replace it with a new candidate before returning the batch.
 
 Family-specific coherence checks:
-- For Python items, include the complete literal code snippet needed to answer the question; do not refer to a missing snippet.
+- For Python items, include a complete syntactically valid literal Python snippet needed to answer the question; do not compress a compound statement into invalid one-line syntax or refer to a missing snippet.
 - For reading, vocabulary, grammar, rule, or policy items, include the exact passage, sentence, rule, or policy needed to answer; do not refer to missing content.
-- For fictional-rule or policy application, ask only for a direct consequence explicitly implied by the stated rule.
-- For scientific-method items, state the observation or experiment setup and the single deliberately changed variable.
+- For grammar items with a blank, privately insert the selected answer and confirm the completed sentence is grammatical; distinguish possessive adjectives from possessive pronouns.
+- For vocabulary items, use context that establishes one meaning without relying on a word that remains ambiguous in the supplied sentence.
+- For fictional-rule application, the correct answer must repeat a consequence or label explicitly established by the rule; never translate a fictional label into a real-world category.
+- For policy application, write one narrow rule and choices where exactly one action follows the rule; do not provide two separately compliant actions.
+- For scientific-method items, state the observation or experiment setup and the single deliberately changed variable; name that variable consistently (for example, presence of fertilizer rather than fertilizer type when one condition has none).
 - Do not infer unstated categories, colors, actions, identities, intentions, or real-world facts.
 - Do not create a question where multiple choices could reasonably be supported.
 
@@ -73,6 +76,10 @@ Answer-verification requirements:
 - If the question refers to a missing passage, rule, policy, sentence, experiment setup, or code snippet, return empty strings for "answer" and "explanation" so the item is rejected locally.
 - If more than one choice is defensible, or no answer follows directly from the stated evidence, return empty strings for "answer" and "explanation" so the item is rejected locally.
 - If answering would require an outside fact, unstated assumption, quantitative calculation, or financial calculation, return empty strings for "answer" and "explanation" so the item is rejected locally.
+- For Python items, first confirm the supplied snippet is valid Python as written; reject malformed compressed snippets rather than interpreting the intended code.
+- For grammar items, reject a proposed answer if inserting it into the supplied sentence would be ungrammatical or if the question confuses grammar categories.
+- For fictional-rule items, reject any answer that converts a fictional label into an unstated real-world class.
+- For policy/compliance items, reject the candidate if more than one listed action can comply with the stated policy, even if one is more direct.
 
 Rules:
 - If one candidate choice exactly expresses the supported answer, copy that choice text exactly into "answer".

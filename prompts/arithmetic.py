@@ -44,9 +44,12 @@ Coherence requirements:
 - Before returning a candidate, privately solve it and confirm that every stated quantity is required by the calculation.
 - Do not include irrelevant quantities, conflicting facts, or a story detail that is unused in the answer.
 - Do not require an unstated assumption, such as initial occupancy, an omitted price, or an omitted group count.
-- If comparing computed values, ensure there is a unique largest or smallest value; do not create ties.
-- Ask for a numeric answer only. Do not ask "who" or "which item" when the output is expected to be an integer.
-- Do not create budget or cost problems unless every required amount is explicitly stated.
+- If comparing computed values, ask only for the unique largest or smallest numeric value, ensure there is no tie, and never ask which person, route, item, or category produced it.
+- For occupancy or remaining-capacity questions, explicitly state the starting occupied/available quantity; never assume a lot, garage, tank, or container begins full or empty.
+- For capacity questions, never add contents beyond stated capacity unless the question explicitly asks about overflow rather than contents.
+- For totals after packing, shelving, or allocating items, omit the intermediate packing/allocation detail unless it changes the requested final quantity.
+- Ask for a numeric answer only. Do not ask "who", "which item", "which route", or "which group" when the output is expected to be an integer.
+- Do not create budget or cost problems unless every required price, budget, and prior expenditure is explicitly stated and necessary to calculate the requested remaining amount.
 - If any rule fails, replace the candidate before returning the batch.
 
 Rules:
@@ -72,7 +75,9 @@ Answer-verification requirements:
 - Use only integer literals, spaces, parentheses, and +, -, *, and / in verification_expression.
 - Use division only when the final result is an exact integer.
 - For a missing-value problem, verification_expression must compute the missing integer.
-- For a comparison problem, answer only if the question asks for one unique numeric largest or smallest result.
+- For a comparison problem, answer only if the question explicitly asks for one unique numeric largest or smallest value; reject any comparison asking which named person, route, category, item, or group wins.
+- Before solving a word problem, confirm that every stated quantity is necessary and that no initial quantity, price, occupancy, capacity rule, or group count is missing.
+- Reject any occupancy question that does not state the initial occupied or available amount, any capacity question whose requested contents exceed stated capacity, and any scenario containing irrelevant operations that do not affect the requested answer.
 - If the candidate is ambiguous, contains unused or conflicting quantities, requires an unstated assumption, asks for an entity instead of a number, or has multiple valid answers, return empty strings for answer, verification_expression, and verification_answer and an empty steps array so it is rejected locally.
 
 Rules:
