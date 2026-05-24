@@ -13,6 +13,7 @@ backend:
   request_timeout_seconds: 300
   require_parameters: true
   allow_fallbacks: false
+  parallel_requests: __CONCURRENCY__
   retries:
     max_request_retries: 3
     retry_sleep_seconds: 0.5
@@ -83,6 +84,7 @@ export:
 
 generation:
   batch_size: __BATCH_SIZE__
+  parallel_requests: __CONCURRENCY__
   avg_tokens_per_sample: 100
   # Grounded generation targets estimated record counts and rounds to full batches.
   # There is intentionally no downstream tokenizer dependency in this repository.

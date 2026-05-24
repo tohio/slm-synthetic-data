@@ -4,6 +4,8 @@ from slm_synth.artifacts.base import GroundedArtifact
 
 
 class EducationalQAMCQMathArtifactFactory:
+    """Create verified math MCQs with family-aware, plausible distractors."""
+
     FAMILIES = ("integer_expression", "missing_operand", "exact_division", "two_step_quantity", "unique_numeric_comparison")
     SETTINGS = ("folders", "markers", "tickets", "cards", "samples", "labels", "notebooks", "vouchers")
 
@@ -16,9 +18,25 @@ class EducationalQAMCQMathArtifactFactory:
         return result
 
     @staticmethod
-    def _choices(answer: int, index: int) -> list[str]:
-        offsets = ([-7, 4, 11], [-5, 6, 13], [-9, 3, 8], [-4, 7, 15])[index % 4]
-        values = [str(answer + offset) for offset in offsets]
+    def _choices(answer: int, index: int, family: str) -> list[str]:
+        if family in {"missing_operand", "exact_division"}:
+            candidates = [max(0, answer - 2), max(0, answer - 1), answer + 1, answer + 2, answer + 3]
+        elif family == "two_step_quantity":
+            delta = max(2, min(20, max(1, answer // 10)))
+            candidates = [max(0, answer - delta), max(0, answer - 2 * delta), answer + delta, answer + 2 * delta, answer + 1]
+        elif family == "unique_numeric_comparison":
+            candidates = [max(0, answer - 8), max(0, answer - 3), answer + 4, answer + 9, answer + 1]
+        else:
+            delta = max(2, min(15, max(1, abs(answer) // 10)))
+            candidates = [answer - delta, answer + delta, answer + 2 * delta, answer - 2 * delta, answer + 1]
+        distractors: list[str] = []
+        for value in candidates:
+            text = str(value)
+            if value != answer and text not in distractors:
+                distractors.append(text)
+            if len(distractors) == 3:
+                break
+        values = distractors
         values.insert(index % 4, str(answer))
         return values
 
@@ -31,13 +49,14 @@ class EducationalQAMCQMathArtifactFactory:
         payload = getattr(self, f"_build_{family}")(index // len(self.FAMILIES))
         return GroundedArtifact("educational_qa_mcq_math", family, f"educational_qa_mcq_math_{family}_{index + 1:09d}", payload)
 
-    def _base(self, question_instruction: str, expression: str, numbers: list[str], answer: int, index: int) -> dict[str, object]:
+    def _base(self, question_instruction: str, expression: str, numbers: list[str], answer: int, index: int, family: str) -> dict[str, object]:
+        choices = self._choices(answer, index, family)
         return {
             "question_instruction": question_instruction,
             "required_numeric_literals": numbers,
-            "choices": self._choices(answer, index),
+            "choices": choices,
             "answer": str(answer),
-            "correct_index": index % 4,
+            "correct_index": choices.index(str(answer)),
             "expression": expression,
         }
 
@@ -46,7 +65,7 @@ class EducationalQAMCQMathArtifactFactory:
         a, b, c, d = a + 20, b + 3, c + 2, d + 1
         expression = f"({a} + {b}) * {c} - {d}"
         answer = (a + b) * c - d
-        return self._base(f"Ask the learner to evaluate {expression}.", expression, [str(a), str(b), str(c), str(d)], answer, index)
+        return self._base(f"Ask the learner to evaluate {expression}.", expression, [str(a), str(b), str(c), str(d)], answer, index, "integer_expression")
 
     def _build_missing_operand(self, index: int) -> dict[str, object]:
         multiplier_i, unknown_i, offset_i = self._decode(index, (41, 2000, 1001))
@@ -54,7 +73,7 @@ class EducationalQAMCQMathArtifactFactory:
         total = multiplier * unknown + offset
         equation = f"{multiplier} * ? + {offset} = {total}"
         expression = f"({total} - {offset}) / {multiplier}"
-        return self._base(f"Ask which integer replaces the question mark in {equation}.", expression, [str(multiplier), str(offset), str(total)], unknown, index)
+        return self._base(f"Ask which integer replaces the question mark in {equation}.", expression, [str(multiplier), str(offset), str(total)], unknown, index, "missing_operand")
 
     def _build_exact_division(self, index: int) -> dict[str, object]:
         setting_i, groups_i, per_i = self._decode(index, (len(self.SETTINGS), 1001, 1001))
@@ -63,7 +82,7 @@ class EducationalQAMCQMathArtifactFactory:
         setting = self.SETTINGS[setting_i]
         return self._base(
             f"Create a question where {total} {setting} are divided equally among {groups} containers and ask how many are in each container.",
-            f"{total} / {groups}", [str(total), str(groups)], per, index,
+            f"{total} / {groups}", [str(total), str(groups)], per, index, "exact_division",
         )
 
     def _build_two_step_quantity(self, index: int) -> dict[str, object]:
@@ -73,7 +92,7 @@ class EducationalQAMCQMathArtifactFactory:
         setting = self.SETTINGS[setting_i]
         return self._base(
             f"Create a remaining-quantity question about {setting}: begin with {start}, remove {first}, then remove {second} more.",
-            f"{start} - {first} - {second}", [str(start), str(first), str(second)], remain, index,
+            f"{start} - {first} - {second}", [str(start), str(first), str(second)], remain, index, "two_step_quantity",
         )
 
     def _build_unique_numeric_comparison(self, index: int) -> dict[str, object]:
@@ -81,15 +100,14 @@ class EducationalQAMCQMathArtifactFactory:
         x, y, z = a + 11, b + 20, c + 30
         expressions = [f"{x} * 3", f"{y} + 47", f"{z} + 80"]
         values = [x * 3, y + 47, z + 80]
-        highest = max(values)
-        if values.count(highest) != 1:
+        if values.count(max(values)) != 1:
             z += 101
             expressions[2] = f"{z} + 80"
             values[2] = z + 80
-            highest = max(values)
+        highest = max(values)
         winner = expressions[values.index(highest)]
         numbers = [token for expression in expressions for token in expression.replace("*", " ").replace("+", " ").split()]
         return self._base(
             "Ask for the largest numeric value among: " + ", ".join(expressions) + ".",
-            winner, numbers, highest, index,
+            winner, numbers, highest, index, "unique_numeric_comparison",
         )

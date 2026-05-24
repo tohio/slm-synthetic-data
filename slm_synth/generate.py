@@ -186,7 +186,7 @@ def _rounded_batch_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any], bat
 
 
 def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
-    """Generate one grounded signal using estimated record targets and persisted request batches."""
+    """Generate one grounded signal with bounded concurrent, atomically persisted batches."""
     mix_cfg = cfg["mix"][name]
     generation_cfg = cfg.get("generation", {}) or {}
     backend_cfg = cfg.get("backend", {}) or {}
@@ -195,6 +195,8 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         raise ValueError("Grounded generation currently requires batch_size=32")
 
     token_target, target_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
+    total_batches = rounded_rows // batch_size
+    parallel_requests = max(1, int(mix_cfg.get("parallel_requests", generation_cfg.get("parallel_requests", backend_cfg.get("parallel_requests", 1)))))
     renderer = build_llm(backend_cfg, mix_cfg, role="renderer")
     if renderer.provider != "openrouter":
         raise ValueError("Grounded generation requires backend.provider=openrouter")
@@ -202,34 +204,68 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     store = GroundedBatchStore(output_dir, name)
     reject_writer = JSONLWriter(output_dir / "rejected" / f"{name}.jsonl")
 
-    completed_ids = store.completed_batch_ids()
-    next_batch_id = completed_ids[-1] + 1 if completed_ids else 0
+    completed = set(store.completed_batch_ids())
+    pending_ids = [batch_id for batch_id in range(total_batches) if batch_id not in completed]
     existing_rows = store.materialize_raw()
     print(
         f"[generate] Starting grounded signal: {name} "
         f"(target_tokens_estimate={token_target}, target_rows={target_rows}, "
         f"rounded_rows={rounded_rows}, existing_rows={existing_rows}, "
-        f"batch_size={batch_size}, model={renderer.model})"
+        f"batch_size={batch_size}, parallel_requests={parallel_requests}, model={renderer.model})"
     )
+    if not pending_ids:
+        metrics = store.telemetry_summary()
+        print(f"[generate] Completed grounded signal: {name} rows={existing_rows}, target_rows={rounded_rows}, cost={metrics['cost']:.8f}")
+        reject_writer.close()
+        return
+
+    active: dict[Any, int] = {}
+    next_position = 0
+    failures: list[tuple[int, Exception]] = []
+    stop_submitting = False
     try:
-        while existing_rows < rounded_rows:
-            try:
-                artifacts, records = generator.generate_batch(next_batch_id)
-                store.write_completed(batch_id=next_batch_id, artifacts=artifacts, records=records)
-                existing_rows = store.materialize_raw()
-                print(f"[generate] {name}: batch={next_batch_id} rows={existing_rows}/{rounded_rows}")
-                next_batch_id += 1
-            except Exception as exc:
-                reject_writer.write({
-                    "signal": name, "architecture": "grounded", "batch_id": next_batch_id,
-                    "batch_size": batch_size, "error": str(exc),
-                })
-                raise RuntimeError(
-                    f"Grounded {name} batch {next_batch_id} failed; rerun to resume from the last completed batch."
-                ) from exc
+        with ThreadPoolExecutor(max_workers=parallel_requests) as executor:
+            while next_position < len(pending_ids) and len(active) < parallel_requests:
+                batch_id = pending_ids[next_position]
+                active[executor.submit(generator.generate_batch, batch_id)] = batch_id
+                next_position += 1
+
+            while active:
+                done, _ = wait(set(active), return_when=FIRST_COMPLETED)
+                for future in done:
+                    batch_id = active.pop(future)
+                    try:
+                        artifacts, records, telemetry = future.result()
+                        store.write_completed(batch_id=batch_id, artifacts=artifacts, records=records, telemetry=telemetry)
+                        existing_rows = store.materialize_raw()
+                        usage = telemetry.get("usage", {}) if telemetry else {}
+                        cost = float(usage.get("cost", 0.0) or 0.0)
+                        print(f"[generate] {name}: batch={batch_id} rows={existing_rows}/{rounded_rows} cost={cost:.8f}")
+                    except Exception as exc:
+                        reject_writer.write({
+                            "signal": name, "architecture": "grounded", "batch_id": batch_id,
+                            "batch_size": batch_size, "error": str(exc),
+                        })
+                        failures.append((batch_id, exc))
+                        stop_submitting = True
+                    if not stop_submitting and next_position < len(pending_ids):
+                        next_id = pending_ids[next_position]
+                        active[executor.submit(generator.generate_batch, next_id)] = next_id
+                        next_position += 1
     finally:
         reject_writer.close()
-    print(f"[generate] Completed grounded signal: {name} rows={store.materialize_raw()}, target_rows={rounded_rows}")
+
+    if failures:
+        batch_id, exc = failures[0]
+        raise RuntimeError(
+            f"Grounded {name} batch {batch_id} failed; rerun to resume from completed batches."
+        ) from exc
+    metrics = store.telemetry_summary()
+    print(
+        f"[generate] Completed grounded signal: {name} rows={store.materialize_raw()}, "
+        f"target_rows={rounded_rows}, batches={metrics['batches']}, cost={metrics['cost']:.8f}, "
+        f"request_tokens={metrics['total_tokens']}"
+    )
 
 def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     mix_cfg = cfg["mix"][name]

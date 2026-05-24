@@ -105,3 +105,28 @@ def test_arithmetic_rejects_response_meta_commentary():
     result = validate_record("arithmetic", raw, require_arithmetic_verification=True)
     assert not result.ok
     assert "arithmetic_meta_commentary" in result.issues
+
+
+def test_general_mcq_rejects_placeholder_text():
+    row = {
+        "type": "educational_qa_mcq_general",
+        "evidence": 'Sentence: "Lalala quietly filed the form."',
+        "question": "Which word is an adverb?",
+        "choices": ["Lalala", "quietly", "filed", "form"],
+        "correct_index": 1,
+        "explanation": "Quietly describes filed.",
+    }
+    result = validate_record("educational_qa_mcq_general", row)
+    assert not result.ok
+    assert "generated_placeholder_text" in result.issues
+
+
+def test_factual_restraint_rejects_policy_instruction_voice():
+    row = {
+        "type": "factual_restraint",
+        "question": "What is Dana Rowe's home address?",
+        "safe_answer": "Do not provide a private person's home address.",
+    }
+    result = validate_record("factual_restraint", row)
+    assert not result.ok
+    assert "factual_restraint_policy_instruction_voice" in result.issues

@@ -16,6 +16,7 @@ from slm_synth.artifacts import (
     GroundedArtifact,
     TaskCodeArtifactFactory,
 )
+from slm_synth.artifacts.quality import assert_valid_artifacts
 from slm_synth.record_quality import validate_record
 
 
@@ -50,6 +51,7 @@ class GroundedBatchStore:
         batch_id: int,
         artifacts: list[GroundedArtifact],
         records: list[dict[str, Any]],
+        telemetry: dict[str, Any] | None = None,
     ) -> None:
         payload = {
             "batch_id": int(batch_id),
@@ -57,6 +59,7 @@ class GroundedBatchStore:
             "artifact_ids": [artifact.artifact_id for artifact in artifacts],
             "artifacts": [asdict(artifact) for artifact in artifacts],
             "records": records,
+            "telemetry": telemetry or {},
         }
         final_path = self._path(batch_id)
         temp_path = final_path.with_suffix(".tmp")
@@ -86,6 +89,30 @@ class GroundedBatchStore:
     def _load(path: Path) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
+
+    def telemetry_summary(self) -> dict[str, float | int]:
+        batches = 0
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        cost = 0.0
+        elapsed_seconds = 0.0
+        retries = 0
+        for path in self._completed_paths():
+            telemetry = self._load(path).get("telemetry", {}) or {}
+            usage = telemetry.get("usage", {}) or {}
+            batches += 1
+            prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+            completion_tokens += int(usage.get("completion_tokens", 0) or 0)
+            total_tokens += int(usage.get("total_tokens", 0) or 0)
+            cost += float(usage.get("cost", 0.0) or 0.0)
+            elapsed_seconds += float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
+            retries += int(telemetry.get("retry_count", 0) or 0)
+        return {
+            "batches": batches, "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens, "total_tokens": total_tokens,
+            "cost": cost, "elapsed_seconds": elapsed_seconds, "retry_count": retries,
+        }
 
 
 class GroundedSignalGenerator:
@@ -208,12 +235,23 @@ class GroundedSignalGenerator:
             raise ValueError(f"Rendered {self.signal} record failed validation for {artifact.artifact_id}: {result.issues}")
         return record
 
-    def generate_batch(self, batch_id: int) -> tuple[list[GroundedArtifact], list[dict[str, Any]]]:
+    def generate_batch(self, batch_id: int) -> tuple[list[GroundedArtifact], list[dict[str, Any]], dict[str, Any]]:
         artifacts = self.factory.build_batch(batch_id, self.batch_size)
-        response = self.llm.generate_structured_object(
-            prompt=self.build_prompt(artifacts), schema=self.response_schema(),
-            schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
-        )
+        assert_valid_artifacts(artifacts)
+        prompt = self.build_prompt(artifacts)
+        if hasattr(self.llm, "generate_structured_object_with_metadata"):
+            result = self.llm.generate_structured_object_with_metadata(
+                prompt=prompt, schema=self.response_schema(),
+                schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
+            )
+            response = result["data"]
+            telemetry = result.get("telemetry", {})
+        else:
+            response = self.llm.generate_structured_object(
+                prompt=prompt, schema=self.response_schema(),
+                schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
+            )
+            telemetry = {}
         rows = response.get("records") if isinstance(response, dict) else None
         if not isinstance(rows, list) or len(rows) != self.batch_size:
             raise ValueError(f"Expected {self.batch_size} grounded {self.signal} records")
@@ -221,4 +259,4 @@ class GroundedSignalGenerator:
         returned_ids = [row.get("artifact_id") for row in rows if isinstance(row, dict)]
         if len(returned_ids) != len(set(returned_ids)) or set(returned_ids) != set(expected):
             raise ValueError(f"Grounded {self.signal} response has missing, duplicate, or unexpected artifact IDs")
-        return artifacts, [self._finalize(expected[row["artifact_id"]], row) for row in rows]
+        return artifacts, [self._finalize(expected[row["artifact_id"]], row) for row in rows], telemetry

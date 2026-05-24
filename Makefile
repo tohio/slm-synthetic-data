@@ -4,92 +4,73 @@
 
 .RECIPEPREFIX := >
 
-# -----------------------------
-# Global Variables
-# -----------------------------
 PYTHON := python
-VENV := .venv
-ACTIVATE := source $(VENV)/bin/activate
-
 PROFILE ?= balanced
 TOKENS ?= 200000
 MODEL ?=
-BATCH ?=
+BATCH ?= 32
 CONCURRENCY ?=
-SERVICE_TIER ?= flex
-CONFIG_FILE ?= configs/synthetic.yaml
-
-DATA_DIR ?= data
-HF_USERNAME ?=
+RUN ?=
 HF_REPO ?=
-
+CONFIG_FILE ?= configs/synthetic.yaml
+STAGE ?= deduped
+DATA_DIR ?= data/runs
 SIGNAL ?=
 SIGNAL_ARG := $(if $(SIGNAL),--signal $(SIGNAL),)
 
-.PHONY: help configure list-models generate validate dedup push all test clean
+.PHONY: help configure production-config preflight-artifacts generate validate dedup report-duplicates report-artifacts report-lengths push all test clean
 
-# -----------------------------
-# Help
-# -----------------------------
 help:
 > @echo ""
-> @echo "SLM Synthetic Data Pipeline"
-> @echo "==========================="
+> @echo "SLM Synthetic Data Pipeline — Grounded OpenRouter Generation"
+> @echo "==========================================================="
 > @echo ""
-> @echo "Usage: make <target> [PROFILE=name] [TOKENS=N] [MODEL=name] [SIGNAL=name] [BATCH=N] [CONCURRENCY=N]"
+> @echo "Usage: make <target> [PROFILE=name] [TOKENS=N] [MODEL=name] [SIGNAL=name] [BATCH=32] [CONCURRENCY=N] [RUN=name]"
 > @echo ""
 > @echo "Configuration:"
-> @echo "  configure              Generate configs/synthetic.yaml using profile presets"
-> @echo "  list-models            List available Groq models"
+> @echo "  configure              Write configs/synthetic.yaml for a grounded run"
+> @echo "  production-config      Configure the locked 762.5M estimated-token corpus run"
 > @echo ""
 > @echo "Pipeline:"
-> @echo "  generate               Run synthetic data generation"
-> @echo "  validate               Validate generated samples"
-> @echo "  dedup                  Deduplicate dataset"
-> @echo "  push                   Push dataset to Hugging Face"
-> @echo "  all                    Run generate -> validate -> dedup -> push"
-> @echo ""
-> @echo "Testing:"
-> @echo "  test                   Run all tests"
-> @echo ""
-> @echo "Utilities:"
-> @echo "  clean                  Remove generated data"
+> @echo "  preflight-artifacts    Validate all planned grounded artifacts before paid rendering"
+> @echo "  generate               Generate grounded rendered records through OpenRouter/DeepSeek"
+> @echo "  validate               Validate raw JSONL records"
+> @echo "  dedup                  Exact-deduplicate validated records"
+> @echo "  report-artifacts       Report grounded artifact duplicates/family coverage"
+> @echo "  report-duplicates      Report exact duplicates in rendered records"
+> @echo "  report-lengths         Estimate record length for avg_tokens_per_sample calibration"
+> @echo "  push                   Push deduped data to Hugging Face"
+> @echo "  all                    Generate -> reports -> validate -> dedup -> reports"
 > @echo ""
 > @echo "Examples:"
-> @echo "  make configure PROFILE=balanced TOKENS=200000"
-> @echo "  make configure PROFILE=speed TOKENS=600000000"
-> @echo "  make configure PROFILE=quality TOKENS=50000000"
-> @echo "  make generate SIGNAL=arithmetic"
-> @echo "  make generate SIGNAL=educational_qa_mcq_math"
-> @echo "  make generate SIGNAL=educational_qa_mcq_general"
+> @echo "  make configure TOKENS=100000 CONCURRENCY=4"
+> @echo "  make generate"
+> @echo "  make report-artifacts"
+> @echo "  make production-config CONCURRENCY=4"
 > @echo ""
 
-# -----------------------------
-# Configuration Helper
-# -----------------------------
 configure:
 > $(PYTHON) configs/configure_synthetic.py \
 >   --profile "$(PROFILE)" \
 >   --tokens $(TOKENS) \
->   --service-tier "$(SERVICE_TIER)" \
+>   --batch-size $(BATCH) \
 >   $(if $(MODEL),--model $(MODEL),) \
->   $(if $(BATCH),--batch-size $(BATCH),) \
+>   $(if $(CONCURRENCY),--concurrency $(CONCURRENCY),) \
+>   $(if $(RUN),--run $(RUN),) \
+>   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
+
+production-config:
+> $(PYTHON) configs/configure_synthetic.py \
+>   --profile "$(PROFILE)" \
+>   --tokens 762500000 \
+>   --run grounded_production_762_5m \
+>   --batch-size 32 \
+>   $(if $(MODEL),--model $(MODEL),) \
 >   $(if $(CONCURRENCY),--concurrency $(CONCURRENCY),)
 
-# -----------------------------
-# List available Groq models
-# -----------------------------
-list-models:
-> @echo "Fetching available Groq models..."
-> @$(PYTHON) -c 'import os, requests; from dotenv import load_dotenv; load_dotenv(); api_key = os.getenv("GROQ_API_KEY"); import sys; \
-if not api_key: print("ERROR: GROQ_API_KEY not found in .env"); sys.exit(1); \
-resp = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key}"}); \
-resp.raise_for_status(); models = sorted(m["id"] for m in resp.json().get("data", [])); \
-print("\nAvailable Groq Models:"); [print(" -", m) for m in models]; print()'
+preflight-artifacts:
+> $(PYTHON) -m slm_synth.preflight_artifacts --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
-# -----------------------------
-# Pipeline Targets
-# -----------------------------
 generate:
 > $(PYTHON) -m slm_synth.generate --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
@@ -99,19 +80,22 @@ validate:
 dedup:
 > $(PYTHON) -m slm_synth.dedup --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
+report-artifacts:
+> $(PYTHON) -m slm_synth.report_artifacts --config $(CONFIG_FILE) $(SIGNAL_ARG)
+
+report-duplicates:
+> $(PYTHON) -m slm_synth.report_duplicates --config $(CONFIG_FILE) --stage $(STAGE)
+
+report-lengths:
+> $(PYTHON) -m slm_synth.report_lengths --config $(CONFIG_FILE) --stage $(STAGE)
+
 push:
 > $(PYTHON) -m slm_synth.push_hf --config $(CONFIG_FILE) $(SIGNAL_ARG)
 
-all: generate validate dedup push
+all: preflight-artifacts generate report-artifacts validate dedup report-duplicates report-lengths
 
-# -----------------------------
-# Testing
-# -----------------------------
 test:
 > pytest -q
 
-# -----------------------------
-# Utilities
-# -----------------------------
 clean:
-> rm -rf $(DATA_DIR)/synthetic
+> rm -rf $(DATA_DIR)

@@ -5,6 +5,7 @@ import os
 import random
 import re
 import time
+from time import monotonic
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -235,15 +236,32 @@ class LLMBackend:
                 self._sleep_before_retry(attempt, exc)
         raise RuntimeError(f"LLM batch failed after {self.max_request_retries} attempts: {last_error}")
 
-    def generate_structured_object(
+    @staticmethod
+    def _usage_dict(response: Any) -> dict[str, Any]:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return {}
+        if hasattr(usage, "model_dump"):
+            result = usage.model_dump()
+        elif isinstance(usage, dict):
+            result = dict(usage)
+        else:
+            result = {key: getattr(usage, key) for key in ("prompt_tokens", "completion_tokens", "total_tokens") if hasattr(usage, key)}
+        extra = getattr(usage, "model_extra", None) or {}
+        if isinstance(extra, dict):
+            result.update(extra)
+        return result
+
+    def generate_structured_object_with_metadata(
         self,
         *,
         prompt: str,
         schema: dict[str, Any],
         schema_name: str,
     ) -> dict[str, Any]:
-        """Generate one strict JSON-schema object through the OpenRouter path."""
+        """Generate a strict object and retain operational telemetry for persisted batches."""
         last_error: Optional[Exception] = None
+        started = monotonic()
         for attempt in range(1, self.max_request_retries + 1):
             try:
                 response = self._create_structured_completion(prompt, schema, schema_name)
@@ -251,10 +269,28 @@ class LLMBackend:
                 parsed = json.loads(self._extract_json_candidate(raw))
                 if not isinstance(parsed, dict):
                     raise ValueError("Expected a structured JSON object response")
-                return parsed
+                telemetry = {
+                    "model": getattr(response, "model", self.model),
+                    "provider": (getattr(response, "model_extra", None) or {}).get("provider"),
+                    "usage": self._usage_dict(response),
+                    "retry_count": attempt - 1,
+                    "elapsed_seconds": round(monotonic() - started, 3),
+                }
+                return {"data": parsed, "telemetry": telemetry}
             except Exception as exc:
                 last_error = exc
                 if attempt >= self.max_request_retries:
                     break
                 self._sleep_before_retry(attempt, exc)
         raise RuntimeError(f"Structured LLM request failed after {self.max_request_retries} attempts: {last_error}")
+
+    def generate_structured_object(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
+        schema_name: str,
+    ) -> dict[str, Any]:
+        return self.generate_structured_object_with_metadata(
+            prompt=prompt, schema=schema, schema_name=schema_name
+        )["data"]

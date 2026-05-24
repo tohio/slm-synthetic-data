@@ -11,6 +11,7 @@ from slm_synth.artifacts import (
     TaskCodeArtifactFactory,
 )
 from slm_synth.grounded import GroundedBatchStore, GroundedSignalGenerator
+from slm_synth.artifacts.quality import artifact_fingerprint, validate_artifact
 
 
 class GroundedMockLLM:
@@ -71,7 +72,7 @@ def test_task_code_artifacts_are_valid_single_functions():
 
 def test_all_grounded_generators_render_complete_batches():
     for signal in ("arithmetic", "task_code", "educational_qa_mcq_math", "educational_qa_mcq_general", "factual_restraint"):
-        artifacts, records = GroundedSignalGenerator(signal, GroundedMockLLM(), batch_size=32).generate_batch(0)
+        artifacts, records, telemetry = GroundedSignalGenerator(signal, GroundedMockLLM(), batch_size=32).generate_batch(0)
         assert len(artifacts) == len(records) == 32
         assert all(record["type"] == signal for record in records)
         if signal == "educational_qa_mcq_general":
@@ -81,7 +82,7 @@ def test_all_grounded_generators_render_complete_batches():
 
 
 def test_batch_store_materializes_without_duplicates(tmp_path):
-    artifacts, records = GroundedSignalGenerator("factual_restraint", GroundedMockLLM(), batch_size=32).generate_batch(0)
+    artifacts, records, telemetry = GroundedSignalGenerator("factual_restraint", GroundedMockLLM(), batch_size=32).generate_batch(0)
     store = GroundedBatchStore(tmp_path, "factual_restraint")
     store.write_completed(batch_id=0, artifacts=artifacts, records=records)
     assert store.materialize_raw() == 32
@@ -111,3 +112,42 @@ def test_run_signal_resumes_from_completed_grounded_batches(monkeypatch, tmp_pat
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
     generate.run_signal("factual_restraint", cfg, tmp_path)
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+
+
+def test_grounded_artifacts_have_no_placeholder_quality_failures():
+    for factory in (EducationalQAMCQMathArtifactFactory, EducationalQAMCQGeneralArtifactFactory, FactualRestraintArtifactFactory):
+        rows = [factory().build(index) for index in range(512)]
+        assert all(not validate_artifact(row) for row in rows)
+        assert len({artifact_fingerprint(row) for row in rows}) == len(rows)
+
+
+def test_math_mcq_positive_quantity_families_have_nonnegative_plausible_choices():
+    factory = EducationalQAMCQMathArtifactFactory()
+    for index in range(500):
+        artifact = factory.build(index)
+        if artifact.family in {"missing_operand", "exact_division", "two_step_quantity"}:
+            assert all(int(choice) >= 0 for choice in artifact.payload["choices"])
+
+
+def test_batch_store_persists_telemetry(tmp_path):
+    artifacts, records, _ = GroundedSignalGenerator("factual_restraint", GroundedMockLLM(), batch_size=32).generate_batch(0)
+    store = GroundedBatchStore(tmp_path, "factual_restraint")
+    store.write_completed(
+        batch_id=0, artifacts=artifacts, records=records,
+        telemetry={"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cost": 0.01}, "elapsed_seconds": 1.5, "retry_count": 1},
+    )
+    assert store.telemetry_summary()["total_tokens"] == 30
+    assert store.telemetry_summary()["cost"] == 0.01
+
+
+def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 32, "parallel_requests": 2},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
+    }
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
+    assert len(list((tmp_path / "manifests" / "grounded" / "factual_restraint" / "batches").glob("batch_*.json"))) == 2

@@ -20,9 +20,9 @@ OUTPUT_PATH = REPO_ROOT / "configs" / "synthetic.yaml"
 load_dotenv()
 
 PROFILES = {
-    "speed": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.45, "top_p": 0.95},
-    "balanced": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.35, "top_p": 0.95},
-    "quality": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.25, "top_p": 0.95},
+    "speed": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.45, "top_p": 0.95, "concurrency": 8},
+    "balanced": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.35, "top_p": 0.95, "concurrency": 4},
+    "quality": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.25, "top_p": 0.95, "concurrency": 2},
 }
 
 
@@ -48,8 +48,8 @@ def main() -> None:
     parser.add_argument("--run", default=None)
     parser.add_argument("--hf_repo", default=None)
     parser.add_argument("--batch-size", type=int, default=32)
-    # Kept temporarily so existing make commands do not fail; grounded generation is sequential in this slice.
     parser.add_argument("--concurrency", type=int, default=None)
+    # Backward-compatible accepted argument; OpenRouter grounded generation does not use Groq service tiers.
     parser.add_argument("--service-tier", default=None)
     args = parser.parse_args()
     if args.batch_size != 32:
@@ -58,6 +58,9 @@ def main() -> None:
     preset = PROFILES[args.profile]
     model = args.model or preset["model"]
     warn_if_unsupported_model(model, context="configure")
+    concurrency = args.concurrency or preset["concurrency"]
+    if concurrency < 1:
+        raise ValueError("--concurrency must be at least 1")
     run_name = args.run or generate_run_name()
     hf_repo = args.hf_repo or resolve_hf_repo_from_dotenv()
     filled = (
@@ -70,12 +73,13 @@ def main() -> None:
         .replace("__TEMPERATURE__", str(preset["temperature"]))
         .replace("__TOP_P__", str(preset["top_p"]))
         .replace("__BATCH_SIZE__", str(args.batch_size))
+        .replace("__CONCURRENCY__", str(concurrency))
         .replace("__HF_REPO__", hf_repo)
     )
     OUTPUT_PATH.write_text(filled)
     print(f"Generated grounded config at {OUTPUT_PATH}")
     print(f"run_name={run_name}")
-    print(f"model={model} batch_size={args.batch_size} target_total_tokens={args.tokens}")
+    print(f"model={model} batch_size={args.batch_size} concurrency={concurrency} target_total_tokens={args.tokens}")
     print(f"hf_repo={hf_repo}")
 
 

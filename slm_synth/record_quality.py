@@ -45,6 +45,9 @@ MCQ_MATH_META_EXPLANATION_MARKERS = (
     "seems to be an error",
 )
 
+GENERATED_PLACEHOLDER_MARKERS = ("lalala", "lala lala", "example person", "placeholder", "company x")
+
+
 SIGNAL_FROM_FILE = {
     "arithmetic.jsonl": "arithmetic",
     "task_code.jsonl": "task_code",
@@ -370,8 +373,11 @@ def validate_factual_restraint(row: dict[str, Any]) -> ValidationResult:
         issues.append("bad_type")
     if not strip_text(row.get("question")):
         issues.append("empty_question")
-    if not strip_text(row.get("safe_answer")):
+    safe_answer = strip_text(row.get("safe_answer"))
+    if not safe_answer:
         issues.append("empty_safe_answer")
+    elif normalize_space(safe_answer).startswith("do not "):
+        issues.append("factual_restraint_policy_instruction_voice")
     if issues:
         return ValidationResult(False, None, issues)
     return ValidationResult(True, {
@@ -390,6 +396,9 @@ def validate_record(
 ) -> ValidationResult:
     if not isinstance(row, dict):
         return ValidationResult(False, None, ["not_object"])
+    serialized = json.dumps(row, ensure_ascii=False).lower()
+    if any(marker in serialized for marker in GENERATED_PLACEHOLDER_MARKERS):
+        return ValidationResult(False, None, ["generated_placeholder_text"])
     if signal == "arithmetic":
         has_metadata = bool(ARITHMETIC_VERIFICATION_KEYS.intersection(row))
         return validate_arithmetic(row, require_verification=require_arithmetic_verification or has_metadata)
