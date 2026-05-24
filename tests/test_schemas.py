@@ -47,6 +47,7 @@ def test_educational_qa_mcq_general_schema_valid():
     validate_educational_qa_mcq_general(
         {
             "type": "educational_qa_mcq_general",
+            "evidence": "Sentence: Mina quickly packed the box.",
             "question": "In the sentence 'Mina quickly packed the box,' which word is an adverb?",
             "choices": ["Mina", "quickly", "packed", "box"],
             "correct_index": 1,

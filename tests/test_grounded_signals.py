@@ -1,0 +1,113 @@
+import json
+
+import pytest
+
+import slm_synth.generate as generate
+from slm_synth.artifacts import (
+    ArithmeticArtifactFactory,
+    EducationalQAMCQGeneralArtifactFactory,
+    EducationalQAMCQMathArtifactFactory,
+    FactualRestraintArtifactFactory,
+    TaskCodeArtifactFactory,
+)
+from slm_synth.grounded import GroundedBatchStore, GroundedSignalGenerator
+
+
+class GroundedMockLLM:
+    provider = "openrouter"
+    model = "deepseek/deepseek-v4-flash"
+
+    def generate_structured_object(self, *, prompt, schema, schema_name):
+        signal = schema_name.removeprefix("grounded_").split("_batch_", 1)[0]
+        payload = json.loads(prompt.split("GROUNDED ARTIFACTS:\n", 1)[1])
+        records = []
+        for item in payload:
+            p = item["payload"]
+            if signal == "arithmetic":
+                nums = p["required_numeric_literals"]
+                question = "Compute " + " + ".join(nums) + "."
+                if item["family"] == "direct_expression":
+                    question = f"What is the value of {p['expression']}?"
+                elif item["family"] == "missing_operand":
+                    question = f"After {nums[0]} items are added, the total is {nums[1]}. How many were there first?"
+                elif item["family"] == "two_step_remaining_quantity":
+                    question = f"Start with {nums[0]} items, remove {nums[1]}, then remove {nums[2]}. How many remain?"
+                elif item["family"] == "exact_allocation":
+                    question = f"There are {nums[0]} items packed {nums[1]} per box. How many boxes are needed?"
+                elif item["family"] == "unique_numeric_comparison":
+                    question = "Which has the largest value: " + ", ".join(p["expressions"]) + "?"
+                records.append({"artifact_id": item["artifact_id"], "question": question, "steps": [f"The result is {p['answer']}."]})
+            elif signal == "task_code":
+                records.append({"artifact_id": item["artifact_id"], "task": "Write a Python function that implements the supplied behavior and returns a new result without mutating inputs.", "plan": ["Process the inputs", "Return the result"]})
+            elif signal == "educational_qa_mcq_math":
+                records.append({"artifact_id": item["artifact_id"], "question": "Find the value using " + " and ".join(p["required_numeric_literals"]) + ".", "explanation": f"The verified answer is {p['answer']}."})
+            elif signal == "educational_qa_mcq_general":
+                records.append({"artifact_id": item["artifact_id"], "explanation": "The evidence directly supports the held correct choice."})
+            else:
+                records.append({"artifact_id": item["artifact_id"], "safe_answer": "I can't determine or provide that from the supplied information; please use an appropriate reliable source or professional."})
+        return {"records": records}
+
+
+@pytest.mark.parametrize("factory", [
+    ArithmeticArtifactFactory,
+    TaskCodeArtifactFactory,
+    EducationalQAMCQMathArtifactFactory,
+    EducationalQAMCQGeneralArtifactFactory,
+    FactualRestraintArtifactFactory,
+])
+def test_artifact_factories_produce_distinct_batches(factory):
+    rows = factory().build_batch(0, 32)
+    assert len(rows) == 32
+    assert len({row.artifact_id for row in rows}) == 32
+
+
+def test_task_code_artifacts_are_valid_single_functions():
+    import ast
+    for artifact in TaskCodeArtifactFactory().build_batch(0, 32):
+        tree = ast.parse(artifact.payload["code"])
+        assert len(tree.body) == 1
+        assert isinstance(tree.body[0], ast.FunctionDef)
+
+
+def test_all_grounded_generators_render_complete_batches():
+    for signal in ("arithmetic", "task_code", "educational_qa_mcq_math", "educational_qa_mcq_general", "factual_restraint"):
+        artifacts, records = GroundedSignalGenerator(signal, GroundedMockLLM(), batch_size=32).generate_batch(0)
+        assert len(artifacts) == len(records) == 32
+        assert all(record["type"] == signal for record in records)
+        if signal == "educational_qa_mcq_general":
+            assert all(record["evidence"] for record in records)
+        if signal == "task_code":
+            assert all("def " in record["code"] for record in records)
+
+
+def test_batch_store_materializes_without_duplicates(tmp_path):
+    artifacts, records = GroundedSignalGenerator("factual_restraint", GroundedMockLLM(), batch_size=32).generate_batch(0)
+    store = GroundedBatchStore(tmp_path, "factual_restraint")
+    store.write_completed(batch_id=0, artifacts=artifacts, records=records)
+    assert store.materialize_raw() == 32
+    assert store.materialize_raw() == 32
+    assert len(store.raw_path.read_text().splitlines()) == 32
+
+
+def test_record_count_target_rounds_up_without_tokenizer():
+    cfg = {"target_total_tokens": 5000, "generation": {"avg_tokens_per_sample": 80}}
+    token_target, target_rows, rounded_rows = generate._rounded_batch_target_rows(
+        cfg, {"target_tokens": 5000, "avg_tokens_per_sample": 60}, 32
+    )
+    assert token_target == 5000
+    assert target_rows == 84
+    assert rounded_rows == 96
+
+
+def test_run_signal_resumes_from_completed_grounded_batches(monkeypatch, tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 32},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "target_tokens": 90, "avg_tokens_per_sample": 90}},
+    }
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32

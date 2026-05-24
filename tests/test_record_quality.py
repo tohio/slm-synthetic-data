@@ -37,6 +37,7 @@ def test_math_mcq_rejects_wrong_verified_answer():
 def test_general_mcq_uses_regular_mcq_schema_without_verification():
     row = {
         "type": "educational_qa_mcq_general",
+        "evidence": "Rule: Never share a password.",
         "question": "A rule says never share a password. Which action follows the rule?",
         "choices": ["Email it", "Post it", "Keep it private", "Text it"],
         "correct_index": 2,

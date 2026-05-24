@@ -4,92 +4,75 @@ output_dir: "__OUTPUT_DIR__"
 target_total_tokens: __TARGET_TOKENS__
 
 backend:
-  provider: "groq"
+  provider: "openrouter"
   model: "__MODEL__"
   max_tokens: __MAX_TOKENS__
   temperature: __TEMPERATURE__
   top_p: __TOP_P__
-  parallel_requests: __CONCURRENCY__
   json_mode: true
-  service_tier: "__SERVICE_TIER__"
-  request_timeout_seconds: 120
+  request_timeout_seconds: 300
+  require_parameters: true
+  allow_fallbacks: false
   retries:
-    max_request_retries: 12
+    max_request_retries: 3
     retry_sleep_seconds: 0.5
     retry_backoff_initial_seconds: 1.0
-    retry_backoff_max_seconds: 45.0
+    retry_backoff_max_seconds: 30.0
     retry_backoff_multiplier: 2.0
-    retry_jitter_ratio: 0.35
+    retry_jitter_ratio: 0.30
 
+# Locked raw-token allocation for the 762.5M corpus target:
+#   task_code                    300.0M (39.3442623%)
+#   educational_qa_mcq_general  187.5M (24.5901639%)
+#   arithmetic                  112.5M (14.7540984%)
+#   educational_qa_mcq_math     112.5M (14.7540984%)
+#   factual_restraint            50.0M ( 6.5573770%)
+# For smaller test TOKENS values, the same shares are used to derive estimated record counts.
 mix:
   arithmetic:
-    share: 0.30
-    prompt_file: "prompts/arithmetic.yaml"
-    source_module: "slm_synth.sources.arithmetic"
-    candidate_model: "__MODEL__"
-    response_model: "__MODEL__"
-    batch_size: __ARITHMETIC_BATCH_SIZE__
-    parallel_requests: __CONCURRENCY__
-    max_tokens: __ARITHMETIC_MAX_TOKENS__
+    architecture: "grounded"
+    share: 0.14754098360655737
+    renderer_model: "__MODEL__"
+    batch_size: __BATCH_SIZE__
+    max_tokens: __MAX_TOKENS__
     avg_tokens_per_sample: 60
   task_code:
-    share: 0.30
-    prompt_file: "prompts/task_code.yaml"
-    source_module: "slm_synth.sources.task_code"
-    candidate_model: "__MODEL__"
-    response_model: "__MODEL__"
-    batch_size: __TASK_CODE_BATCH_SIZE__
-    parallel_requests: __CONCURRENCY__
-    max_tokens: __TASK_CODE_MAX_TOKENS__
+    architecture: "grounded"
+    share: 0.39344262295081966
+    renderer_model: "__MODEL__"
+    batch_size: __BATCH_SIZE__
+    max_tokens: __MAX_TOKENS__
     avg_tokens_per_sample: 160
-    max_rejected_batches: 2000
   educational_qa_mcq_math:
-    share: 0.075
-    prompt_file: "prompts/educational_qa_mcq_math.py"
-    source_module: "slm_synth.sources.educational_qa_mcq_math"
-    candidate_model: "__MODEL__"
-    response_model: "__MODEL__"
-    batch_size: __EDUCATIONAL_QA_MCQ_MATH_BATCH_SIZE__
-    parallel_requests: __CONCURRENCY__
-    max_tokens: __EDUCATIONAL_QA_MCQ_MATH_MAX_TOKENS__
+    architecture: "grounded"
+    share: 0.14754098360655737
+    renderer_model: "__MODEL__"
+    batch_size: __BATCH_SIZE__
+    max_tokens: __MAX_TOKENS__
     avg_tokens_per_sample: 100
   educational_qa_mcq_general:
-    share: 0.225
-    prompt_file: "prompts/educational_qa_mcq_general.py"
-    source_module: "slm_synth.sources.educational_qa_mcq_general"
-    candidate_model: "__MODEL__"
-    response_model: "__MODEL__"
-    batch_size: __EDUCATIONAL_QA_MCQ_GENERAL_BATCH_SIZE__
-    parallel_requests: __CONCURRENCY__
-    max_tokens: __EDUCATIONAL_QA_MCQ_GENERAL_MAX_TOKENS__
+    architecture: "grounded"
+    share: 0.24590163934426230
+    renderer_model: "__MODEL__"
+    batch_size: __BATCH_SIZE__
+    max_tokens: __MAX_TOKENS__
     avg_tokens_per_sample: 100
   factual_restraint:
-    share: 0.10
-    prompt_file: "prompts/factual_restraint.yaml"
-    source_module: "slm_synth.sources.factual_restraint"
-    candidate_model: "__MODEL__"
-    response_model: "__MODEL__"
-    batch_size: __FACTUAL_RESTRAINT_BATCH_SIZE__
-    parallel_requests: __CONCURRENCY__
-    max_tokens: __FACTUAL_RESTRAINT_MAX_TOKENS__
+    architecture: "grounded"
+    share: 0.06557377049180328
+    renderer_model: "__MODEL__"
+    batch_size: __BATCH_SIZE__
+    max_tokens: __MAX_TOKENS__
     avg_tokens_per_sample: 90
 
 validation:
   schema: true
-  max_retries: 2
-  reject_on:
-    - empty_output
-    - schema_violation
-    - unsafe_content
-    - hallucinated_facts
 
 dedup:
   mode: "exact"
   enable_exact: true
   enable_fuzzy: false
   fuzzy_enabled: false
-  fuzzy_method: "minhash"
-  minhash_threshold: 0.85
 
 export:
   license: mit
@@ -98,20 +81,8 @@ export:
   private: false
   include_manifests: true
 
-rate_limit:
-  delay_ms: 125
-  jitter_ms: 125
-  max_concurrency: __CONCURRENCY__
-  backoff:
-    initial_ms: 500
-    max_ms: 45000
-    multiplier: 2.0
-    jitter_ratio: 0.35
-
 generation:
-  diversity:
-    enabled: true
   batch_size: __BATCH_SIZE__
-  min_batch_size: 1
-  avg_tokens_per_sample: __AVG_TOKENS_PER_SAMPLE__
-  max_rejected_batches: 1000
+  avg_tokens_per_sample: 100
+  # Grounded generation targets estimated record counts and rounds to full batches.
+  # There is intentionally no downstream tokenizer dependency in this repository.

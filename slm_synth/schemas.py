@@ -55,6 +55,7 @@ EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA = {
     "type": "object",
     "properties": {
         "type": {"const": "educational_qa_mcq_general"},
+        "evidence": {"type": "string"},
         "question": {"type": "string"},
         "choices": {
             "type": "array",
@@ -65,7 +66,7 @@ EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA = {
         "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
         "explanation": {"type": "string"},
     },
-    "required": ["type", "question", "choices", "correct_index", "explanation"],
+    "required": ["type", "evidence", "question", "choices", "correct_index", "explanation"],
 }
 
 # Compatibility alias: the old mixed MCQ path is retired in the generated mix.

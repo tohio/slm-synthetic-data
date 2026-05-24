@@ -19,7 +19,7 @@ from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenera
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.writer import JSONLWriter
-from slm_synth.grounded import CorpusTokenCounter, GroundedArithmeticGenerator, GroundedBatchStore
+from slm_synth.grounded import GroundedBatchStore, GroundedSignalGenerator
 
 load_dotenv()
 
@@ -165,87 +165,76 @@ def _submit_delay(rate_limiter: RateLimiter) -> None:
     rate_limiter.sleep_with_jitter()
 
 
-def run_grounded_arithmetic(cfg: Dict[str, Any], output_dir: Path) -> None:
-    """Generate grounded arithmetic records until the measured raw-token target is met.
+def _grounded_token_target(cfg: Dict[str, Any], mix_cfg: Dict[str, Any]) -> int:
+    explicit = mix_cfg.get("target_tokens")
+    if explicit is not None:
+        return int(explicit)
+    return max(1, int(round(int(cfg["target_total_tokens"]) * float(mix_cfg.get("share", 0.0)))))
 
-    This first grounded slice is intentionally sequential. Completed batch
-    requests are persisted atomically, enabling safe resume after transport
-    interruption before concurrency is introduced for production scaling.
-    """
-    name = "arithmetic"
+
+def _rounded_batch_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any], batch_size: int) -> tuple[int, int, int]:
+    generation_cfg = cfg.get("generation", {}) or {}
+    explicit_rows = mix_cfg.get("samples")
+    token_target = _grounded_token_target(cfg, mix_cfg)
+    if explicit_rows is not None:
+        target_rows = int(explicit_rows)
+    else:
+        avg_tokens = int(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 80)))
+        target_rows = max(1, (token_target + avg_tokens - 1) // avg_tokens)
+    rounded_rows = ((target_rows + batch_size - 1) // batch_size) * batch_size
+    return token_target, target_rows, rounded_rows
+
+
+def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
+    """Generate one grounded signal using estimated record targets and persisted request batches."""
     mix_cfg = cfg["mix"][name]
     generation_cfg = cfg.get("generation", {}) or {}
     backend_cfg = cfg.get("backend", {}) or {}
-
     batch_size = int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 32)))
     if batch_size != 32:
-        raise ValueError("Grounded arithmetic generation currently requires batch_size=32")
-    target_tokens = mix_cfg.get("target_tokens")
-    if target_tokens is None:
-        raise ValueError("Grounded arithmetic config requires mix.arithmetic.target_tokens")
-    tokenizer_name = generation_cfg.get("tokenizer_name_or_path")
-    if not tokenizer_name:
-        raise ValueError("Grounded generation requires generation.tokenizer_name_or_path for token accounting")
+        raise ValueError("Grounded generation currently requires batch_size=32")
 
+    token_target, target_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
     renderer = build_llm(backend_cfg, mix_cfg, role="renderer")
     if renderer.provider != "openrouter":
-        raise ValueError("Grounded arithmetic generation requires backend.provider=openrouter")
-    generator = GroundedArithmeticGenerator(renderer, batch_size=batch_size)
-    token_counter = CorpusTokenCounter.from_pretrained(str(tokenizer_name))
+        raise ValueError("Grounded generation requires backend.provider=openrouter")
+    generator = GroundedSignalGenerator(name, renderer, batch_size=batch_size)
     store = GroundedBatchStore(output_dir, name)
     reject_writer = JSONLWriter(output_dir / "rejected" / f"{name}.jsonl")
 
     completed_ids = store.completed_batch_ids()
     next_batch_id = completed_ids[-1] + 1 if completed_ids else 0
-    raw_tokens = store.total_tokens()
     existing_rows = store.materialize_raw()
     print(
         f"[generate] Starting grounded signal: {name} "
-        f"(target_tokens={int(target_tokens)}, raw_tokens={raw_tokens}, "
-        f"existing_rows={existing_rows}, batch_size={batch_size}, model={renderer.model})"
+        f"(target_tokens_estimate={token_target}, target_rows={target_rows}, "
+        f"rounded_rows={rounded_rows}, existing_rows={existing_rows}, "
+        f"batch_size={batch_size}, model={renderer.model})"
     )
-
     try:
-        while raw_tokens < int(target_tokens):
+        while existing_rows < rounded_rows:
             try:
                 artifacts, records = generator.generate_batch(next_batch_id)
-                batch_tokens = token_counter.count_arithmetic_records(records)
-                store.write_completed(
-                    batch_id=next_batch_id,
-                    artifacts=artifacts,
-                    records=records,
-                    token_count=batch_tokens,
-                )
-                raw_tokens += batch_tokens
-                rows = store.materialize_raw()
-                print(
-                    f"[generate] {name}: batch={next_batch_id} rows={rows} "
-                    f"raw_tokens={raw_tokens}/{int(target_tokens)}"
-                )
+                store.write_completed(batch_id=next_batch_id, artifacts=artifacts, records=records)
+                existing_rows = store.materialize_raw()
+                print(f"[generate] {name}: batch={next_batch_id} rows={existing_rows}/{rounded_rows}")
                 next_batch_id += 1
             except Exception as exc:
                 reject_writer.write({
-                    "signal": name,
-                    "architecture": "grounded",
-                    "batch_id": next_batch_id,
-                    "batch_size": batch_size,
-                    "error": str(exc),
+                    "signal": name, "architecture": "grounded", "batch_id": next_batch_id,
+                    "batch_size": batch_size, "error": str(exc),
                 })
                 raise RuntimeError(
-                    f"Grounded arithmetic batch {next_batch_id} failed; rerun to resume from the last completed batch."
+                    f"Grounded {name} batch {next_batch_id} failed; rerun to resume from the last completed batch."
                 ) from exc
     finally:
         reject_writer.close()
-
-    print(
-        f"[generate] Completed grounded signal: {name} "
-        f"raw_tokens={raw_tokens}, target_tokens={int(target_tokens)}, rows={store.materialize_raw()}"
-    )
+    print(f"[generate] Completed grounded signal: {name} rows={store.materialize_raw()}, target_rows={rounded_rows}")
 
 def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     mix_cfg = cfg["mix"][name]
-    if name == "arithmetic" and mix_cfg.get("architecture") == "grounded":
-        run_grounded_arithmetic(cfg, output_dir)
+    if mix_cfg.get("architecture") == "grounded":
+        run_grounded_signal(name, cfg, output_dir)
         return
     generation_cfg = cfg.get("generation", {}) or {}
     backend_cfg = cfg.get("backend", {}) or {}

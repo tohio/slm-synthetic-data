@@ -13,7 +13,7 @@ EXPECTED_KEYS: dict[str, set[str]] = {
     "arithmetic": {"type", "question", "steps", "answer"},
     "task_code": {"type", "task", "plan", "code"},
     "educational_qa_mcq_math": {"type", "question", "choices", "correct_index", "explanation"},
-    "educational_qa_mcq_general": {"type", "question", "choices", "correct_index", "explanation"},
+    "educational_qa_mcq_general": {"type", "evidence", "question", "choices", "correct_index", "explanation"},
     "factual_restraint": {"type", "question", "safe_answer"},
 }
 
@@ -349,10 +349,14 @@ def validate_educational_qa_mcq_math(row: dict[str, Any], *, require_verificatio
 
 def validate_educational_qa_mcq_general(row: dict[str, Any]) -> ValidationResult:
     issues, choices, idx, explanation = _validate_mcq_base("educational_qa_mcq_general", row)
+    evidence = strip_text(row.get("evidence"))
+    if not evidence:
+        issues.append("empty_evidence")
     if issues or choices is None or idx is None:
         return ValidationResult(False, None, issues)
     return ValidationResult(True, {
         "type": "educational_qa_mcq_general",
+        "evidence": evidence,
         "question": row["question"].strip(),
         "choices": choices,
         "correct_index": idx,
