@@ -28,7 +28,7 @@ PROFILES = {
 MIN_BATCH_SIZE = 1
 MAX_BATCH_SIZE = 64
 MIN_CONCURRENCY = 1
-MAX_CONCURRENCY = 32
+MAX_CONCURRENCY = 128
 
 
 def generate_run_name(length: int = 7) -> str:

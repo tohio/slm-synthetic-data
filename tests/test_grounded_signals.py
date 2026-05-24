@@ -235,11 +235,11 @@ def test_run_signal_rejects_batch_size_above_qualification_limit(tmp_path):
         generate.run_signal("factual_restraint", cfg, tmp_path)
 
 
-def test_run_signal_supports_concurrency_32_for_qualification(monkeypatch, tmp_path):
+def test_run_signal_supports_concurrency_128_for_qualification(monkeypatch, tmp_path):
     cfg = {
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
-        "generation": {"batch_size": 32, "parallel_requests": 32},
+        "generation": {"batch_size": 32, "parallel_requests": 128},
         "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
     }
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
@@ -251,8 +251,8 @@ def test_run_signal_rejects_concurrency_above_qualification_limit(tmp_path):
     cfg = {
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
-        "generation": {"batch_size": 32, "parallel_requests": 33},
+        "generation": {"batch_size": 32, "parallel_requests": 129},
         "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
     }
-    with pytest.raises(ValueError, match="parallel_requests between 1 and 32"):
+    with pytest.raises(ValueError, match="parallel_requests between 1 and 128"):
         generate.run_signal("factual_restraint", cfg, tmp_path)
