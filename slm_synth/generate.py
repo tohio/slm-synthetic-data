@@ -31,6 +31,11 @@ GENERATOR_MAP = {
     "factual_restraint": FactualRestraintGenerator,
 }
 
+MIN_GROUNDED_BATCH_SIZE = 1
+MAX_GROUNDED_BATCH_SIZE = 64
+MIN_GROUNDED_PARALLEL_REQUESTS = 1
+MAX_GROUNDED_PARALLEL_REQUESTS = 32
+
 
 def _expand_path(path: str) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(path)))
@@ -191,12 +196,26 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     generation_cfg = cfg.get("generation", {}) or {}
     backend_cfg = cfg.get("backend", {}) or {}
     batch_size = int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 32)))
-    if batch_size != 32:
-        raise ValueError("Grounded generation currently requires batch_size=32")
+    if not MIN_GROUNDED_BATCH_SIZE <= batch_size <= MAX_GROUNDED_BATCH_SIZE:
+        raise ValueError(
+            f"Grounded generation supports batch_size between {MIN_GROUNDED_BATCH_SIZE} "
+            f"and {MAX_GROUNDED_BATCH_SIZE} for throughput qualification."
+        )
 
     token_target, target_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
     total_batches = rounded_rows // batch_size
-    parallel_requests = max(1, int(mix_cfg.get("parallel_requests", generation_cfg.get("parallel_requests", backend_cfg.get("parallel_requests", 1)))))
+    parallel_requests = int(
+        mix_cfg.get(
+            "parallel_requests",
+            generation_cfg.get("parallel_requests", backend_cfg.get("parallel_requests", 1)),
+        )
+    )
+    if not MIN_GROUNDED_PARALLEL_REQUESTS <= parallel_requests <= MAX_GROUNDED_PARALLEL_REQUESTS:
+        raise ValueError(
+            "Grounded generation supports parallel_requests between "
+            f"{MIN_GROUNDED_PARALLEL_REQUESTS} and {MAX_GROUNDED_PARALLEL_REQUESTS} "
+            "for throughput qualification."
+        )
     renderer = build_llm(backend_cfg, mix_cfg, role="renderer")
     if renderer.provider != "openrouter":
         raise ValueError("Grounded generation requires backend.provider=openrouter")

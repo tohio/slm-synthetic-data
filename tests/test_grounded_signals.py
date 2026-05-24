@@ -178,3 +178,49 @@ def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tm
     generate.run_signal("factual_restraint", cfg, tmp_path)
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
     assert len(list((tmp_path / "manifests" / "grounded" / "factual_restraint" / "batches").glob("batch_*.json"))) == 2
+
+
+def test_run_signal_supports_batch_size_64_for_qualification(monkeypatch, tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 64, "parallel_requests": 8},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 64, "samples": 64}},
+    }
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
+
+
+def test_run_signal_rejects_batch_size_above_qualification_limit(tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 65, "parallel_requests": 8},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 65, "samples": 65}},
+    }
+    with pytest.raises(ValueError, match="batch_size between 1 and 64"):
+        generate.run_signal("factual_restraint", cfg, tmp_path)
+
+
+def test_run_signal_supports_concurrency_32_for_qualification(monkeypatch, tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 32, "parallel_requests": 32},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
+    }
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
+
+
+def test_run_signal_rejects_concurrency_above_qualification_limit(tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 32, "parallel_requests": 33},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
+    }
+    with pytest.raises(ValueError, match="parallel_requests between 1 and 32"):
+        generate.run_signal("factual_restraint", cfg, tmp_path)

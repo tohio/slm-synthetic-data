@@ -25,6 +25,11 @@ PROFILES = {
     "quality": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.25, "top_p": 0.95, "concurrency": 2},
 }
 
+MIN_BATCH_SIZE = 1
+MAX_BATCH_SIZE = 64
+MIN_CONCURRENCY = 1
+MAX_CONCURRENCY = 32
+
 
 def generate_run_name(length: int = 7) -> str:
     return "".join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
@@ -49,18 +54,28 @@ def main() -> None:
     parser.add_argument("--hf_repo", default=None)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--concurrency", type=int, default=None)
+    parser.add_argument("--max-tokens", type=int, default=None)
     # Backward-compatible accepted argument; OpenRouter grounded generation does not use Groq service tiers.
     parser.add_argument("--service-tier", default=None)
     args = parser.parse_args()
-    if args.batch_size != 32:
-        raise ValueError("Grounded generation has been qualified with --batch-size 32 only")
+    if not MIN_BATCH_SIZE <= args.batch_size <= MAX_BATCH_SIZE:
+        raise ValueError(
+            f"--batch-size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE} "
+            "for grounded throughput qualification"
+        )
 
     preset = PROFILES[args.profile]
     model = args.model or preset["model"]
     warn_if_unsupported_model(model, context="configure")
     concurrency = args.concurrency or preset["concurrency"]
-    if concurrency < 1:
-        raise ValueError("--concurrency must be at least 1")
+    if not MIN_CONCURRENCY <= concurrency <= MAX_CONCURRENCY:
+        raise ValueError(
+            f"--concurrency must be between {MIN_CONCURRENCY} and {MAX_CONCURRENCY} "
+            "for grounded throughput qualification"
+        )
+    max_tokens = args.max_tokens or preset["max_tokens"]
+    if max_tokens < 1:
+        raise ValueError("--max-tokens must be at least 1")
     run_name = args.run or generate_run_name()
     hf_repo = args.hf_repo or resolve_hf_repo_from_dotenv()
     filled = (
@@ -69,7 +84,7 @@ def main() -> None:
         .replace("__OUTPUT_DIR__", f"${{DATA_DIR}}/{run_name}")
         .replace("__TARGET_TOKENS__", str(args.tokens))
         .replace("__MODEL__", model)
-        .replace("__MAX_TOKENS__", str(preset["max_tokens"]))
+        .replace("__MAX_TOKENS__", str(max_tokens))
         .replace("__TEMPERATURE__", str(preset["temperature"]))
         .replace("__TOP_P__", str(preset["top_p"]))
         .replace("__BATCH_SIZE__", str(args.batch_size))
@@ -79,7 +94,10 @@ def main() -> None:
     OUTPUT_PATH.write_text(filled)
     print(f"Generated grounded config at {OUTPUT_PATH}")
     print(f"run_name={run_name}")
-    print(f"model={model} batch_size={args.batch_size} concurrency={concurrency} target_total_tokens={args.tokens}")
+    print(
+        f"model={model} batch_size={args.batch_size} concurrency={concurrency} "
+        f"max_tokens={max_tokens} target_total_tokens={args.tokens}"
+    )
     print(f"hf_repo={hf_repo}")
 
 

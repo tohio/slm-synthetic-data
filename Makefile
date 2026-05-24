@@ -10,6 +10,7 @@ TOKENS ?= 200000
 MODEL ?=
 BATCH ?= 32
 CONCURRENCY ?=
+MAX_TOKENS ?=
 RUN ?=
 HF_REPO ?=
 CONFIG_FILE ?= configs/synthetic.yaml
@@ -25,7 +26,7 @@ help:
 > @echo "SLM Synthetic Data Pipeline — Grounded OpenRouter Generation"
 > @echo "==========================================================="
 > @echo ""
-> @echo "Usage: make <target> [PROFILE=name] [TOKENS=N] [MODEL=name] [SIGNAL=name] [BATCH=32] [CONCURRENCY=N] [RUN=name]"
+> @echo "Usage: make <target> [PROFILE=name] [TOKENS=N] [MODEL=name] [SIGNAL=name] [BATCH=N] [CONCURRENCY=N] [MAX_TOKENS=N] [RUN=name]"
 > @echo ""
 > @echo "Configuration:"
 > @echo "  configure              Write configs/synthetic.yaml for a grounded run"
@@ -43,7 +44,7 @@ help:
 > @echo "  all                    Generate -> reports -> validate -> dedup -> reports"
 > @echo ""
 > @echo "Examples:"
-> @echo "  make configure TOKENS=100000 CONCURRENCY=4"
+> @echo "  make configure TOKENS=250000 BATCH=64 CONCURRENCY=8 MAX_TOKENS=16384 RUN=batch_qual_250k_b64_c8"
 > @echo "  make generate"
 > @echo "  make report-artifacts"
 > @echo "  make production-config CONCURRENCY=4"
@@ -56,6 +57,7 @@ configure:
 >   --batch-size $(BATCH) \
 >   $(if $(MODEL),--model $(MODEL),) \
 >   $(if $(CONCURRENCY),--concurrency $(CONCURRENCY),) \
+>   $(if $(MAX_TOKENS),--max-tokens $(MAX_TOKENS),) \
 >   $(if $(RUN),--run $(RUN),) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
 
