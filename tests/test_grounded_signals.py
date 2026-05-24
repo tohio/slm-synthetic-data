@@ -97,6 +97,38 @@ def test_factual_restraint_repetitive_families_have_surface_variation():
     assert not any("Systems's" in question for question in unannounced)
 
 
+def test_general_vocabulary_context_uses_adjective_compatible_subjects_without_losing_variants():
+    factory = EducationalQAMCQGeneralArtifactFactory()
+
+    assert set(factory.VOCABULARY_SUBJECTS) == set(factory.ADJECTIVE_CONTEXT)
+    assert all(len(subjects) == len(factory.OBJECTS) for subjects in factory.VOCABULARY_SUBJECTS.values())
+    assert all(len(set(subjects)) == len(subjects) for subjects in factory.VOCABULARY_SUBJECTS.values())
+
+    # Vocabulary is family index 2 in each eight-family cycle. Exercise every
+    # adjective against every subject variant used in its deterministic cycle.
+    rows = [factory.build(2 + 8 * index) for index in range(len(factory.ADJECTIVE_CONTEXT) * len(factory.OBJECTS))]
+    assert {row.family for row in rows} == {"vocabulary"}
+
+    for row in rows:
+        question = row.payload["question"]
+        evidence = row.payload["evidence"]
+        adjective = question.split()[2]
+        answer, clue = factory.ADJECTIVE_CONTEXT[adjective]
+        subjects = factory.VOCABULARY_SUBJECTS[adjective]
+
+        assert row.payload["choices"][row.payload["correct_index"]] == answer
+        assert clue in evidence
+        assert any(f"the {subject} as {adjective}" in evidence for subject in subjects)
+
+    evidence = "\n".join(row.payload["evidence"] for row in rows)
+    assert "spare key was narrow" not in evidence
+    assert "spare key was careful" not in evidence
+    assert "spare key was modest" not in evidence
+
+    fingerprints = {artifact_fingerprint(row) for row in rows}
+    assert len(fingerprints) == len(rows)
+
+
 def test_all_grounded_generators_render_complete_batches():
     for signal in ("arithmetic", "task_code", "educational_qa_mcq_math", "educational_qa_mcq_general", "factual_restraint"):
         artifacts, records, telemetry = GroundedSignalGenerator(signal, GroundedMockLLM(), batch_size=32).generate_batch(0)

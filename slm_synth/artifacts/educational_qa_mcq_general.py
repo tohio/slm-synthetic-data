@@ -12,16 +12,31 @@ class EducationalQAMCQGeneralArtifactFactory:
     OBJECTS = ("spare key", "signed forms", "visitor badge", "survey folder", "repair manual", "supply list", "delivery slip", "permit copy", "tool record", "inventory sheet", "registration card", "inspection note")
     ADVERBS = ("quietly", "carefully", "quickly", "patiently", "neatly", "calmly", "slowly", "briefly", "softly", "promptly")
     ADJECTIVE_CONTEXT = {
-        "fragile": ("easily broken", "The item needed protective wrapping."),
+        "fragile": ("easily broken", "It needed protective wrapping."),
         "narrow": ("not wide", "Only one person could pass through at a time."),
-        "ancient": ("very old", "The object was preserved from centuries ago."),
+        "ancient": ("very old", "It had been preserved for centuries."),
         "bright": ("giving much light", "It illuminated the nearby shelf."),
         "careful": ("taking caution", "No details were overlooked."),
-        "silent": ("not making sound", "No one heard it move."),
+        "silent": ("not making sound", "No sound could be heard there."),
         "scarce": ("hard to find", "Only a few remained in stock."),
         "durable": ("long-lasting", "It survived repeated daily use."),
         "precise": ("exact", "Every measurement matched the specification."),
-        "modest": ("not excessive", "The request required only a small amount."),
+        "modest": ("not excessive", "It required only a small amount."),
+    }
+    # Use adjective-compatible subjects instead of pairing every clue with the
+    # generic OBJECTS list. Each adjective retains 12 distinct subject forms so
+    # vocabulary artifact diversity is not reduced by this coherence fix.
+    VOCABULARY_SUBJECTS = {
+        "fragile": ("glass ornament", "ceramic sample", "thin vial", "display model", "porcelain tile", "glass slide", "clay figurine", "crystal cup", "sample tube", "decorative plate", "glass panel", "ceramic bowl"),
+        "narrow": ("storage aisle", "service doorway", "passageway", "hallway entrance", "garden gate", "archive corridor", "loading ramp", "footbridge", "stairwell", "service passage", "supply aisle", "side entrance"),
+        "ancient": ("manuscript", "stone tablet", "map", "ceremonial bowl", "bronze coin", "woven tapestry", "clay tablet", "wooden carving", "archive scroll", "mosaic tile", "inscribed seal", "painted vase"),
+        "bright": ("inspection lamp", "desk lamp", "display light", "work light", "ceiling fixture", "reading lamp", "portable lantern", "light panel", "task lamp", "spotlight", "window display", "emergency beacon"),
+        "careful": ("records inspector", "lab technician", "reviewer", "inventory clerk", "archive assistant", "quality auditor", "field researcher", "equipment handler", "safety officer", "proofreader", "curator", "surveyor"),
+        "silent": ("reading room", "hallway", "workroom", "archive room", "empty theater", "study area", "closed gallery", "waiting room", "conference room", "library wing", "office corridor", "practice studio"),
+        "scarce": ("replacement battery", "repair part", "shipping label", "filter cartridge", "safety mask", "sample jar", "packing box", "tool insert", "printer ribbon", "storage clip", "seal kit", "cleaning pad"),
+        "durable": ("tool case", "storage bin", "work glove", "canvas bag", "safety helmet", "travel crate", "utility belt", "floor mat", "metal cart", "protective cover", "field notebook", "equipment strap"),
+        "precise": ("measuring instrument", "digital scale", "calibration gauge", "timing device", "laser ruler", "temperature probe", "pressure meter", "survey level", "micrometer", "volume dispenser", "alignment tool", "laboratory balance"),
+        "modest": ("supply request", "budget request", "equipment order", "space request", "travel allowance", "printing order", "staffing request", "repair estimate", "meal budget", "storage request", "material order", "grant request"),
     }
     VERBS = ("stored", "placed", "carried", "moved", "checked", "returned", "sealed", "organized", "recorded", "reviewed")
     FICTIONAL_REGIONS = ("Orin", "Pelin", "Nareth", "Volar", "Kesra", "Tavon", "Merin", "Solara", "Bren", "Doria", "Calen", "Ivara", "Aster", "Belin", "Corin", "Elora", "Faron", "Galen", "Haven", "Joren")
@@ -71,8 +86,9 @@ class EducationalQAMCQGeneralArtifactFactory:
         adjective_i, person_i, obj_i, place_i = self._decode(index, (len(self.ADJECTIVE_CONTEXT), len(FIRST_NAMES) * len(LAST_NAMES), len(self.OBJECTS), len(self.PLACES)))
         adjective = tuple(self.ADJECTIVE_CONTEXT)[adjective_i]
         answer, clue = self.ADJECTIVE_CONTEXT[adjective]
-        name, obj, place = full_name(person_i), self.OBJECTS[obj_i], self.PLACES[place_i]
-        evidence = f'Sentence: "At the {place}, {name} noticed the {obj} was {adjective}. {clue}"'
+        name, place = full_name(person_i), self.PLACES[place_i]
+        subject = self.VOCABULARY_SUBJECTS[adjective][obj_i]
+        evidence = f'Sentence: "In a note stored in the {place}, {name} described the {subject} as {adjective}. {clue}"'
         return self._record(evidence, f"What does {adjective} mean in the sentence?", [answer, "very loud", "unrelated", "very fast"], answer)
 
     def _build_reading(self, index: int) -> dict[str, object]:
