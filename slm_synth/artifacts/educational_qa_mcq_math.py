@@ -49,9 +49,19 @@ class EducationalQAMCQMathArtifactFactory:
         payload = getattr(self, f"_build_{family}")(index // len(self.FAMILIES))
         return GroundedArtifact("educational_qa_mcq_math", family, f"educational_qa_mcq_math_{family}_{index + 1:09d}", payload)
 
-    def _base(self, question_instruction: str, expression: str, numbers: list[str], answer: int, index: int, family: str) -> dict[str, object]:
+    def _base(
+        self,
+        question_instruction: str,
+        expression: str,
+        numbers: list[str],
+        answer: int,
+        index: int,
+        family: str,
+        *,
+        required_text_literals: list[str] | None = None,
+    ) -> dict[str, object]:
         choices = self._choices(answer, index, family)
-        return {
+        payload: dict[str, object] = {
             "question_instruction": question_instruction,
             "required_numeric_literals": numbers,
             "choices": choices,
@@ -59,6 +69,9 @@ class EducationalQAMCQMathArtifactFactory:
             "correct_index": choices.index(str(answer)),
             "expression": expression,
         }
+        if required_text_literals:
+            payload["required_text_literals"] = required_text_literals
+        return payload
 
     def _build_integer_expression(self, index: int) -> dict[str, object]:
         a, b, c, d = self._decode(index, (151, 71, 8, 91))
@@ -91,8 +104,9 @@ class EducationalQAMCQMathArtifactFactory:
         start = first + second + remain
         setting = self.SETTINGS[setting_i]
         return self._base(
-            f"Create a remaining-quantity question about {setting}: begin with {start}, remove {first}, then remove {second} more.",
+            f"Create a remaining-quantity question about {setting}: begin with {start}, remove {first}, then remove {second} more. Keep the word '{setting}' in the final question.",
             f"{start} - {first} - {second}", [str(start), str(first), str(second)], remain, index, "two_step_quantity",
+            required_text_literals=[setting],
         )
 
     def _build_unique_numeric_comparison(self, index: int) -> dict[str, object]:

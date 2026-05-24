@@ -418,9 +418,21 @@ def normalized_factual_qa_key(row: dict[str, Any]) -> tuple[str, str]:
     return (normalize_space(str(row.get("question", ""))), normalize_space(str(row.get("safe_answer", ""))))
 
 
+def normalized_math_mcq_key(row: dict[str, Any]) -> tuple[str, str]:
+    choices = row.get("choices", [])
+    index = row.get("correct_index")
+    answer = ""
+    if isinstance(choices, list) and isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(choices):
+        answer = str(choices[index])
+    return (normalize_space(str(row.get("question", ""))), normalize_space(answer))
+
+
 def canonical_exact_key(signal: str, row: dict[str, Any]) -> str:
     if signal == "factual_restraint":
         return json.dumps(normalized_factual_qa_key(row), ensure_ascii=False, sort_keys=True)
+    if signal == "educational_qa_mcq_math":
+        # Choice shuffling does not make an otherwise identical math question a new example.
+        return json.dumps(normalized_math_mcq_key(row), ensure_ascii=False, sort_keys=True)
     return json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 

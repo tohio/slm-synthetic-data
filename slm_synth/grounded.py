@@ -171,7 +171,9 @@ class GroundedSignalGenerator:
             ),
             "educational_qa_mcq_math": (
                 "For each artifact, generate a self-contained natural math question and concise explanation. "
-                "Preserve all required numeric literals in the question. Choices and verified answer remain local."
+                "Preserve all required numeric literals in the question. If required_text_literals are supplied, "
+                "preserve each supplied term in the question exactly; do not collapse a word-problem item into a "
+                "generic bare-number question. Choices and verified answer remain local."
             ),
             "educational_qa_mcq_general": (
                 "For each artifact, generate only a concise explanation showing why the held answer follows from "
