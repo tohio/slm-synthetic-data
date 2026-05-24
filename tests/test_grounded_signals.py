@@ -70,6 +70,33 @@ def test_task_code_artifacts_are_valid_single_functions():
         assert isinstance(tree.body[0], ast.FunctionDef)
 
 
+def test_task_code_omits_zero_collision_variant_without_removing_semantic_zeroes():
+    import ast
+
+    factory = TaskCodeArtifactFactory()
+    def function_name(payload):
+        return ast.parse(payload["code"]).body[0].name
+
+    assert function_name(factory._build_normalized_counting(0)) == "count_clean_tags_lower_1"
+    assert function_name(factory._build_paired_comparison_counts(0)) == "compare_pairs_with_margin_0"
+    assert function_name(factory._build_dictionary_keywise_sum(0)) == "combine_tag_counts_min_0"
+    assert function_name(factory._build_paired_comparison_counts(101)) == "compare_pairs_with_margin_0_1"
+
+    rows = [factory.build(index) for index in range(2016)]
+    assert len({row.payload["code"] for row in rows}) == len(rows)
+
+
+def test_factual_restraint_repetitive_families_have_surface_variation():
+    factory = FactualRestraintArtifactFactory()
+
+    ambiguous = [factory.build(1 + 8 * index).payload["question"] for index in range(92)]
+    unannounced = [factory.build(3 + 8 * index).payload["question"] for index in range(92)]
+
+    assert len({question.split(" ", 1)[0] for question in ambiguous}) > 1
+    assert len({question.split(" ", 1)[0] for question in unannounced}) > 1
+    assert not any("Systems's" in question for question in unannounced)
+
+
 def test_all_grounded_generators_render_complete_batches():
     for signal in ("arithmetic", "task_code", "educational_qa_mcq_math", "educational_qa_mcq_general", "factual_restraint"):
         artifacts, records, telemetry = GroundedSignalGenerator(signal, GroundedMockLLM(), batch_size=32).generate_batch(0)

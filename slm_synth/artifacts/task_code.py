@@ -29,6 +29,11 @@ class TaskCodeArtifactFactory:
             value //= radix
         return result
 
+    @staticmethod
+    def _function_name(base: str, variant: int) -> str:
+        """Keep the primary grounded name natural while retaining collision separation."""
+        return base if variant == 0 else f"{base}_{variant}"
+
     def build_batch(self, batch_id: int, batch_size: int) -> list[GroundedArtifact]:
         start = int(batch_id) * int(batch_size)
         return [self.build(start + offset) for offset in range(batch_size)]
@@ -49,7 +54,7 @@ class TaskCodeArtifactFactory:
         plural = f"{noun}s"
         normalizer = "lower" if mode_i == 0 else "upper"
         min_length = min_length_i + 1
-        fn = f"count_clean_{plural}_{normalizer}_{min_length}_{variant}"
+        fn = self._function_name(f"count_clean_{plural}_{normalizer}_{min_length}", variant)
         code = (
             f"def {fn}({plural}):\n"
             "    counts = {}\n"
@@ -72,7 +77,7 @@ class TaskCodeArtifactFactory:
         reverse = bool(descending_i)
         compare = ">=" if reverse else "<="
         direction = "descending" if reverse else "ascending"
-        fn = f"select_{output}s_by_{metric}_{threshold}_{direction}_{variant}"
+        fn = self._function_name(f"select_{output}s_by_{metric}_{threshold}_{direction}", variant)
         code = (
             f"def {fn}(records):\n"
             f"    kept = [row for row in records if row[\"{metric}\"] {compare} {threshold}]\n"
@@ -89,8 +94,9 @@ class TaskCodeArtifactFactory:
         key = self.NOUNS[noun_i]
         value = self.VALUES[value_i]
         minimum = minimum_i
+        fn = self._function_name(f"total_{value}_by_{key}_min_{minimum}", variant)
         code = (
-            f"def total_{value}_by_{key}_min_{minimum}_{variant}(records):\n"
+            f"def {fn}(records):\n"
             "    totals = {}\n"
             "    for row in records:\n"
             f"        if row[\"{value}\"] >= {minimum}:\n"
@@ -108,8 +114,9 @@ class TaskCodeArtifactFactory:
         key = self.NOUNS[noun_i]
         value = self.VALUES[value_i]
         threshold = 10 + threshold_i
+        fn = self._function_name(f"qualifying_{value}_averages_by_{key}", variant)
         code = (
-            f"def qualifying_{value}_averages_by_{key}_{variant}(records):\n"
+            f"def {fn}(records):\n"
             "    totals = {}\n"
             "    counts = {}\n"
             "    for row in records:\n"
@@ -126,8 +133,9 @@ class TaskCodeArtifactFactory:
     def _build_paired_comparison_counts(self, index: int) -> dict[str, object]:
         margin_i, variant = self._decode(index, (101, 1000003))
         margin = margin_i
+        fn = self._function_name(f"compare_pairs_with_margin_{margin}", variant)
         code = (
-            f"def compare_pairs_with_margin_{margin}_{variant}(first, second):\n"
+            f"def {fn}(first, second):\n"
             "    counts = {\"first_ahead\": 0, \"second_ahead\": 0, \"within_margin\": 0}\n"
             "    for left, right in zip(first, second):\n"
             f"        if left - right > {margin}:\n"
@@ -156,7 +164,8 @@ class TaskCodeArtifactFactory:
         else:
             body = f"[[value + {amount} for value in row if value >= {cutoff}] for row in rows]"
             contract = f"retain integers at least {cutoff} and add {amount} to each retained integer"
-        code = f"def transform_rows_{variant}_{mode}_{amount}_{cutoff}(rows):\n    return {body}"
+        fn = self._function_name(f"transform_rows_{mode}_{amount}_{cutoff}", variant)
+        code = f"def {fn}(rows):\n    return {body}"
         return {
             "code": code,
             "behavior_contract": f"Take a nested list of integers, {contract} within each row while preserving structure and order, return a new nested list, and do not mutate inputs.",
@@ -166,8 +175,9 @@ class TaskCodeArtifactFactory:
         noun_i, threshold_i, variant = self._decode(index, (len(self.NOUNS), 1801, 1009))
         key = self.NOUNS[noun_i]
         threshold = 50 + threshold_i
+        fn = self._function_name(f"{key}s_over_total_{threshold}", variant)
         code = (
-            f"def {key}s_over_total_{threshold}_{variant}(records):\n"
+            f"def {fn}(records):\n"
             f"    return [row[\"{key}\"] for row in records if sum(row[\"values\"]) > {threshold}]"
         )
         return {
@@ -179,8 +189,9 @@ class TaskCodeArtifactFactory:
         noun_i, minimum_i, variant = self._decode(index, (len(self.NOUNS), 501, 1000003))
         noun = self.NOUNS[noun_i]
         minimum = minimum_i
+        fn = self._function_name(f"combine_{noun}_counts_min_{minimum}", variant)
         code = (
-            f"def combine_{noun}_counts_min_{minimum}_{variant}(first, second):\n"
+            f"def {fn}(first, second):\n"
             "    result = {}\n"
             "    for key in set(first) | set(second):\n"
             "        total = first.get(key, 0) + second.get(key, 0)\n"
