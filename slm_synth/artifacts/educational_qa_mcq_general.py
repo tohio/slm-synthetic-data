@@ -160,16 +160,26 @@ class EducationalQAMCQGeneralArtifactFactory:
 
 
     def _build_final_location(self, index: int) -> dict[str, object]:
-        obj_i, first_i, second_i, third_i, person_i = self._decode(index, (len(self.OBJECTS), len(self.PLACES), len(self.PLACES), len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES)))
+        place_count = len(self.PLACES)
+        ordered_route_count = place_count * (place_count - 1) * (place_count - 2)
+        obj_i, route_i, person_i = self._decode(
+            index,
+            (len(self.OBJECTS), ordered_route_count, len(FIRST_NAMES) * len(LAST_NAMES)),
+        )
         obj, name = self.OBJECTS[obj_i], full_name(person_i)
-        places = [self.PLACES[first_i]]
-        for candidate_i in (second_i, third_i, third_i + 3, third_i + 5):
-            candidate = self.PLACES[candidate_i % len(self.PLACES)]
-            if candidate not in places:
-                places.append(candidate)
-            if len(places) == 3:
-                break
-        final_place = places[-1]
+
+        first_slot = route_i % place_count
+        route_i //= place_count
+        second_slot = route_i % (place_count - 1)
+        route_i //= place_count - 1
+        third_slot = route_i % (place_count - 2)
+
+        remaining = list(self.PLACES)
+        first_place = remaining.pop(first_slot)
+        second_place = remaining.pop(second_slot)
+        final_place = remaining[third_slot]
+        places = [first_place, second_place, final_place]
+
         evidence = f"Movement log: {name} first put the {obj} in the {places[0]}, then moved it to the {places[1]}, and finally transferred it to the {final_place}."
         alternatives = [place for place in self.PLACES if place != final_place][:3]
         choices = [f"the {final_place}"] + [f"the {place}" for place in alternatives]

@@ -187,6 +187,22 @@ def test_general_mcq_expands_material_reasoning_families_for_scaled_generation()
         assert len(signatures) == len(family_rows)
 
 
+def test_general_mcq_has_no_exact_artifact_duplicates_at_6m_replacement_scale():
+    factory = EducationalQAMCQGeneralArtifactFactory()
+    rows = [factory.build(index) for index in range(13680)]
+
+    def freeze(value):
+        if isinstance(value, dict):
+            return tuple(sorted((key, freeze(item)) for key, item in value.items()))
+        if isinstance(value, list):
+            return tuple(freeze(item) for item in value)
+        return value
+
+    fingerprints = {freeze(row.payload) for row in rows}
+    assert len(fingerprints) == len(rows)
+
+
+
 def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_family():
     factory = EducationalQAMCQGeneralArtifactFactory()
     row_count = len(factory.FAMILIES) * 512
