@@ -94,6 +94,13 @@ def build_llm(
         retry_backoff_max_seconds=float(retry_cfg.get("retry_backoff_max_seconds", 30.0)),
         retry_backoff_multiplier=float(retry_cfg.get("retry_backoff_multiplier", 2.0)),
         retry_jitter_ratio=float(retry_cfg.get("retry_jitter_ratio", 0.30)),
+        shared_throttle_enabled=bool(retry_cfg.get("shared_throttle_enabled", True)),
+        shared_throttle_burst_threshold=int(retry_cfg.get("shared_throttle_burst_threshold", 8)),
+        shared_throttle_window_seconds=float(retry_cfg.get("shared_throttle_window_seconds", 2.0)),
+        shared_throttle_initial_cooldown_seconds=float(retry_cfg.get("shared_throttle_initial_cooldown_seconds", 5.0)),
+        shared_throttle_max_cooldown_seconds=float(retry_cfg.get("shared_throttle_max_cooldown_seconds", 120.0)),
+        shared_throttle_multiplier=float(retry_cfg.get("shared_throttle_multiplier", 2.0)),
+        shared_throttle_success_reset_count=int(retry_cfg.get("shared_throttle_success_reset_count", 32)),
         require_parameters=bool(base_cfg.get("require_parameters", True)),
         allow_fallbacks=bool(base_cfg.get("allow_fallbacks", False)),
     )
@@ -241,6 +248,9 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
             f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
             f"provider_retries={metrics['retryable_provider_retries']}, "
             f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "
+            f"shared_throttle_trips={metrics['shared_throttle_trips']}, "
+            f"shared_throttle_wait_seconds={metrics['shared_throttle_wait_seconds']:.3f}, "
+            f"max_shared_throttle_cooldown_seconds={metrics['max_shared_throttle_cooldown_seconds']:.3f}, "
             f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
         )
         reject_writer.close()
@@ -312,6 +322,9 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
         f"provider_retries={metrics['retryable_provider_retries']}, "
         f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "
+        f"shared_throttle_trips={metrics['shared_throttle_trips']}, "
+        f"shared_throttle_wait_seconds={metrics['shared_throttle_wait_seconds']:.3f}, "
+        f"max_shared_throttle_cooldown_seconds={metrics['max_shared_throttle_cooldown_seconds']:.3f}, "
         f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
     )
 

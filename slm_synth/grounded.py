@@ -164,6 +164,9 @@ class GroundedBatchStore:
         retries = 0
         retryable_provider_retries = 0
         retry_sleep_seconds = 0.0
+        shared_throttle_trips = 0
+        shared_throttle_wait_seconds = 0.0
+        max_shared_throttle_cooldown_seconds = 0.0
         for path in self._completed_paths():
             telemetry = self._load(path).get("telemetry", {}) or {}
             usage = telemetry.get("usage", {}) or {}
@@ -176,6 +179,12 @@ class GroundedBatchStore:
             retries += int(telemetry.get("retry_count", 0) or 0)
             retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
             retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
+            shared_throttle_trips += int(telemetry.get("shared_throttle_trips", 0) or 0)
+            shared_throttle_wait_seconds += float(telemetry.get("shared_throttle_wait_seconds", 0.0) or 0.0)
+            max_shared_throttle_cooldown_seconds = max(
+                max_shared_throttle_cooldown_seconds,
+                float(telemetry.get("max_shared_throttle_cooldown_seconds", 0.0) or 0.0),
+            )
         for batch_id in self.failed_batch_ids():
             payload = self._load(self._failed_path(batch_id))
             telemetry = payload.get("telemetry", {}) or {}
@@ -190,12 +199,21 @@ class GroundedBatchStore:
             retries += int(telemetry.get("retry_count", 0) or 0)
             retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
             retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
+            shared_throttle_trips += int(telemetry.get("shared_throttle_trips", 0) or 0)
+            shared_throttle_wait_seconds += float(telemetry.get("shared_throttle_wait_seconds", 0.0) or 0.0)
+            max_shared_throttle_cooldown_seconds = max(
+                max_shared_throttle_cooldown_seconds,
+                float(telemetry.get("max_shared_throttle_cooldown_seconds", 0.0) or 0.0),
+            )
         return {
             "batches": batches, "dropped_batches": dropped_batches, "dropped_rows": dropped_rows,
             "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
             "total_tokens": total_tokens, "cost": cost, "elapsed_seconds": elapsed_seconds,
             "retry_count": retries, "retryable_provider_retries": retryable_provider_retries,
-            "retry_sleep_seconds": retry_sleep_seconds,
+            "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+            "shared_throttle_trips": shared_throttle_trips,
+            "shared_throttle_wait_seconds": round(shared_throttle_wait_seconds, 3),
+            "max_shared_throttle_cooldown_seconds": round(max_shared_throttle_cooldown_seconds, 3),
         }
 
 

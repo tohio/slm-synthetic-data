@@ -4,7 +4,9 @@ import json
 import os
 import random
 import re
+import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from time import monotonic
@@ -14,6 +16,99 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
+
+
+class SharedThrottleGuard:
+    """Coordinates provider-rate-limit cooldowns across concurrent requests.
+
+    Isolated 429s keep the inexpensive per-request retry path. A burst of
+    provider throttles trips a shared gate so new requests and retries stop
+    hammering an already-saturated upstream provider.
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        burst_threshold: int = 8,
+        window_seconds: float = 2.0,
+        initial_cooldown_seconds: float = 5.0,
+        max_cooldown_seconds: float = 120.0,
+        multiplier: float = 2.0,
+        success_reset_count: int = 32,
+    ):
+        self.enabled = bool(enabled)
+        self.burst_threshold = max(1, int(burst_threshold))
+        self.window_seconds = max(0.0, float(window_seconds))
+        self.initial_cooldown_seconds = max(0.0, float(initial_cooldown_seconds))
+        self.max_cooldown_seconds = max(self.initial_cooldown_seconds, float(max_cooldown_seconds))
+        self.multiplier = max(1.0, float(multiplier))
+        self.success_reset_count = max(1, int(success_reset_count))
+        self._lock = threading.Lock()
+        self._events: deque[float] = deque()
+        self._cooldown_until = 0.0
+        self._next_cooldown_seconds = self.initial_cooldown_seconds
+        self._successes_after_trip = 0
+        self._has_tripped = False
+
+    def wait_if_needed(self) -> float:
+        """Wait outside the lock until a process-wide cooldown is over."""
+        if not self.enabled:
+            return 0.0
+        total_wait = 0.0
+        while True:
+            with self._lock:
+                remaining = self._cooldown_until - monotonic()
+            if remaining <= 0:
+                return total_wait
+            time.sleep(remaining)
+            total_wait += remaining
+
+    def record_rate_limit(self, model: str) -> tuple[bool, float]:
+        """Record a throttle and possibly trip/extend the shared cooldown."""
+        if not self.enabled:
+            return False, 0.0
+        now = monotonic()
+        with self._lock:
+            self._events.append(now)
+            cutoff = now - self.window_seconds
+            while self._events and self._events[0] < cutoff:
+                self._events.popleft()
+            if len(self._events) < self.burst_threshold or now < self._cooldown_until:
+                return False, 0.0
+            cooldown = min(self._next_cooldown_seconds, self.max_cooldown_seconds)
+            self._cooldown_until = now + cooldown
+            self._next_cooldown_seconds = min(cooldown * self.multiplier, self.max_cooldown_seconds)
+            self._successes_after_trip = 0
+            action = "extended" if self._has_tripped else "tripped"
+            self._has_tripped = True
+            self._events.clear()
+        print(
+            f"[llm] Shared throttle guard {action}: model={model} "
+            f"events={self.burst_threshold} window={self.window_seconds:.2f}s cooldown={cooldown:.2f}s"
+        )
+        return True, cooldown
+
+    def record_success(self, model: str) -> bool:
+        """Reset elevated cooldowns after sustained successful responses."""
+        if not self.enabled:
+            return False
+        with self._lock:
+            if not self._has_tripped or monotonic() < self._cooldown_until:
+                return False
+            self._successes_after_trip += 1
+            if self._successes_after_trip < self.success_reset_count:
+                return False
+            self._events.clear()
+            self._cooldown_until = 0.0
+            self._next_cooldown_seconds = self.initial_cooldown_seconds
+            self._successes_after_trip = 0
+            self._has_tripped = False
+        print(
+            f"[llm] Shared throttle guard reset after successes: model={model} "
+            f"successes={self.success_reset_count}"
+        )
+        return True
 
 
 class LLMBackend:
@@ -43,6 +138,13 @@ class LLMBackend:
         retry_backoff_max_seconds: float = 30.0,
         retry_backoff_multiplier: float = 2.0,
         retry_jitter_ratio: float = 0.30,
+        shared_throttle_enabled: bool = True,
+        shared_throttle_burst_threshold: int = 8,
+        shared_throttle_window_seconds: float = 2.0,
+        shared_throttle_initial_cooldown_seconds: float = 5.0,
+        shared_throttle_max_cooldown_seconds: float = 120.0,
+        shared_throttle_multiplier: float = 2.0,
+        shared_throttle_success_reset_count: int = 32,
         require_parameters: bool = True,
         allow_fallbacks: bool = False,
     ):
@@ -81,6 +183,15 @@ class LLMBackend:
         self.retry_backoff_max_seconds = float(retry_backoff_max_seconds)
         self.retry_backoff_multiplier = float(retry_backoff_multiplier)
         self.retry_jitter_ratio = float(retry_jitter_ratio)
+        self.shared_throttle_guard = SharedThrottleGuard(
+            enabled=shared_throttle_enabled,
+            burst_threshold=shared_throttle_burst_threshold,
+            window_seconds=shared_throttle_window_seconds,
+            initial_cooldown_seconds=shared_throttle_initial_cooldown_seconds,
+            max_cooldown_seconds=shared_throttle_max_cooldown_seconds,
+            multiplier=shared_throttle_multiplier,
+            success_reset_count=shared_throttle_success_reset_count,
+        )
         self.require_parameters = bool(require_parameters)
         self.allow_fallbacks = bool(allow_fallbacks)
 
@@ -101,7 +212,7 @@ class LLMBackend:
         json_mode: Optional[bool] = None,
         service_tier: Optional[str] = None,
     ) -> "LLMBackend":
-        return LLMBackend(
+        clone = LLMBackend(
             provider=self.provider,
             model=model or self.model,
             max_tokens=self.max_tokens if max_tokens is None else max_tokens,
@@ -118,9 +229,18 @@ class LLMBackend:
             retry_backoff_max_seconds=self.retry_backoff_max_seconds,
             retry_backoff_multiplier=self.retry_backoff_multiplier,
             retry_jitter_ratio=self.retry_jitter_ratio,
+            shared_throttle_enabled=self.shared_throttle_guard.enabled,
+            shared_throttle_burst_threshold=self.shared_throttle_guard.burst_threshold,
+            shared_throttle_window_seconds=self.shared_throttle_guard.window_seconds,
+            shared_throttle_initial_cooldown_seconds=self.shared_throttle_guard.initial_cooldown_seconds,
+            shared_throttle_max_cooldown_seconds=self.shared_throttle_guard.max_cooldown_seconds,
+            shared_throttle_multiplier=self.shared_throttle_guard.multiplier,
+            shared_throttle_success_reset_count=self.shared_throttle_guard.success_reset_count,
             require_parameters=self.require_parameters,
             allow_fallbacks=self.allow_fallbacks,
         )
+        clone.shared_throttle_guard = self.shared_throttle_guard
+        return clone
 
     def _clean(self, text: str) -> str:
         text = text.strip()
@@ -241,6 +361,9 @@ class LLMBackend:
             except (TypeError, ValueError, OverflowError):
                 return None
 
+    def _wait_for_shared_throttle(self) -> float:
+        return self.shared_throttle_guard.wait_if_needed()
+
     def _can_retry(self, attempt: int, started: float, exc: Exception) -> bool:
         if self._is_retryable_provider_error(exc):
             return (
@@ -249,8 +372,15 @@ class LLMBackend:
             )
         return attempt < self.max_request_retries
 
-    def _sleep_before_retry(self, attempt: int, exc: Exception, *, started: float) -> float:
+    def _sleep_before_retry(self, attempt: int, exc: Exception, *, started: float) -> tuple[float, int, float]:
+        shared_trips = 0
+        max_shared_cooldown = 0.0
         if self._is_retryable_provider_error(exc):
+            if self._is_capacity_or_rate_error(exc):
+                tripped, cooldown = self.shared_throttle_guard.record_rate_limit(self.model)
+                if tripped:
+                    shared_trips = 1
+                    max_shared_cooldown = cooldown
             retry_after = self._retry_after_seconds(exc)
             if retry_after is not None:
                 delay = retry_after
@@ -270,7 +400,7 @@ class LLMBackend:
             delay = self.retry_sleep_seconds * attempt
         if delay > 0:
             time.sleep(delay)
-        return delay
+        return delay, shared_trips, max_shared_cooldown
 
     def generate_batch(self, prompt: str, batch_size: int) -> List[Dict[str, Any]]:
         last_error: Optional[Exception] = None
@@ -278,6 +408,7 @@ class LLMBackend:
         attempt = 0
         while True:
             attempt += 1
+            self._wait_for_shared_throttle()
             try:
                 response = self._create_completion(prompt)
                 raw = (response.choices[0].message.content or "").strip()
@@ -318,10 +449,15 @@ class LLMBackend:
         attempt = 0
         retryable_provider_retries = 0
         retry_sleep_seconds = 0.0
+        shared_throttle_trips = 0
+        shared_throttle_wait_seconds = 0.0
+        max_shared_throttle_cooldown_seconds = 0.0
         while True:
             attempt += 1
+            shared_throttle_wait_seconds += self._wait_for_shared_throttle()
             try:
                 response = self._create_structured_completion(prompt, schema, schema_name)
+                self.shared_throttle_guard.record_success(self.model)
                 raw = (response.choices[0].message.content or "").strip()
                 parsed = json.loads(self._extract_json_candidate(raw))
                 if not isinstance(parsed, dict):
@@ -333,6 +469,9 @@ class LLMBackend:
                     "retry_count": attempt - 1,
                     "retryable_provider_retries": retryable_provider_retries,
                     "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+                    "shared_throttle_trips": shared_throttle_trips,
+                    "shared_throttle_wait_seconds": round(shared_throttle_wait_seconds, 3),
+                    "max_shared_throttle_cooldown_seconds": round(max_shared_throttle_cooldown_seconds, 3),
                     "elapsed_seconds": round(monotonic() - started, 3),
                 }
                 return {"data": parsed, "telemetry": telemetry}
@@ -342,7 +481,10 @@ class LLMBackend:
                     break
                 if self._is_retryable_provider_error(exc):
                     retryable_provider_retries += 1
-                retry_sleep_seconds += self._sleep_before_retry(attempt, exc, started=started)
+                delay, trips, cooldown = self._sleep_before_retry(attempt, exc, started=started)
+                retry_sleep_seconds += delay
+                shared_throttle_trips += trips
+                max_shared_throttle_cooldown_seconds = max(max_shared_throttle_cooldown_seconds, cooldown)
         raise RuntimeError(f"Structured LLM request failed after {attempt} attempts: {last_error}")
 
     def generate_structured_object(

@@ -23,6 +23,14 @@ backend:
     retry_backoff_max_seconds: 120.0
     retry_backoff_multiplier: 2.0
     retry_jitter_ratio: 0.30
+    # Keep isolated 429s on fast per-request retries, but stop a synchronized flood.
+    shared_throttle_enabled: true
+    shared_throttle_burst_threshold: 8
+    shared_throttle_window_seconds: 2.0
+    shared_throttle_initial_cooldown_seconds: 5.0
+    shared_throttle_max_cooldown_seconds: 120.0
+    shared_throttle_multiplier: 2.0
+    shared_throttle_success_reset_count: 32
 
 # Locked raw-token allocation for the 762.5M corpus target:
 #   task_code                    300.0M (39.3442623%)
