@@ -290,16 +290,35 @@ def test_retryable_provider_failure_stops_after_bounded_elapsed(monkeypatch):
     assert len(calls) == 1
 
 
-def test_adaptive_controller_grows_after_sustained_success():
+def test_adaptive_controller_slow_start_doubles_after_a_successful_window():
     controller = AdaptiveRequestController(
-        maximum_in_flight=16, initial_in_flight=4, minimum_in_flight=2,
-        increase_successes_per_step=2, increase_step=4,
+        maximum_in_flight=32, initial_in_flight=4, minimum_in_flight=1,
+        slow_start_enabled=True, slow_start_multiplier=2.0,
     )
 
     assert controller.snapshot()["adaptive_current_in_flight_limit"] == 4
-    assert controller.record_success("model") == (False, 4, 4)
+    for _ in range(3):
+        assert controller.record_success("model") == (False, 4, 4)
     assert controller.record_success("model") == (True, 4, 8)
-    assert controller.snapshot()["adaptive_peak_in_flight_limit"] == 8
+    for _ in range(7):
+        assert controller.record_success("model") == (False, 8, 8)
+    assert controller.record_success("model") == (True, 8, 16)
+    assert controller.snapshot()["adaptive_peak_in_flight_limit"] == 16
+
+
+def test_adaptive_controller_uses_additive_increase_after_a_throttle_burst(monkeypatch):
+    clock = {"now": 0.0}
+    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
+    controller = AdaptiveRequestController(
+        maximum_in_flight=32, initial_in_flight=8, minimum_in_flight=1,
+        slow_start_enabled=True, increase_successes_per_step=2, increase_step=3,
+        rate_limit_burst_threshold=2, cooldown_initial_seconds=0.0,
+    )
+
+    assert controller.record_rate_limit("model") == (False, 8, 8, 0.0)
+    assert controller.record_rate_limit("model") == (True, 8, 4, 0.0)
+    assert controller.record_success("model") == (False, 4, 4)
+    assert controller.record_success("model") == (True, 4, 7)
 
 
 def test_adaptive_controller_reduces_window_after_rate_limit_burst(monkeypatch):
@@ -313,6 +332,26 @@ def test_adaptive_controller_reduces_window_after_rate_limit_burst(monkeypatch):
     assert controller.record_rate_limit("model") == (False, 8, 8, 0.0)
     assert controller.record_rate_limit("model") == (True, 8, 4, 5.0)
     assert controller.snapshot()["adaptive_min_in_flight_limit"] == 4
+
+
+def test_adaptive_controller_ignores_late_429s_from_previous_window(monkeypatch):
+    monkeypatch.setattr(llm_module, "monotonic", lambda: 0.0)
+    controller = AdaptiveRequestController(
+        maximum_in_flight=16, initial_in_flight=8, minimum_in_flight=1,
+        rate_limit_burst_threshold=2, cooldown_initial_seconds=0.0,
+    )
+    _wait, old_generation = controller.acquire()
+    controller.release()
+
+    assert controller.record_rate_limit("model", old_generation) == (False, 8, 8, 0.0)
+    assert controller.record_rate_limit("model", old_generation) == (True, 8, 4, 0.0)
+    # A late response from the old eight-request wave cannot reduce the new window.
+    assert controller.record_rate_limit("model", old_generation) == (False, 4, 4, 0.0)
+    _wait, new_generation = controller.acquire()
+    controller.release()
+    assert new_generation != old_generation
+    assert controller.record_rate_limit("model", new_generation) == (False, 4, 4, 0.0)
+    assert controller.record_rate_limit("model", new_generation) == (True, 4, 2, 0.0)
 
 
 def test_adaptive_controller_limits_active_provider_calls():

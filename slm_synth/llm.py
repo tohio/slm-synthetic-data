@@ -31,11 +31,13 @@ class AdaptiveRequestController:
         *,
         enabled: bool = True,
         maximum_in_flight: int = 1,
-        initial_in_flight: int = 128,
-        minimum_in_flight: int = 16,
-        increase_successes_per_step: int = 32,
-        increase_step: int = 32,
-        rate_limit_burst_threshold: int = 8,
+        initial_in_flight: int = 8,
+        minimum_in_flight: int = 1,
+        slow_start_enabled: bool = True,
+        slow_start_multiplier: float = 2.0,
+        increase_successes_per_step: int = 64,
+        increase_step: int = 16,
+        rate_limit_burst_threshold: int = 4,
         rate_limit_window_seconds: float = 2.0,
         rate_limit_decrease_factor: float = 0.50,
         cooldown_initial_seconds: float = 5.0,
@@ -48,6 +50,8 @@ class AdaptiveRequestController:
         self.initial_in_flight = min(
             self.maximum_in_flight, max(self.minimum_in_flight, int(initial_in_flight))
         )
+        self.slow_start_enabled = bool(slow_start_enabled)
+        self.slow_start_multiplier = max(1.0, float(slow_start_multiplier))
         self.increase_successes_per_step = max(1, int(increase_successes_per_step))
         self.increase_step = max(1, int(increase_step))
         self.rate_limit_burst_threshold = max(1, int(rate_limit_burst_threshold))
@@ -65,9 +69,11 @@ class AdaptiveRequestController:
         self._cooldown_until = 0.0
         self._next_cooldown_seconds = self.cooldown_initial_seconds
         self._successes_since_adjustment = 0
+        self._slow_start = self.enabled and self.slow_start_enabled
+        self._admission_generation = 0
 
-    def acquire(self) -> float:
-        """Wait for admission, then claim one outbound provider slot."""
+    def acquire(self) -> tuple[float, int]:
+        """Wait for admission, then claim one outbound provider slot and its generation."""
         started = monotonic()
         with self._condition:
             while True:
@@ -78,7 +84,7 @@ class AdaptiveRequestController:
                     continue
                 if self._active_requests < self._current_limit:
                     self._active_requests += 1
-                    return max(0.0, monotonic() - started)
+                    return max(0.0, monotonic() - started), self._admission_generation
                 self._condition.wait()
 
     def release(self) -> None:
@@ -88,17 +94,27 @@ class AdaptiveRequestController:
             self._active_requests -= 1
             self._condition.notify_all()
 
-    def record_rate_limit(self, model: str) -> tuple[bool, int, int, float]:
-        """Shrink the window when clustered 429s indicate provider saturation."""
+    def record_rate_limit(
+        self, model: str, admission_generation: int | None = None
+    ) -> tuple[bool, int, int, float]:
+        """Shrink on a current-window 429 burst; ignore stale in-flight fallout."""
         if not self.enabled:
             return False, self.maximum_in_flight, self.maximum_in_flight, 0.0
         now = monotonic()
         with self._condition:
+            if (
+                admission_generation is not None
+                and admission_generation != self._admission_generation
+            ):
+                return False, self._current_limit, self._current_limit, 0.0
+            if now < self._cooldown_until:
+                return False, self._current_limit, self._current_limit, 0.0
             self._events.append(now)
             cutoff = now - self.rate_limit_window_seconds
             while self._events and self._events[0] < cutoff:
                 self._events.popleft()
-            if len(self._events) < self.rate_limit_burst_threshold or now < self._cooldown_until:
+            threshold = min(self.rate_limit_burst_threshold, self._current_limit)
+            if len(self._events) < threshold:
                 return False, self._current_limit, self._current_limit, 0.0
             previous = self._current_limit
             reduced = max(self.minimum_in_flight, int(previous * self.rate_limit_decrease_factor))
@@ -106,6 +122,8 @@ class AdaptiveRequestController:
                 reduced = previous - 1
             self._current_limit = reduced
             self._minimum_observed_limit = min(self._minimum_observed_limit, reduced)
+            self._admission_generation += 1
+            self._slow_start = False
             cooldown = min(self._next_cooldown_seconds, self.cooldown_max_seconds)
             self._cooldown_until = now + cooldown
             self._next_cooldown_seconds = min(cooldown * self.cooldown_multiplier, self.cooldown_max_seconds)
@@ -113,36 +131,53 @@ class AdaptiveRequestController:
             self._events.clear()
             self._condition.notify_all()
         print(
-            f"[llm] Adaptive admission decreased: model={model} "
-            f"events={self.rate_limit_burst_threshold} window={self.rate_limit_window_seconds:.2f}s "
+            f"[llm] Adaptive admission decreased: model={model} mode=aimd "
+            f"events={threshold} window={self.rate_limit_window_seconds:.2f}s "
             f"in_flight_limit={previous}->{reduced} cooldown={cooldown:.2f}s"
         )
         return True, previous, reduced, cooldown
 
-    def record_success(self, model: str) -> tuple[bool, int, int]:
-        """Grow the request window gradually after healthy completed calls."""
+    def record_success(
+        self, model: str, admission_generation: int | None = None
+    ) -> tuple[bool, int, int]:
+        """Use slow start before throttling; use additive recovery afterward."""
         if not self.enabled:
             return False, self.maximum_in_flight, self.maximum_in_flight
         with self._condition:
+            if (
+                admission_generation is not None
+                and admission_generation != self._admission_generation
+            ):
+                return False, self._current_limit, self._current_limit
             if monotonic() < self._cooldown_until:
                 return False, self._current_limit, self._current_limit
             self._successes_since_adjustment += 1
+            required_successes = (
+                self._current_limit if self._slow_start else self.increase_successes_per_step
+            )
             if (
-                self._successes_since_adjustment < self.increase_successes_per_step
+                self._successes_since_adjustment < required_successes
                 or self._current_limit >= self.maximum_in_flight
             ):
                 return False, self._current_limit, self._current_limit
             previous = self._current_limit
-            increased = min(self.maximum_in_flight, previous + self.increase_step)
+            if self._slow_start:
+                increased = min(
+                    self.maximum_in_flight,
+                    max(previous + 1, int(previous * self.slow_start_multiplier)),
+                )
+                mode = "slow_start"
+            else:
+                increased = min(self.maximum_in_flight, previous + self.increase_step)
+                mode = "aimd"
             self._current_limit = increased
             self._peak_limit = max(self._peak_limit, increased)
             self._successes_since_adjustment = 0
             self._next_cooldown_seconds = self.cooldown_initial_seconds
             self._condition.notify_all()
         print(
-            f"[llm] Adaptive admission increased: model={model} "
-            f"in_flight_limit={previous}->{increased} "
-            f"successes={self.increase_successes_per_step}"
+            f"[llm] Adaptive admission increased: model={model} mode={mode} "
+            f"in_flight_limit={previous}->{increased} successes={required_successes}"
         )
         return True, previous, increased
 
@@ -184,11 +219,13 @@ class LLMBackend:
         retry_jitter_ratio: float = 0.30,
         adaptive_concurrency_enabled: bool = True,
         adaptive_maximum_in_flight: int = 1,
-        adaptive_initial_in_flight: int = 128,
-        adaptive_minimum_in_flight: int = 16,
-        adaptive_increase_successes_per_step: int = 32,
-        adaptive_increase_step: int = 32,
-        adaptive_rate_limit_burst_threshold: int = 8,
+        adaptive_initial_in_flight: int = 8,
+        adaptive_minimum_in_flight: int = 1,
+        adaptive_slow_start_enabled: bool = True,
+        adaptive_slow_start_multiplier: float = 2.0,
+        adaptive_increase_successes_per_step: int = 64,
+        adaptive_increase_step: int = 16,
+        adaptive_rate_limit_burst_threshold: int = 4,
         adaptive_rate_limit_window_seconds: float = 2.0,
         adaptive_rate_limit_decrease_factor: float = 0.50,
         adaptive_cooldown_initial_seconds: float = 5.0,
@@ -237,6 +274,8 @@ class LLMBackend:
             maximum_in_flight=adaptive_maximum_in_flight,
             initial_in_flight=adaptive_initial_in_flight,
             minimum_in_flight=adaptive_minimum_in_flight,
+            slow_start_enabled=adaptive_slow_start_enabled,
+            slow_start_multiplier=adaptive_slow_start_multiplier,
             increase_successes_per_step=adaptive_increase_successes_per_step,
             increase_step=adaptive_increase_step,
             rate_limit_burst_threshold=adaptive_rate_limit_burst_threshold,
@@ -287,6 +326,8 @@ class LLMBackend:
             adaptive_maximum_in_flight=self.adaptive_controller.maximum_in_flight,
             adaptive_initial_in_flight=self.adaptive_controller.initial_in_flight,
             adaptive_minimum_in_flight=self.adaptive_controller.minimum_in_flight,
+            adaptive_slow_start_enabled=self.adaptive_controller.slow_start_enabled,
+            adaptive_slow_start_multiplier=self.adaptive_controller.slow_start_multiplier,
             adaptive_increase_successes_per_step=self.adaptive_controller.increase_successes_per_step,
             adaptive_increase_step=self.adaptive_controller.increase_step,
             adaptive_rate_limit_burst_threshold=self.adaptive_controller.rate_limit_burst_threshold,
@@ -420,7 +461,7 @@ class LLMBackend:
             except (TypeError, ValueError, OverflowError):
                 return None
 
-    def _acquire_provider_slot(self) -> float:
+    def _acquire_provider_slot(self) -> tuple[float, int]:
         return self.adaptive_controller.acquire()
 
     def _release_provider_slot(self) -> None:
@@ -434,12 +475,16 @@ class LLMBackend:
             )
         return attempt < self.max_request_retries
 
-    def _sleep_before_retry(self, attempt: int, exc: Exception, *, started: float) -> tuple[float, int, float]:
+    def _sleep_before_retry(
+        self, attempt: int, exc: Exception, *, started: float, admission_generation: int | None = None
+    ) -> tuple[float, int, float]:
         adaptive_window_decreases = 0
         max_adaptive_cooldown_seconds = 0.0
         if self._is_retryable_provider_error(exc):
             if self._is_capacity_or_rate_error(exc):
-                decreased, _previous, _current, cooldown = self.adaptive_controller.record_rate_limit(self.model)
+                decreased, _previous, _current, cooldown = self.adaptive_controller.record_rate_limit(
+                    self.model, admission_generation
+                )
                 if decreased:
                     adaptive_window_decreases = 1
                     max_adaptive_cooldown_seconds = cooldown
@@ -470,13 +515,13 @@ class LLMBackend:
         attempt = 0
         while True:
             attempt += 1
-            self._acquire_provider_slot()
+            _admission_wait, admission_generation = self._acquire_provider_slot()
             try:
                 response = self._create_completion(prompt)
             except Exception as exc:
                 last_error = exc
             else:
-                self.adaptive_controller.record_success(self.model)
+                self.adaptive_controller.record_success(self.model, admission_generation)
                 raw = (response.choices[0].message.content or "").strip()
                 try:
                     return self._parse_items(raw, batch_size)
@@ -486,7 +531,9 @@ class LLMBackend:
                 self._release_provider_slot()
             if not self._can_retry(attempt, started, last_error):
                 break
-            self._sleep_before_retry(attempt, last_error, started=started)
+            self._sleep_before_retry(
+                attempt, last_error, started=started, admission_generation=admission_generation
+            )
         raise RuntimeError(f"LLM batch failed after {attempt} attempts: {last_error}")
 
     @staticmethod
@@ -524,14 +571,17 @@ class LLMBackend:
         max_adaptive_cooldown_seconds = 0.0
         while True:
             attempt += 1
-            adaptive_admission_wait_seconds += self._acquire_provider_slot()
+            admission_wait, admission_generation = self._acquire_provider_slot()
+            adaptive_admission_wait_seconds += admission_wait
             response: Any | None = None
             try:
                 response = self._create_structured_completion(prompt, schema, schema_name)
             except Exception as exc:
                 last_error = exc
             else:
-                increased, _previous, _current = self.adaptive_controller.record_success(self.model)
+                increased, _previous, _current = self.adaptive_controller.record_success(
+                    self.model, admission_generation
+                )
                 if increased:
                     adaptive_window_increases += 1
                 try:
@@ -562,7 +612,9 @@ class LLMBackend:
                 break
             if self._is_retryable_provider_error(last_error):
                 retryable_provider_retries += 1
-            delay, decreases, cooldown = self._sleep_before_retry(attempt, last_error, started=started)
+            delay, decreases, cooldown = self._sleep_before_retry(
+                attempt, last_error, started=started, admission_generation=admission_generation
+            )
             retry_sleep_seconds += delay
             adaptive_window_decreases += decreases
             max_adaptive_cooldown_seconds = max(max_adaptive_cooldown_seconds, cooldown)

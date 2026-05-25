@@ -23,13 +23,17 @@ backend:
     retry_backoff_max_seconds: 120.0
     retry_backoff_multiplier: 2.0
     retry_jitter_ratio: 0.30
-    # CONCURRENCY is a ceiling; adaptive admission controls live provider pressure.
+    # CONCURRENCY is a ceiling; adaptive admission discovers live provider capacity.
     adaptive_concurrency_enabled: true
-    adaptive_initial_in_flight: 128
-    adaptive_minimum_in_flight: 16
-    adaptive_increase_successes_per_step: 32
-    adaptive_increase_step: 32
-    adaptive_rate_limit_burst_threshold: 8
+    adaptive_initial_in_flight: 8
+    adaptive_minimum_in_flight: 1
+    # Before the first throttle burst, double after one fully successful live window.
+    adaptive_slow_start_enabled: true
+    adaptive_slow_start_multiplier: 2.0
+    # After any throttle burst, recover conservatively with AIMD increases.
+    adaptive_increase_successes_per_step: 64
+    adaptive_increase_step: 16
+    adaptive_rate_limit_burst_threshold: 4
     adaptive_rate_limit_window_seconds: 2.0
     adaptive_rate_limit_decrease_factor: 0.50
     adaptive_cooldown_initial_seconds: 5.0
