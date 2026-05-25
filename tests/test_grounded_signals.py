@@ -1,4 +1,5 @@
 import json
+from collections import Counter, defaultdict
 
 import pytest
 
@@ -157,6 +158,27 @@ def test_general_vocabulary_context_uses_adjective_compatible_subjects_without_l
 
     fingerprints = {artifact_fingerprint(row) for row in rows}
     assert len(fingerprints) == len(rows)
+
+
+def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_family():
+    factory = EducationalQAMCQGeneralArtifactFactory()
+    row_count = len(factory.FAMILIES) * 512
+    rows = [factory.build(index) for index in range(row_count)]
+    replay = [factory.build(index) for index in range(row_count)]
+
+    assert [row.payload["choices"] for row in rows] == [row.payload["choices"] for row in replay]
+    assert [row.payload["correct_index"] for row in rows] == [row.payload["correct_index"] for row in replay]
+    assert all(row.payload["choices"][row.payload["correct_index"]] == row.payload["answer"] for row in rows)
+
+    distribution = Counter(row.payload["correct_index"] for row in rows)
+    assert set(distribution) == {0, 1, 2, 3}
+    assert all(0.20 <= count / row_count <= 0.30 for count in distribution.values())
+
+    family_positions = defaultdict(set)
+    for row in rows:
+        family_positions[row.family].add(row.payload["correct_index"])
+    assert set(family_positions) == set(factory.FAMILIES)
+    assert all(positions == {0, 1, 2, 3} for positions in family_positions.values())
 
 
 def test_all_grounded_generators_render_complete_batches():

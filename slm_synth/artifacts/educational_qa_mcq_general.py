@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 from slm_synth.artifacts.base import GroundedArtifact
 from slm_synth.artifacts.lexicon import CITIES, FIRST_NAMES, LAST_NAMES, ORGANIZATION_NAMES, VENUES, full_name
 
@@ -61,7 +63,17 @@ class EducationalQAMCQGeneralArtifactFactory:
     def build(self, index: int) -> GroundedArtifact:
         family = self.FAMILIES[index % len(self.FAMILIES)]
         payload = getattr(self, f"_build_{family}")(index // len(self.FAMILIES))
+        self._shuffle_choices(payload, index)
         return GroundedArtifact("educational_qa_mcq_general", family, f"educational_qa_mcq_general_{family}_{index + 1:09d}", payload)
+
+    @staticmethod
+    def _shuffle_choices(payload: dict[str, object], index: int) -> None:
+        """Deterministically randomize choice positions without changing the answer."""
+        choices = list(payload["choices"])
+        answer = str(payload["answer"])
+        random.Random(f"educational_qa_mcq_general:{index}").shuffle(choices)
+        payload["choices"] = choices
+        payload["correct_index"] = choices.index(answer)
 
     @staticmethod
     def _record(evidence: str, question: str, choices: list[str], answer: str) -> dict[str, object]:
