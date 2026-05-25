@@ -135,9 +135,9 @@ def test_general_vocabulary_context_uses_adjective_compatible_subjects_without_l
     assert all(len(subjects) == len(factory.OBJECTS) for subjects in factory.VOCABULARY_SUBJECTS.values())
     assert all(len(set(subjects)) == len(subjects) for subjects in factory.VOCABULARY_SUBJECTS.values())
 
-    # Vocabulary is family index 2 in each eight-family cycle. Exercise every
-    # adjective against every subject variant used in its deterministic cycle.
-    rows = [factory.build(2 + 8 * index) for index in range(len(factory.ADJECTIVE_CONTEXT) * len(factory.OBJECTS))]
+    # Exercise every adjective against every subject variant used in its deterministic cycle.
+    family_offset = factory.FAMILIES.index("vocabulary")
+    rows = [factory.build(family_offset + len(factory.FAMILIES) * index) for index in range(len(factory.ADJECTIVE_CONTEXT) * len(factory.OBJECTS))]
     assert {row.family for row in rows} == {"vocabulary"}
 
     for row in rows:
@@ -158,6 +158,33 @@ def test_general_vocabulary_context_uses_adjective_compatible_subjects_without_l
 
     fingerprints = {artifact_fingerprint(row) for row in rows}
     assert len(fingerprints) == len(rows)
+
+
+def test_general_mcq_expands_material_reasoning_families_for_scaled_generation():
+    factory = EducationalQAMCQGeneralArtifactFactory()
+    rows = [factory.build(index) for index in range(len(factory.FAMILIES) * 128)]
+
+    assert len(factory.FAMILIES) >= 24
+    assert len({row.family for row in rows}) == len(factory.FAMILIES)
+    assert max(Counter(row.family for row in rows).values()) / len(rows) <= 0.05
+
+    new_families = {
+        "final_location", "table_lookup", "threshold_rule", "temporal_order",
+        "direction_following", "conditional_access", "comparison_claim", "category_rule",
+        "cause_inference", "schedule_availability", "inventory_shortage", "source_attribution",
+        "procedure_step", "exception_rule", "trend_interpretation", "revision_tracking",
+    }
+    assert new_families.issubset(set(factory.FAMILIES))
+    assert all(row.payload["choices"][row.payload["correct_index"]] == row.payload["answer"] for row in rows)
+    assert all(len(set(row.payload["choices"])) == 4 for row in rows)
+
+    for family in new_families:
+        family_rows = [row for row in rows if row.family == family]
+        signatures = {
+            (row.payload["question"], tuple(sorted(row.payload["choices"])), row.payload["answer"])
+            for row in family_rows
+        }
+        assert len(signatures) == len(family_rows)
 
 
 def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_family():
