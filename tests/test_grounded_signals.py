@@ -237,10 +237,12 @@ def test_batch_store_persists_telemetry(tmp_path):
     store = GroundedBatchStore(tmp_path, "factual_restraint")
     store.write_completed(
         batch_id=0, artifacts=artifacts, records=records,
-        telemetry={"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cost": 0.01}, "elapsed_seconds": 1.5, "retry_count": 1},
+        telemetry={"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cost": 0.01}, "elapsed_seconds": 1.5, "retry_count": 1, "retryable_provider_retries": 1, "retry_sleep_seconds": 4.5},
     )
     assert store.telemetry_summary()["total_tokens"] == 30
     assert store.telemetry_summary()["cost"] == 0.01
+    assert store.telemetry_summary()["retryable_provider_retries"] == 1
+    assert store.telemetry_summary()["retry_sleep_seconds"] == 4.5
 
 
 def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tmp_path):
@@ -279,11 +281,11 @@ def test_run_signal_rejects_batch_size_above_qualification_limit(tmp_path):
         generate.run_signal("factual_restraint", cfg, tmp_path)
 
 
-def test_run_signal_supports_concurrency_128_for_qualification(monkeypatch, tmp_path):
+def test_run_signal_supports_concurrency_1024_for_qualification(monkeypatch, tmp_path):
     cfg = {
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
-        "generation": {"batch_size": 32, "parallel_requests": 128},
+        "generation": {"batch_size": 32, "parallel_requests": 1024},
         "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
     }
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
@@ -295,8 +297,8 @@ def test_run_signal_rejects_concurrency_above_qualification_limit(tmp_path):
     cfg = {
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
-        "generation": {"batch_size": 32, "parallel_requests": 129},
+        "generation": {"batch_size": 32, "parallel_requests": 1025},
         "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
     }
-    with pytest.raises(ValueError, match="parallel_requests between 1 and 128"):
+    with pytest.raises(ValueError, match="parallel_requests between 1 and 1024"):
         generate.run_signal("factual_restraint", cfg, tmp_path)

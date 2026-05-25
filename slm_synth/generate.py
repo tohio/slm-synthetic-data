@@ -34,7 +34,7 @@ GENERATOR_MAP = {
 MIN_GROUNDED_BATCH_SIZE = 1
 MAX_GROUNDED_BATCH_SIZE = 64
 MIN_GROUNDED_PARALLEL_REQUESTS = 1
-MAX_GROUNDED_PARALLEL_REQUESTS = 128
+MAX_GROUNDED_PARALLEL_REQUESTS = 1024
 
 
 def _expand_path(path: str) -> Path:
@@ -87,6 +87,8 @@ def build_llm(
         service_tier=signal_cfg.get("service_tier", base_cfg.get("service_tier")),
         request_timeout=base_cfg.get("request_timeout_seconds"),
         max_request_retries=int(retry_cfg.get("max_request_retries", 3)),
+        max_retryable_request_attempts=int(retry_cfg.get("max_retryable_request_attempts", 20)),
+        retry_max_elapsed_seconds=float(retry_cfg.get("retry_max_elapsed_seconds", 1800.0)),
         retry_sleep_seconds=float(retry_cfg.get("retry_sleep_seconds", 0.5)),
         retry_backoff_initial_seconds=float(retry_cfg.get("retry_backoff_initial_seconds", 1.0)),
         retry_backoff_max_seconds=float(retry_cfg.get("retry_backoff_max_seconds", 30.0)),
@@ -237,6 +239,8 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         print(
             f"[generate] Completed grounded signal: {name} rows={existing_rows}, target_rows={rounded_rows}, "
             f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
+            f"provider_retries={metrics['retryable_provider_retries']}, "
+            f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "
             f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
         )
         reject_writer.close()
@@ -306,6 +310,8 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         f"[generate] Completed grounded signal: {name} rows={store.materialize_raw()}, "
         f"target_rows={rounded_rows}, batches={metrics['batches']}, "
         f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
+        f"provider_retries={metrics['retryable_provider_retries']}, "
+        f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "
         f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
     )
 

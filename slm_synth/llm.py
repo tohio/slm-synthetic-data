@@ -5,6 +5,8 @@ import os
 import random
 import re
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from time import monotonic
 from typing import Any, Dict, List, Optional
 
@@ -34,6 +36,8 @@ class LLMBackend:
         service_tier: Optional[str] = None,
         request_timeout: Optional[float] = None,
         max_request_retries: int = 3,
+        max_retryable_request_attempts: int = 20,
+        retry_max_elapsed_seconds: float = 1800.0,
         retry_sleep_seconds: float = 0.5,
         retry_backoff_initial_seconds: float = 1.0,
         retry_backoff_max_seconds: float = 30.0,
@@ -70,6 +74,8 @@ class LLMBackend:
         self.service_tier = service_tier
         self.request_timeout = request_timeout
         self.max_request_retries = int(max_request_retries)
+        self.max_retryable_request_attempts = int(max_retryable_request_attempts)
+        self.retry_max_elapsed_seconds = float(retry_max_elapsed_seconds)
         self.retry_sleep_seconds = float(retry_sleep_seconds)
         self.retry_backoff_initial_seconds = float(retry_backoff_initial_seconds)
         self.retry_backoff_max_seconds = float(retry_backoff_max_seconds)
@@ -105,6 +111,8 @@ class LLMBackend:
             service_tier=self.service_tier if service_tier is None else service_tier,
             request_timeout=self.request_timeout,
             max_request_retries=self.max_request_retries,
+            max_retryable_request_attempts=self.max_retryable_request_attempts,
+            retry_max_elapsed_seconds=self.retry_max_elapsed_seconds,
             retry_sleep_seconds=self.retry_sleep_seconds,
             retry_backoff_initial_seconds=self.retry_backoff_initial_seconds,
             retry_backoff_max_seconds=self.retry_backoff_max_seconds,
@@ -212,29 +220,74 @@ class LLMBackend:
             "error code: 503", "error code: 504", " 500 ", " 502 ", " 503 ", " 504 ",
         ))
 
-    def _sleep_before_retry(self, attempt: int, exc: Exception) -> None:
-        if self._is_capacity_or_rate_error(exc) or self._is_transient_transport_error(exc):
-            delay = min(
-                self.retry_backoff_max_seconds,
-                self.retry_backoff_initial_seconds * (self.retry_backoff_multiplier ** max(0, attempt - 1)),
+    def _is_retryable_provider_error(self, exc: Exception) -> bool:
+        return self._is_capacity_or_rate_error(exc) or self._is_transient_transport_error(exc)
+
+    @staticmethod
+    def _retry_after_seconds(exc: Exception) -> float | None:
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", None) or {}
+        value = headers.get("retry-after") or headers.get("Retry-After")
+        if value is None:
+            return None
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(str(value))
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                return None
+
+    def _can_retry(self, attempt: int, started: float, exc: Exception) -> bool:
+        if self._is_retryable_provider_error(exc):
+            return (
+                attempt < self.max_retryable_request_attempts
+                and monotonic() - started < self.retry_max_elapsed_seconds
             )
-            time.sleep(delay + delay * max(0.0, self.retry_jitter_ratio) * random.random())
-            return
-        time.sleep(self.retry_sleep_seconds * attempt)
+        return attempt < self.max_request_retries
+
+    def _sleep_before_retry(self, attempt: int, exc: Exception, *, started: float) -> float:
+        if self._is_retryable_provider_error(exc):
+            retry_after = self._retry_after_seconds(exc)
+            if retry_after is not None:
+                delay = retry_after
+            else:
+                base_delay = min(
+                    self.retry_backoff_max_seconds,
+                    self.retry_backoff_initial_seconds * (self.retry_backoff_multiplier ** max(0, attempt - 1)),
+                )
+                delay = base_delay + base_delay * max(0.0, self.retry_jitter_ratio) * random.random()
+            remaining = max(0.0, self.retry_max_elapsed_seconds - (monotonic() - started))
+            delay = min(delay, remaining)
+            print(
+                f"[llm] Retryable provider failure: model={self.model} attempt={attempt}/"
+                f"{self.max_retryable_request_attempts} delay={delay:.2f}s error={str(exc)[:180]!r}"
+            )
+        else:
+            delay = self.retry_sleep_seconds * attempt
+        if delay > 0:
+            time.sleep(delay)
+        return delay
 
     def generate_batch(self, prompt: str, batch_size: int) -> List[Dict[str, Any]]:
         last_error: Optional[Exception] = None
-        for attempt in range(1, self.max_request_retries + 1):
+        started = monotonic()
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 response = self._create_completion(prompt)
                 raw = (response.choices[0].message.content or "").strip()
                 return self._parse_items(raw, batch_size)
             except Exception as exc:
                 last_error = exc
-                if attempt >= self.max_request_retries:
+                if not self._can_retry(attempt, started, exc):
                     break
-                self._sleep_before_retry(attempt, exc)
-        raise RuntimeError(f"LLM batch failed after {self.max_request_retries} attempts: {last_error}")
+                self._sleep_before_retry(attempt, exc, started=started)
+        raise RuntimeError(f"LLM batch failed after {attempt} attempts: {last_error}")
 
     @staticmethod
     def _usage_dict(response: Any) -> dict[str, Any]:
@@ -262,7 +315,11 @@ class LLMBackend:
         """Generate a strict object and retain operational telemetry for persisted batches."""
         last_error: Optional[Exception] = None
         started = monotonic()
-        for attempt in range(1, self.max_request_retries + 1):
+        attempt = 0
+        retryable_provider_retries = 0
+        retry_sleep_seconds = 0.0
+        while True:
+            attempt += 1
             try:
                 response = self._create_structured_completion(prompt, schema, schema_name)
                 raw = (response.choices[0].message.content or "").strip()
@@ -274,15 +331,19 @@ class LLMBackend:
                     "provider": (getattr(response, "model_extra", None) or {}).get("provider"),
                     "usage": self._usage_dict(response),
                     "retry_count": attempt - 1,
+                    "retryable_provider_retries": retryable_provider_retries,
+                    "retry_sleep_seconds": round(retry_sleep_seconds, 3),
                     "elapsed_seconds": round(monotonic() - started, 3),
                 }
                 return {"data": parsed, "telemetry": telemetry}
             except Exception as exc:
                 last_error = exc
-                if attempt >= self.max_request_retries:
+                if not self._can_retry(attempt, started, exc):
                     break
-                self._sleep_before_retry(attempt, exc)
-        raise RuntimeError(f"Structured LLM request failed after {self.max_request_retries} attempts: {last_error}")
+                if self._is_retryable_provider_error(exc):
+                    retryable_provider_retries += 1
+                retry_sleep_seconds += self._sleep_before_retry(attempt, exc, started=started)
+        raise RuntimeError(f"Structured LLM request failed after {attempt} attempts: {last_error}")
 
     def generate_structured_object(
         self,

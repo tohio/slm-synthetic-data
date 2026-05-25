@@ -23,11 +23,11 @@ def test_configure_allows_max_qualification_batch_concurrency_and_output_tokens(
         monkeypatch,
         tmp_path,
         "--batch-size", "64",
-        "--concurrency", "128",
+        "--concurrency", "1024",
         "--max-tokens", "16384",
     )
     assert cfg["generation"]["batch_size"] == 64
-    assert cfg["generation"]["parallel_requests"] == 128
+    assert cfg["generation"]["parallel_requests"] == 1024
     assert cfg["backend"]["max_tokens"] == 16384
     assert all(signal["batch_size"] == 64 for signal in cfg["mix"].values())
 
@@ -36,7 +36,7 @@ def test_configure_allows_max_qualification_batch_concurrency_and_output_tokens(
     ("arguments", "message"),
     [
         (("--batch-size", "65"), "--batch-size must be between 1 and 64"),
-        (("--concurrency", "129"), "--concurrency must be between 1 and 128"),
+        (("--concurrency", "1025"), "--concurrency must be between 1 and 1024"),
     ],
 )
 def test_configure_rejects_throughput_values_above_qualification_limits(monkeypatch, tmp_path, arguments, message):

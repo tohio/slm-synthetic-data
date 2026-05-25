@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import slm_synth.llm as llm_module
 from slm_synth.llm import LLMBackend
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
@@ -186,3 +189,101 @@ def test_parse_legacy_json_array_without_api_call():
     raw = '[{"candidate_id":0,"answer":"A"}]'
     objs = LLMBackend._parse_items(backend, raw, 1)
     assert objs[0]["answer"] == "A"
+
+
+class RetryableProviderError(RuntimeError):
+    def __init__(self, message="Error code: 429 - temporarily rate-limited upstream", retry_after=None):
+        super().__init__(message)
+        headers = {} if retry_after is None else {"Retry-After": str(retry_after)}
+        self.response = SimpleNamespace(headers=headers)
+
+
+def _backend_for_retry_test():
+    backend = LLMBackend.__new__(LLMBackend)
+    backend.model = "deepseek/deepseek-v4-flash"
+    backend.max_request_retries = 1
+    backend.max_retryable_request_attempts = 4
+    backend.retry_max_elapsed_seconds = 1800.0
+    backend.retry_sleep_seconds = 0.0
+    backend.retry_backoff_initial_seconds = 2.0
+    backend.retry_backoff_max_seconds = 120.0
+    backend.retry_backoff_multiplier = 2.0
+    backend.retry_jitter_ratio = 0.0
+    return backend
+
+
+def _structured_response():
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"records": []}'))],
+        model="deepseek/deepseek-v4-flash",
+        model_extra={"provider": "DeepInfra"},
+        usage=None,
+    )
+
+
+def test_structured_generation_extends_retry_budget_for_rate_limits(monkeypatch):
+    backend = _backend_for_retry_test()
+    calls = []
+    sleeps = []
+
+    def create(*args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            raise RetryableProviderError(retry_after=7)
+        return _structured_response()
+
+    backend._create_structured_completion = create
+    monkeypatch.setattr(llm_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = backend.generate_structured_object_with_metadata(
+        prompt="prompt", schema={}, schema_name="schema"
+    )
+
+    assert len(calls) == 3
+    assert sleeps == [7.0, 7.0]
+    assert result["telemetry"]["retry_count"] == 2
+    assert result["telemetry"]["retryable_provider_retries"] == 2
+    assert result["telemetry"]["retry_sleep_seconds"] == 14.0
+
+
+def test_non_provider_failures_keep_short_retry_budget(monkeypatch):
+    backend = _backend_for_retry_test()
+    backend.max_request_retries = 2
+    calls = []
+    monkeypatch.setattr(llm_module.time, "sleep", lambda seconds: None)
+
+    def create(*args, **kwargs):
+        calls.append(1)
+        raise ValueError("bad structured payload")
+
+    backend._create_structured_completion = create
+    try:
+        backend.generate_structured_object_with_metadata(prompt="prompt", schema={}, schema_name="schema")
+    except RuntimeError as exc:
+        assert "after 2 attempts" in str(exc)
+    else:
+        raise AssertionError("expected structured generation failure")
+    assert len(calls) == 2
+
+
+def test_retryable_provider_failure_stops_after_bounded_elapsed(monkeypatch):
+    backend = _backend_for_retry_test()
+    backend.max_retryable_request_attempts = 20
+    backend.retry_max_elapsed_seconds = 5.0
+    calls = []
+    clock = iter([0.0, 6.0])
+    monkeypatch.setattr(llm_module, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(llm_module.time, "sleep", lambda seconds: None)
+
+    def create(*args, **kwargs):
+        calls.append(1)
+        raise RetryableProviderError()
+
+    backend._create_structured_completion = create
+    try:
+        backend.generate_structured_object_with_metadata(prompt="prompt", schema={}, schema_name="schema")
+    except RuntimeError as exc:
+        assert "after 1 attempts" in str(exc)
+    else:
+        raise AssertionError("expected bounded provider retry failure")
+    assert len(calls) == 1

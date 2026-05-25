@@ -162,6 +162,8 @@ class GroundedBatchStore:
         cost = 0.0
         elapsed_seconds = 0.0
         retries = 0
+        retryable_provider_retries = 0
+        retry_sleep_seconds = 0.0
         for path in self._completed_paths():
             telemetry = self._load(path).get("telemetry", {}) or {}
             usage = telemetry.get("usage", {}) or {}
@@ -172,6 +174,8 @@ class GroundedBatchStore:
             cost += float(usage.get("cost", 0.0) or 0.0)
             elapsed_seconds += float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
             retries += int(telemetry.get("retry_count", 0) or 0)
+            retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
+            retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
         for batch_id in self.failed_batch_ids():
             payload = self._load(self._failed_path(batch_id))
             telemetry = payload.get("telemetry", {}) or {}
@@ -184,11 +188,14 @@ class GroundedBatchStore:
             cost += float(usage.get("cost", 0.0) or 0.0)
             elapsed_seconds += float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
             retries += int(telemetry.get("retry_count", 0) or 0)
+            retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
+            retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
         return {
             "batches": batches, "dropped_batches": dropped_batches, "dropped_rows": dropped_rows,
             "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
             "total_tokens": total_tokens, "cost": cost, "elapsed_seconds": elapsed_seconds,
-            "retry_count": retries,
+            "retry_count": retries, "retryable_provider_retries": retryable_provider_retries,
+            "retry_sleep_seconds": retry_sleep_seconds,
         }
 
 
