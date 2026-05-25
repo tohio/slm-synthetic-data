@@ -29,21 +29,53 @@ FACTORY_MAP = {
 }
 
 
+class GroundedRenderedBatchError(ValueError):
+    """A completed renderer response whose records cannot safely be persisted."""
+
+    def __init__(
+        self,
+        *,
+        signal: str,
+        batch_id: int,
+        artifacts: list[GroundedArtifact],
+        telemetry: dict[str, Any],
+        reason: str,
+        returned_artifact_ids: list[Any] | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.signal = signal
+        self.batch_id = int(batch_id)
+        self.artifacts = artifacts
+        self.telemetry = telemetry or {}
+        self.returned_artifact_ids = returned_artifact_ids
+
+
 class GroundedBatchStore:
     """Persist completed model requests atomically and rebuild raw JSONL safely."""
 
     def __init__(self, output_dir: Path, signal: str):
         self.signal = signal
         self.batch_dir = output_dir / "manifests" / "grounded" / signal / "batches"
+        self.failed_batch_dir = output_dir / "manifests" / "grounded" / signal / "failed_batches"
         self.raw_path = output_dir / "raw" / f"{signal}.jsonl"
         self.batch_dir.mkdir(parents=True, exist_ok=True)
+        self.failed_batch_dir.mkdir(parents=True, exist_ok=True)
         self.raw_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _path(self, batch_id: int) -> Path:
         return self.batch_dir / f"batch_{batch_id:09d}.json"
 
+    def _failed_path(self, batch_id: int) -> Path:
+        return self.failed_batch_dir / f"batch_{batch_id:09d}.json"
+
     def completed_batch_ids(self) -> list[int]:
         return sorted(int(path.stem.split("_")[1]) for path in self.batch_dir.glob("batch_*.json"))
+
+    def failed_batch_ids(self) -> list[int]:
+        return sorted(int(path.stem.split("_")[1]) for path in self.failed_batch_dir.glob("batch_*.json"))
+
+    def terminal_batch_ids(self) -> list[int]:
+        return sorted(set(self.completed_batch_ids()) | set(self.failed_batch_ids()))
 
     def write_completed(
         self,
@@ -62,6 +94,36 @@ class GroundedBatchStore:
             "telemetry": telemetry or {},
         }
         final_path = self._path(batch_id)
+        temp_path = final_path.with_suffix(".tmp")
+        with temp_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, final_path)
+
+    def write_failed(
+        self,
+        *,
+        batch_id: int,
+        planned_rows: int,
+        artifacts: list[GroundedArtifact],
+        error: Exception,
+        telemetry: dict[str, Any] | None = None,
+        returned_artifact_ids: list[Any] | None = None,
+    ) -> None:
+        payload = {
+            "batch_id": int(batch_id),
+            "signal": self.signal,
+            "status": "dropped_transient_rendered_failure",
+            "planned_rows": int(planned_rows),
+            "artifact_ids": [artifact.artifact_id for artifact in artifacts],
+            "artifacts": [asdict(artifact) for artifact in artifacts],
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "returned_artifact_ids": returned_artifact_ids,
+            "telemetry": telemetry or {},
+        }
+        final_path = self._failed_path(batch_id)
         temp_path = final_path.with_suffix(".tmp")
         with temp_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False)
@@ -92,6 +154,8 @@ class GroundedBatchStore:
 
     def telemetry_summary(self) -> dict[str, float | int]:
         batches = 0
+        dropped_batches = 0
+        dropped_rows = 0
         prompt_tokens = 0
         completion_tokens = 0
         total_tokens = 0
@@ -108,11 +172,25 @@ class GroundedBatchStore:
             cost += float(usage.get("cost", 0.0) or 0.0)
             elapsed_seconds += float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
             retries += int(telemetry.get("retry_count", 0) or 0)
+        for batch_id in self.failed_batch_ids():
+            payload = self._load(self._failed_path(batch_id))
+            telemetry = payload.get("telemetry", {}) or {}
+            usage = telemetry.get("usage", {}) or {}
+            dropped_batches += 1
+            dropped_rows += int(payload.get("planned_rows", 0) or 0)
+            prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+            completion_tokens += int(usage.get("completion_tokens", 0) or 0)
+            total_tokens += int(usage.get("total_tokens", 0) or 0)
+            cost += float(usage.get("cost", 0.0) or 0.0)
+            elapsed_seconds += float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
+            retries += int(telemetry.get("retry_count", 0) or 0)
         return {
-            "batches": batches, "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens, "total_tokens": total_tokens,
-            "cost": cost, "elapsed_seconds": elapsed_seconds, "retry_count": retries,
+            "batches": batches, "dropped_batches": dropped_batches, "dropped_rows": dropped_rows,
+            "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens, "cost": cost, "elapsed_seconds": elapsed_seconds,
+            "retry_count": retries,
         }
+
 
 
 class GroundedSignalGenerator:
@@ -254,11 +332,23 @@ class GroundedSignalGenerator:
                 schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
             )
             telemetry = {}
-        rows = response.get("records") if isinstance(response, dict) else None
-        if not isinstance(rows, list) or len(rows) != self.batch_size:
-            raise ValueError(f"Expected {self.batch_size} grounded {self.signal} records")
-        expected = {artifact.artifact_id: artifact for artifact in artifacts}
-        returned_ids = [row.get("artifact_id") for row in rows if isinstance(row, dict)]
-        if len(returned_ids) != len(set(returned_ids)) or set(returned_ids) != set(expected):
-            raise ValueError(f"Grounded {self.signal} response has missing, duplicate, or unexpected artifact IDs")
-        return artifacts, [self._finalize(expected[row["artifact_id"]], row) for row in rows], telemetry
+        returned_ids: list[Any] | None = None
+        try:
+            rows = response.get("records") if isinstance(response, dict) else None
+            if not isinstance(rows, list) or len(rows) != self.batch_size:
+                raise ValueError(f"Expected {self.batch_size} grounded {self.signal} records")
+            expected = {artifact.artifact_id: artifact for artifact in artifacts}
+            returned_ids = [row.get("artifact_id") for row in rows if isinstance(row, dict)]
+            if len(returned_ids) != len(set(returned_ids)) or set(returned_ids) != set(expected):
+                raise ValueError(f"Grounded {self.signal} response has missing, duplicate, or unexpected artifact IDs")
+            records = [self._finalize(expected[row["artifact_id"]], row) for row in rows]
+        except ValueError as exc:
+            raise GroundedRenderedBatchError(
+                signal=self.signal,
+                batch_id=batch_id,
+                artifacts=artifacts,
+                telemetry=telemetry,
+                reason=str(exc),
+                returned_artifact_ids=returned_ids,
+            ) from exc
+        return artifacts, records, telemetry

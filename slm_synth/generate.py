@@ -19,7 +19,7 @@ from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenera
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.writer import JSONLWriter
-from slm_synth.grounded import GroundedBatchStore, GroundedSignalGenerator
+from slm_synth.grounded import GroundedBatchStore, GroundedRenderedBatchError, GroundedSignalGenerator
 
 load_dotenv()
 
@@ -223,8 +223,8 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     store = GroundedBatchStore(output_dir, name)
     reject_writer = JSONLWriter(output_dir / "rejected" / f"{name}.jsonl")
 
-    completed = set(store.completed_batch_ids())
-    pending_ids = [batch_id for batch_id in range(total_batches) if batch_id not in completed]
+    terminal = set(store.terminal_batch_ids())
+    pending_ids = [batch_id for batch_id in range(total_batches) if batch_id not in terminal]
     existing_rows = store.materialize_raw()
     print(
         f"[generate] Starting grounded signal: {name} "
@@ -234,7 +234,11 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     )
     if not pending_ids:
         metrics = store.telemetry_summary()
-        print(f"[generate] Completed grounded signal: {name} rows={existing_rows}, target_rows={rounded_rows}, cost={metrics['cost']:.8f}")
+        print(
+            f"[generate] Completed grounded signal: {name} rows={existing_rows}, target_rows={rounded_rows}, "
+            f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
+            f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
+        )
         reject_writer.close()
         return
 
@@ -260,10 +264,28 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
                         usage = telemetry.get("usage", {}) if telemetry else {}
                         cost = float(usage.get("cost", 0.0) or 0.0)
                         print(f"[generate] {name}: batch={batch_id} rows={existing_rows}/{rounded_rows} cost={cost:.8f}")
+                    except GroundedRenderedBatchError as exc:
+                        store.write_failed(
+                            batch_id=batch_id,
+                            planned_rows=batch_size,
+                            artifacts=exc.artifacts,
+                            error=exc,
+                            telemetry=exc.telemetry,
+                            returned_artifact_ids=exc.returned_artifact_ids,
+                        )
+                        reject_writer.write({
+                            "signal": name, "architecture": "grounded", "batch_id": batch_id,
+                            "batch_size": batch_size, "status": "dropped_transient_rendered_failure",
+                            "error": str(exc),
+                        })
+                        print(
+                            f"[generate] Dropped transient rendered batch: signal={name} batch={batch_id} "
+                            f"planned_rows={batch_size} reason={str(exc)!r}"
+                        )
                     except Exception as exc:
                         reject_writer.write({
                             "signal": name, "architecture": "grounded", "batch_id": batch_id,
-                            "batch_size": batch_size, "error": str(exc),
+                            "batch_size": batch_size, "status": "fatal_batch_failure", "error": str(exc),
                         })
                         failures.append((batch_id, exc))
                         stop_submitting = True
@@ -282,8 +304,9 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     metrics = store.telemetry_summary()
     print(
         f"[generate] Completed grounded signal: {name} rows={store.materialize_raw()}, "
-        f"target_rows={rounded_rows}, batches={metrics['batches']}, cost={metrics['cost']:.8f}, "
-        f"request_tokens={metrics['total_tokens']}"
+        f"target_rows={rounded_rows}, batches={metrics['batches']}, "
+        f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
+        f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
     )
 
 def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
