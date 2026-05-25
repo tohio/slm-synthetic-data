@@ -18,97 +18,141 @@ from openai import OpenAI
 load_dotenv()
 
 
-class SharedThrottleGuard:
-    """Coordinates provider-rate-limit cooldowns across concurrent requests.
+class AdaptiveRequestController:
+    """Admission control for variable-capacity upstream providers.
 
-    Isolated 429s keep the inexpensive per-request retry path. A burst of
-    provider throttles trips a shared gate so new requests and retries stop
-    hammering an already-saturated upstream provider.
+    Executor workers may exist up to the configured concurrency ceiling, but
+    only ``current_limit`` requests can enter the provider call at once. The
+    window grows on sustained success and shrinks after a burst of 429s.
     """
 
     def __init__(
         self,
         *,
         enabled: bool = True,
-        burst_threshold: int = 8,
-        window_seconds: float = 2.0,
-        initial_cooldown_seconds: float = 5.0,
-        max_cooldown_seconds: float = 120.0,
-        multiplier: float = 2.0,
-        success_reset_count: int = 32,
+        maximum_in_flight: int = 1,
+        initial_in_flight: int = 128,
+        minimum_in_flight: int = 16,
+        increase_successes_per_step: int = 32,
+        increase_step: int = 32,
+        rate_limit_burst_threshold: int = 8,
+        rate_limit_window_seconds: float = 2.0,
+        rate_limit_decrease_factor: float = 0.50,
+        cooldown_initial_seconds: float = 5.0,
+        cooldown_max_seconds: float = 60.0,
+        cooldown_multiplier: float = 2.0,
     ):
         self.enabled = bool(enabled)
-        self.burst_threshold = max(1, int(burst_threshold))
-        self.window_seconds = max(0.0, float(window_seconds))
-        self.initial_cooldown_seconds = max(0.0, float(initial_cooldown_seconds))
-        self.max_cooldown_seconds = max(self.initial_cooldown_seconds, float(max_cooldown_seconds))
-        self.multiplier = max(1.0, float(multiplier))
-        self.success_reset_count = max(1, int(success_reset_count))
-        self._lock = threading.Lock()
+        self.maximum_in_flight = max(1, int(maximum_in_flight))
+        self.minimum_in_flight = min(self.maximum_in_flight, max(1, int(minimum_in_flight)))
+        self.initial_in_flight = min(
+            self.maximum_in_flight, max(self.minimum_in_flight, int(initial_in_flight))
+        )
+        self.increase_successes_per_step = max(1, int(increase_successes_per_step))
+        self.increase_step = max(1, int(increase_step))
+        self.rate_limit_burst_threshold = max(1, int(rate_limit_burst_threshold))
+        self.rate_limit_window_seconds = max(0.0, float(rate_limit_window_seconds))
+        self.rate_limit_decrease_factor = min(1.0, max(0.01, float(rate_limit_decrease_factor)))
+        self.cooldown_initial_seconds = max(0.0, float(cooldown_initial_seconds))
+        self.cooldown_max_seconds = max(self.cooldown_initial_seconds, float(cooldown_max_seconds))
+        self.cooldown_multiplier = max(1.0, float(cooldown_multiplier))
+        self._condition = threading.Condition()
         self._events: deque[float] = deque()
+        self._current_limit = self.initial_in_flight if self.enabled else self.maximum_in_flight
+        self._active_requests = 0
+        self._peak_limit = self._current_limit
+        self._minimum_observed_limit = self._current_limit
         self._cooldown_until = 0.0
-        self._next_cooldown_seconds = self.initial_cooldown_seconds
-        self._successes_after_trip = 0
-        self._has_tripped = False
+        self._next_cooldown_seconds = self.cooldown_initial_seconds
+        self._successes_since_adjustment = 0
 
-    def wait_if_needed(self) -> float:
-        """Wait outside the lock until a process-wide cooldown is over."""
-        if not self.enabled:
-            return 0.0
-        total_wait = 0.0
-        while True:
-            with self._lock:
-                remaining = self._cooldown_until - monotonic()
-            if remaining <= 0:
-                return total_wait
-            time.sleep(remaining)
-            total_wait += remaining
+    def acquire(self) -> float:
+        """Wait for admission, then claim one outbound provider slot."""
+        started = monotonic()
+        with self._condition:
+            while True:
+                now = monotonic()
+                remaining = self._cooldown_until - now
+                if remaining > 0:
+                    self._condition.wait(timeout=remaining)
+                    continue
+                if self._active_requests < self._current_limit:
+                    self._active_requests += 1
+                    return max(0.0, monotonic() - started)
+                self._condition.wait()
 
-    def record_rate_limit(self, model: str) -> tuple[bool, float]:
-        """Record a throttle and possibly trip/extend the shared cooldown."""
+    def release(self) -> None:
+        with self._condition:
+            if self._active_requests <= 0:
+                raise RuntimeError("Adaptive request admission released without an acquired slot")
+            self._active_requests -= 1
+            self._condition.notify_all()
+
+    def record_rate_limit(self, model: str) -> tuple[bool, int, int, float]:
+        """Shrink the window when clustered 429s indicate provider saturation."""
         if not self.enabled:
-            return False, 0.0
+            return False, self.maximum_in_flight, self.maximum_in_flight, 0.0
         now = monotonic()
-        with self._lock:
+        with self._condition:
             self._events.append(now)
-            cutoff = now - self.window_seconds
+            cutoff = now - self.rate_limit_window_seconds
             while self._events and self._events[0] < cutoff:
                 self._events.popleft()
-            if len(self._events) < self.burst_threshold or now < self._cooldown_until:
-                return False, 0.0
-            cooldown = min(self._next_cooldown_seconds, self.max_cooldown_seconds)
+            if len(self._events) < self.rate_limit_burst_threshold or now < self._cooldown_until:
+                return False, self._current_limit, self._current_limit, 0.0
+            previous = self._current_limit
+            reduced = max(self.minimum_in_flight, int(previous * self.rate_limit_decrease_factor))
+            if reduced >= previous and previous > self.minimum_in_flight:
+                reduced = previous - 1
+            self._current_limit = reduced
+            self._minimum_observed_limit = min(self._minimum_observed_limit, reduced)
+            cooldown = min(self._next_cooldown_seconds, self.cooldown_max_seconds)
             self._cooldown_until = now + cooldown
-            self._next_cooldown_seconds = min(cooldown * self.multiplier, self.max_cooldown_seconds)
-            self._successes_after_trip = 0
-            action = "extended" if self._has_tripped else "tripped"
-            self._has_tripped = True
+            self._next_cooldown_seconds = min(cooldown * self.cooldown_multiplier, self.cooldown_max_seconds)
+            self._successes_since_adjustment = 0
             self._events.clear()
+            self._condition.notify_all()
         print(
-            f"[llm] Shared throttle guard {action}: model={model} "
-            f"events={self.burst_threshold} window={self.window_seconds:.2f}s cooldown={cooldown:.2f}s"
+            f"[llm] Adaptive admission decreased: model={model} "
+            f"events={self.rate_limit_burst_threshold} window={self.rate_limit_window_seconds:.2f}s "
+            f"in_flight_limit={previous}->{reduced} cooldown={cooldown:.2f}s"
         )
-        return True, cooldown
+        return True, previous, reduced, cooldown
 
-    def record_success(self, model: str) -> bool:
-        """Reset elevated cooldowns after sustained successful responses."""
+    def record_success(self, model: str) -> tuple[bool, int, int]:
+        """Grow the request window gradually after healthy completed calls."""
         if not self.enabled:
-            return False
-        with self._lock:
-            if not self._has_tripped or monotonic() < self._cooldown_until:
-                return False
-            self._successes_after_trip += 1
-            if self._successes_after_trip < self.success_reset_count:
-                return False
-            self._events.clear()
-            self._cooldown_until = 0.0
-            self._next_cooldown_seconds = self.initial_cooldown_seconds
-            self._successes_after_trip = 0
-            self._has_tripped = False
+            return False, self.maximum_in_flight, self.maximum_in_flight
+        with self._condition:
+            if monotonic() < self._cooldown_until:
+                return False, self._current_limit, self._current_limit
+            self._successes_since_adjustment += 1
+            if (
+                self._successes_since_adjustment < self.increase_successes_per_step
+                or self._current_limit >= self.maximum_in_flight
+            ):
+                return False, self._current_limit, self._current_limit
+            previous = self._current_limit
+            increased = min(self.maximum_in_flight, previous + self.increase_step)
+            self._current_limit = increased
+            self._peak_limit = max(self._peak_limit, increased)
+            self._successes_since_adjustment = 0
+            self._next_cooldown_seconds = self.cooldown_initial_seconds
+            self._condition.notify_all()
         print(
-            f"[llm] Shared throttle guard reset after successes: model={model} "
-            f"successes={self.success_reset_count}"
+            f"[llm] Adaptive admission increased: model={model} "
+            f"in_flight_limit={previous}->{increased} "
+            f"successes={self.increase_successes_per_step}"
         )
-        return True
+        return True, previous, increased
+
+    def snapshot(self) -> dict[str, int]:
+        with self._condition:
+            return {
+                "adaptive_current_in_flight_limit": self._current_limit,
+                "adaptive_peak_in_flight_limit": self._peak_limit,
+                "adaptive_min_in_flight_limit": self._minimum_observed_limit,
+            }
 
 
 class LLMBackend:
@@ -138,13 +182,18 @@ class LLMBackend:
         retry_backoff_max_seconds: float = 30.0,
         retry_backoff_multiplier: float = 2.0,
         retry_jitter_ratio: float = 0.30,
-        shared_throttle_enabled: bool = True,
-        shared_throttle_burst_threshold: int = 8,
-        shared_throttle_window_seconds: float = 2.0,
-        shared_throttle_initial_cooldown_seconds: float = 5.0,
-        shared_throttle_max_cooldown_seconds: float = 120.0,
-        shared_throttle_multiplier: float = 2.0,
-        shared_throttle_success_reset_count: int = 32,
+        adaptive_concurrency_enabled: bool = True,
+        adaptive_maximum_in_flight: int = 1,
+        adaptive_initial_in_flight: int = 128,
+        adaptive_minimum_in_flight: int = 16,
+        adaptive_increase_successes_per_step: int = 32,
+        adaptive_increase_step: int = 32,
+        adaptive_rate_limit_burst_threshold: int = 8,
+        adaptive_rate_limit_window_seconds: float = 2.0,
+        adaptive_rate_limit_decrease_factor: float = 0.50,
+        adaptive_cooldown_initial_seconds: float = 5.0,
+        adaptive_cooldown_max_seconds: float = 60.0,
+        adaptive_cooldown_multiplier: float = 2.0,
         require_parameters: bool = True,
         allow_fallbacks: bool = False,
     ):
@@ -183,14 +232,19 @@ class LLMBackend:
         self.retry_backoff_max_seconds = float(retry_backoff_max_seconds)
         self.retry_backoff_multiplier = float(retry_backoff_multiplier)
         self.retry_jitter_ratio = float(retry_jitter_ratio)
-        self.shared_throttle_guard = SharedThrottleGuard(
-            enabled=shared_throttle_enabled,
-            burst_threshold=shared_throttle_burst_threshold,
-            window_seconds=shared_throttle_window_seconds,
-            initial_cooldown_seconds=shared_throttle_initial_cooldown_seconds,
-            max_cooldown_seconds=shared_throttle_max_cooldown_seconds,
-            multiplier=shared_throttle_multiplier,
-            success_reset_count=shared_throttle_success_reset_count,
+        self.adaptive_controller = AdaptiveRequestController(
+            enabled=adaptive_concurrency_enabled,
+            maximum_in_flight=adaptive_maximum_in_flight,
+            initial_in_flight=adaptive_initial_in_flight,
+            minimum_in_flight=adaptive_minimum_in_flight,
+            increase_successes_per_step=adaptive_increase_successes_per_step,
+            increase_step=adaptive_increase_step,
+            rate_limit_burst_threshold=adaptive_rate_limit_burst_threshold,
+            rate_limit_window_seconds=adaptive_rate_limit_window_seconds,
+            rate_limit_decrease_factor=adaptive_rate_limit_decrease_factor,
+            cooldown_initial_seconds=adaptive_cooldown_initial_seconds,
+            cooldown_max_seconds=adaptive_cooldown_max_seconds,
+            cooldown_multiplier=adaptive_cooldown_multiplier,
         )
         self.require_parameters = bool(require_parameters)
         self.allow_fallbacks = bool(allow_fallbacks)
@@ -229,17 +283,22 @@ class LLMBackend:
             retry_backoff_max_seconds=self.retry_backoff_max_seconds,
             retry_backoff_multiplier=self.retry_backoff_multiplier,
             retry_jitter_ratio=self.retry_jitter_ratio,
-            shared_throttle_enabled=self.shared_throttle_guard.enabled,
-            shared_throttle_burst_threshold=self.shared_throttle_guard.burst_threshold,
-            shared_throttle_window_seconds=self.shared_throttle_guard.window_seconds,
-            shared_throttle_initial_cooldown_seconds=self.shared_throttle_guard.initial_cooldown_seconds,
-            shared_throttle_max_cooldown_seconds=self.shared_throttle_guard.max_cooldown_seconds,
-            shared_throttle_multiplier=self.shared_throttle_guard.multiplier,
-            shared_throttle_success_reset_count=self.shared_throttle_guard.success_reset_count,
+            adaptive_concurrency_enabled=self.adaptive_controller.enabled,
+            adaptive_maximum_in_flight=self.adaptive_controller.maximum_in_flight,
+            adaptive_initial_in_flight=self.adaptive_controller.initial_in_flight,
+            adaptive_minimum_in_flight=self.adaptive_controller.minimum_in_flight,
+            adaptive_increase_successes_per_step=self.adaptive_controller.increase_successes_per_step,
+            adaptive_increase_step=self.adaptive_controller.increase_step,
+            adaptive_rate_limit_burst_threshold=self.adaptive_controller.rate_limit_burst_threshold,
+            adaptive_rate_limit_window_seconds=self.adaptive_controller.rate_limit_window_seconds,
+            adaptive_rate_limit_decrease_factor=self.adaptive_controller.rate_limit_decrease_factor,
+            adaptive_cooldown_initial_seconds=self.adaptive_controller.cooldown_initial_seconds,
+            adaptive_cooldown_max_seconds=self.adaptive_controller.cooldown_max_seconds,
+            adaptive_cooldown_multiplier=self.adaptive_controller.cooldown_multiplier,
             require_parameters=self.require_parameters,
             allow_fallbacks=self.allow_fallbacks,
         )
-        clone.shared_throttle_guard = self.shared_throttle_guard
+        clone.adaptive_controller = self.adaptive_controller
         return clone
 
     def _clean(self, text: str) -> str:
@@ -361,8 +420,11 @@ class LLMBackend:
             except (TypeError, ValueError, OverflowError):
                 return None
 
-    def _wait_for_shared_throttle(self) -> float:
-        return self.shared_throttle_guard.wait_if_needed()
+    def _acquire_provider_slot(self) -> float:
+        return self.adaptive_controller.acquire()
+
+    def _release_provider_slot(self) -> None:
+        self.adaptive_controller.release()
 
     def _can_retry(self, attempt: int, started: float, exc: Exception) -> bool:
         if self._is_retryable_provider_error(exc):
@@ -373,14 +435,14 @@ class LLMBackend:
         return attempt < self.max_request_retries
 
     def _sleep_before_retry(self, attempt: int, exc: Exception, *, started: float) -> tuple[float, int, float]:
-        shared_trips = 0
-        max_shared_cooldown = 0.0
+        adaptive_window_decreases = 0
+        max_adaptive_cooldown_seconds = 0.0
         if self._is_retryable_provider_error(exc):
             if self._is_capacity_or_rate_error(exc):
-                tripped, cooldown = self.shared_throttle_guard.record_rate_limit(self.model)
-                if tripped:
-                    shared_trips = 1
-                    max_shared_cooldown = cooldown
+                decreased, _previous, _current, cooldown = self.adaptive_controller.record_rate_limit(self.model)
+                if decreased:
+                    adaptive_window_decreases = 1
+                    max_adaptive_cooldown_seconds = cooldown
             retry_after = self._retry_after_seconds(exc)
             if retry_after is not None:
                 delay = retry_after
@@ -400,7 +462,7 @@ class LLMBackend:
             delay = self.retry_sleep_seconds * attempt
         if delay > 0:
             time.sleep(delay)
-        return delay, shared_trips, max_shared_cooldown
+        return delay, adaptive_window_decreases, max_adaptive_cooldown_seconds
 
     def generate_batch(self, prompt: str, batch_size: int) -> List[Dict[str, Any]]:
         last_error: Optional[Exception] = None
@@ -408,16 +470,23 @@ class LLMBackend:
         attempt = 0
         while True:
             attempt += 1
-            self._wait_for_shared_throttle()
+            self._acquire_provider_slot()
             try:
                 response = self._create_completion(prompt)
-                raw = (response.choices[0].message.content or "").strip()
-                return self._parse_items(raw, batch_size)
             except Exception as exc:
                 last_error = exc
-                if not self._can_retry(attempt, started, exc):
-                    break
-                self._sleep_before_retry(attempt, exc, started=started)
+            else:
+                self.adaptive_controller.record_success(self.model)
+                raw = (response.choices[0].message.content or "").strip()
+                try:
+                    return self._parse_items(raw, batch_size)
+                except Exception as exc:
+                    last_error = exc
+            finally:
+                self._release_provider_slot()
+            if not self._can_retry(attempt, started, last_error):
+                break
+            self._sleep_before_retry(attempt, last_error, started=started)
         raise RuntimeError(f"LLM batch failed after {attempt} attempts: {last_error}")
 
     @staticmethod
@@ -449,42 +518,54 @@ class LLMBackend:
         attempt = 0
         retryable_provider_retries = 0
         retry_sleep_seconds = 0.0
-        shared_throttle_trips = 0
-        shared_throttle_wait_seconds = 0.0
-        max_shared_throttle_cooldown_seconds = 0.0
+        adaptive_window_increases = 0
+        adaptive_window_decreases = 0
+        adaptive_admission_wait_seconds = 0.0
+        max_adaptive_cooldown_seconds = 0.0
         while True:
             attempt += 1
-            shared_throttle_wait_seconds += self._wait_for_shared_throttle()
+            adaptive_admission_wait_seconds += self._acquire_provider_slot()
+            response: Any | None = None
             try:
                 response = self._create_structured_completion(prompt, schema, schema_name)
-                self.shared_throttle_guard.record_success(self.model)
-                raw = (response.choices[0].message.content or "").strip()
-                parsed = json.loads(self._extract_json_candidate(raw))
-                if not isinstance(parsed, dict):
-                    raise ValueError("Expected a structured JSON object response")
-                telemetry = {
-                    "model": getattr(response, "model", self.model),
-                    "provider": (getattr(response, "model_extra", None) or {}).get("provider"),
-                    "usage": self._usage_dict(response),
-                    "retry_count": attempt - 1,
-                    "retryable_provider_retries": retryable_provider_retries,
-                    "retry_sleep_seconds": round(retry_sleep_seconds, 3),
-                    "shared_throttle_trips": shared_throttle_trips,
-                    "shared_throttle_wait_seconds": round(shared_throttle_wait_seconds, 3),
-                    "max_shared_throttle_cooldown_seconds": round(max_shared_throttle_cooldown_seconds, 3),
-                    "elapsed_seconds": round(monotonic() - started, 3),
-                }
-                return {"data": parsed, "telemetry": telemetry}
             except Exception as exc:
                 last_error = exc
-                if not self._can_retry(attempt, started, exc):
-                    break
-                if self._is_retryable_provider_error(exc):
-                    retryable_provider_retries += 1
-                delay, trips, cooldown = self._sleep_before_retry(attempt, exc, started=started)
-                retry_sleep_seconds += delay
-                shared_throttle_trips += trips
-                max_shared_throttle_cooldown_seconds = max(max_shared_throttle_cooldown_seconds, cooldown)
+            else:
+                increased, _previous, _current = self.adaptive_controller.record_success(self.model)
+                if increased:
+                    adaptive_window_increases += 1
+                try:
+                    raw = (response.choices[0].message.content or "").strip()
+                    parsed = json.loads(self._extract_json_candidate(raw))
+                    if not isinstance(parsed, dict):
+                        raise ValueError("Expected a structured JSON object response")
+                    telemetry = {
+                        "model": getattr(response, "model", self.model),
+                        "provider": (getattr(response, "model_extra", None) or {}).get("provider"),
+                        "usage": self._usage_dict(response),
+                        "retry_count": attempt - 1,
+                        "retryable_provider_retries": retryable_provider_retries,
+                        "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+                        "adaptive_window_increases": adaptive_window_increases,
+                        "adaptive_window_decreases": adaptive_window_decreases,
+                        "adaptive_admission_wait_seconds": round(adaptive_admission_wait_seconds, 3),
+                        "max_adaptive_cooldown_seconds": round(max_adaptive_cooldown_seconds, 3),
+                        **self.adaptive_controller.snapshot(),
+                        "elapsed_seconds": round(monotonic() - started, 3),
+                    }
+                    return {"data": parsed, "telemetry": telemetry}
+                except Exception as exc:
+                    last_error = exc
+            finally:
+                self._release_provider_slot()
+            if not self._can_retry(attempt, started, last_error):
+                break
+            if self._is_retryable_provider_error(last_error):
+                retryable_provider_retries += 1
+            delay, decreases, cooldown = self._sleep_before_retry(attempt, last_error, started=started)
+            retry_sleep_seconds += delay
+            adaptive_window_decreases += decreases
+            max_adaptive_cooldown_seconds = max(max_adaptive_cooldown_seconds, cooldown)
         raise RuntimeError(f"Structured LLM request failed after {attempt} attempts: {last_error}")
 
     def generate_structured_object(

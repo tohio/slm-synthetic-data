@@ -94,13 +94,18 @@ def build_llm(
         retry_backoff_max_seconds=float(retry_cfg.get("retry_backoff_max_seconds", 30.0)),
         retry_backoff_multiplier=float(retry_cfg.get("retry_backoff_multiplier", 2.0)),
         retry_jitter_ratio=float(retry_cfg.get("retry_jitter_ratio", 0.30)),
-        shared_throttle_enabled=bool(retry_cfg.get("shared_throttle_enabled", True)),
-        shared_throttle_burst_threshold=int(retry_cfg.get("shared_throttle_burst_threshold", 8)),
-        shared_throttle_window_seconds=float(retry_cfg.get("shared_throttle_window_seconds", 2.0)),
-        shared_throttle_initial_cooldown_seconds=float(retry_cfg.get("shared_throttle_initial_cooldown_seconds", 5.0)),
-        shared_throttle_max_cooldown_seconds=float(retry_cfg.get("shared_throttle_max_cooldown_seconds", 120.0)),
-        shared_throttle_multiplier=float(retry_cfg.get("shared_throttle_multiplier", 2.0)),
-        shared_throttle_success_reset_count=int(retry_cfg.get("shared_throttle_success_reset_count", 32)),
+        adaptive_concurrency_enabled=bool(retry_cfg.get("adaptive_concurrency_enabled", True)),
+        adaptive_maximum_in_flight=int(base_cfg.get("parallel_requests", 1)),
+        adaptive_initial_in_flight=int(retry_cfg.get("adaptive_initial_in_flight", 128)),
+        adaptive_minimum_in_flight=int(retry_cfg.get("adaptive_minimum_in_flight", 16)),
+        adaptive_increase_successes_per_step=int(retry_cfg.get("adaptive_increase_successes_per_step", 32)),
+        adaptive_increase_step=int(retry_cfg.get("adaptive_increase_step", 32)),
+        adaptive_rate_limit_burst_threshold=int(retry_cfg.get("adaptive_rate_limit_burst_threshold", 8)),
+        adaptive_rate_limit_window_seconds=float(retry_cfg.get("adaptive_rate_limit_window_seconds", 2.0)),
+        adaptive_rate_limit_decrease_factor=float(retry_cfg.get("adaptive_rate_limit_decrease_factor", 0.50)),
+        adaptive_cooldown_initial_seconds=float(retry_cfg.get("adaptive_cooldown_initial_seconds", 5.0)),
+        adaptive_cooldown_max_seconds=float(retry_cfg.get("adaptive_cooldown_max_seconds", 60.0)),
+        adaptive_cooldown_multiplier=float(retry_cfg.get("adaptive_cooldown_multiplier", 2.0)),
         require_parameters=bool(base_cfg.get("require_parameters", True)),
         allow_fallbacks=bool(base_cfg.get("allow_fallbacks", False)),
     )
@@ -248,9 +253,12 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
             f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
             f"provider_retries={metrics['retryable_provider_retries']}, "
             f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "
-            f"shared_throttle_trips={metrics['shared_throttle_trips']}, "
-            f"shared_throttle_wait_seconds={metrics['shared_throttle_wait_seconds']:.3f}, "
-            f"max_shared_throttle_cooldown_seconds={metrics['max_shared_throttle_cooldown_seconds']:.3f}, "
+            f"adaptive_window_increases={metrics['adaptive_window_increases']}, "
+            f"adaptive_window_decreases={metrics['adaptive_window_decreases']}, "
+            f"adaptive_admission_wait_seconds={metrics['adaptive_admission_wait_seconds']:.3f}, "
+            f"adaptive_peak_in_flight_limit={metrics['adaptive_peak_in_flight_limit']}, "
+            f"adaptive_min_in_flight_limit={metrics['adaptive_min_in_flight_limit']}, "
+            f"max_adaptive_cooldown_seconds={metrics['max_adaptive_cooldown_seconds']:.3f}, "
             f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
         )
         reject_writer.close()
@@ -322,9 +330,12 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
         f"provider_retries={metrics['retryable_provider_retries']}, "
         f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "
-        f"shared_throttle_trips={metrics['shared_throttle_trips']}, "
-        f"shared_throttle_wait_seconds={metrics['shared_throttle_wait_seconds']:.3f}, "
-        f"max_shared_throttle_cooldown_seconds={metrics['max_shared_throttle_cooldown_seconds']:.3f}, "
+        f"adaptive_window_increases={metrics['adaptive_window_increases']}, "
+        f"adaptive_window_decreases={metrics['adaptive_window_decreases']}, "
+        f"adaptive_admission_wait_seconds={metrics['adaptive_admission_wait_seconds']:.3f}, "
+        f"adaptive_peak_in_flight_limit={metrics['adaptive_peak_in_flight_limit']}, "
+        f"adaptive_min_in_flight_limit={metrics['adaptive_min_in_flight_limit']}, "
+        f"max_adaptive_cooldown_seconds={metrics['max_adaptive_cooldown_seconds']:.3f}, "
         f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
     )
 

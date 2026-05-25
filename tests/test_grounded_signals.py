@@ -237,15 +237,18 @@ def test_batch_store_persists_telemetry(tmp_path):
     store = GroundedBatchStore(tmp_path, "factual_restraint")
     store.write_completed(
         batch_id=0, artifacts=artifacts, records=records,
-        telemetry={"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cost": 0.01}, "elapsed_seconds": 1.5, "retry_count": 1, "retryable_provider_retries": 1, "retry_sleep_seconds": 4.5, "shared_throttle_trips": 1, "shared_throttle_wait_seconds": 5.0, "max_shared_throttle_cooldown_seconds": 5.0},
+        telemetry={"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cost": 0.01}, "elapsed_seconds": 1.5, "retry_count": 1, "retryable_provider_retries": 1, "retry_sleep_seconds": 4.5, "adaptive_window_increases": 2, "adaptive_window_decreases": 1, "adaptive_admission_wait_seconds": 5.0, "adaptive_peak_in_flight_limit": 256, "adaptive_min_in_flight_limit": 64, "max_adaptive_cooldown_seconds": 5.0},
     )
     assert store.telemetry_summary()["total_tokens"] == 30
     assert store.telemetry_summary()["cost"] == 0.01
     assert store.telemetry_summary()["retryable_provider_retries"] == 1
     assert store.telemetry_summary()["retry_sleep_seconds"] == 4.5
-    assert store.telemetry_summary()["shared_throttle_trips"] == 1
-    assert store.telemetry_summary()["shared_throttle_wait_seconds"] == 5.0
-    assert store.telemetry_summary()["max_shared_throttle_cooldown_seconds"] == 5.0
+    assert store.telemetry_summary()["adaptive_window_increases"] == 2
+    assert store.telemetry_summary()["adaptive_window_decreases"] == 1
+    assert store.telemetry_summary()["adaptive_admission_wait_seconds"] == 5.0
+    assert store.telemetry_summary()["adaptive_peak_in_flight_limit"] == 256
+    assert store.telemetry_summary()["adaptive_min_in_flight_limit"] == 64
+    assert store.telemetry_summary()["max_adaptive_cooldown_seconds"] == 5.0
 
 
 def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tmp_path):

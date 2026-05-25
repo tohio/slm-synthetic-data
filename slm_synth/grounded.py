@@ -164,9 +164,12 @@ class GroundedBatchStore:
         retries = 0
         retryable_provider_retries = 0
         retry_sleep_seconds = 0.0
-        shared_throttle_trips = 0
-        shared_throttle_wait_seconds = 0.0
-        max_shared_throttle_cooldown_seconds = 0.0
+        adaptive_window_increases = 0
+        adaptive_window_decreases = 0
+        adaptive_admission_wait_seconds = 0.0
+        adaptive_peak_in_flight_limit = 0
+        adaptive_min_in_flight_limit: int | None = None
+        max_adaptive_cooldown_seconds = 0.0
         for path in self._completed_paths():
             telemetry = self._load(path).get("telemetry", {}) or {}
             usage = telemetry.get("usage", {}) or {}
@@ -179,11 +182,19 @@ class GroundedBatchStore:
             retries += int(telemetry.get("retry_count", 0) or 0)
             retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
             retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
-            shared_throttle_trips += int(telemetry.get("shared_throttle_trips", 0) or 0)
-            shared_throttle_wait_seconds += float(telemetry.get("shared_throttle_wait_seconds", 0.0) or 0.0)
-            max_shared_throttle_cooldown_seconds = max(
-                max_shared_throttle_cooldown_seconds,
-                float(telemetry.get("max_shared_throttle_cooldown_seconds", 0.0) or 0.0),
+            adaptive_window_increases += int(telemetry.get("adaptive_window_increases", 0) or 0)
+            adaptive_window_decreases += int(telemetry.get("adaptive_window_decreases", 0) or 0)
+            adaptive_admission_wait_seconds += float(telemetry.get("adaptive_admission_wait_seconds", 0.0) or 0.0)
+            adaptive_peak_in_flight_limit = max(
+                adaptive_peak_in_flight_limit, int(telemetry.get("adaptive_peak_in_flight_limit", 0) or 0)
+            )
+            observed_min = telemetry.get("adaptive_min_in_flight_limit")
+            if observed_min is not None:
+                observed_min = int(observed_min)
+                adaptive_min_in_flight_limit = observed_min if adaptive_min_in_flight_limit is None else min(adaptive_min_in_flight_limit, observed_min)
+            max_adaptive_cooldown_seconds = max(
+                max_adaptive_cooldown_seconds,
+                float(telemetry.get("max_adaptive_cooldown_seconds", 0.0) or 0.0),
             )
         for batch_id in self.failed_batch_ids():
             payload = self._load(self._failed_path(batch_id))
@@ -199,11 +210,19 @@ class GroundedBatchStore:
             retries += int(telemetry.get("retry_count", 0) or 0)
             retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
             retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
-            shared_throttle_trips += int(telemetry.get("shared_throttle_trips", 0) or 0)
-            shared_throttle_wait_seconds += float(telemetry.get("shared_throttle_wait_seconds", 0.0) or 0.0)
-            max_shared_throttle_cooldown_seconds = max(
-                max_shared_throttle_cooldown_seconds,
-                float(telemetry.get("max_shared_throttle_cooldown_seconds", 0.0) or 0.0),
+            adaptive_window_increases += int(telemetry.get("adaptive_window_increases", 0) or 0)
+            adaptive_window_decreases += int(telemetry.get("adaptive_window_decreases", 0) or 0)
+            adaptive_admission_wait_seconds += float(telemetry.get("adaptive_admission_wait_seconds", 0.0) or 0.0)
+            adaptive_peak_in_flight_limit = max(
+                adaptive_peak_in_flight_limit, int(telemetry.get("adaptive_peak_in_flight_limit", 0) or 0)
+            )
+            observed_min = telemetry.get("adaptive_min_in_flight_limit")
+            if observed_min is not None:
+                observed_min = int(observed_min)
+                adaptive_min_in_flight_limit = observed_min if adaptive_min_in_flight_limit is None else min(adaptive_min_in_flight_limit, observed_min)
+            max_adaptive_cooldown_seconds = max(
+                max_adaptive_cooldown_seconds,
+                float(telemetry.get("max_adaptive_cooldown_seconds", 0.0) or 0.0),
             )
         return {
             "batches": batches, "dropped_batches": dropped_batches, "dropped_rows": dropped_rows,
@@ -211,9 +230,12 @@ class GroundedBatchStore:
             "total_tokens": total_tokens, "cost": cost, "elapsed_seconds": elapsed_seconds,
             "retry_count": retries, "retryable_provider_retries": retryable_provider_retries,
             "retry_sleep_seconds": round(retry_sleep_seconds, 3),
-            "shared_throttle_trips": shared_throttle_trips,
-            "shared_throttle_wait_seconds": round(shared_throttle_wait_seconds, 3),
-            "max_shared_throttle_cooldown_seconds": round(max_shared_throttle_cooldown_seconds, 3),
+            "adaptive_window_increases": adaptive_window_increases,
+            "adaptive_window_decreases": adaptive_window_decreases,
+            "adaptive_admission_wait_seconds": round(adaptive_admission_wait_seconds, 3),
+            "adaptive_peak_in_flight_limit": adaptive_peak_in_flight_limit,
+            "adaptive_min_in_flight_limit": adaptive_min_in_flight_limit or 0,
+            "max_adaptive_cooldown_seconds": round(max_adaptive_cooldown_seconds, 3),
         }
 
 

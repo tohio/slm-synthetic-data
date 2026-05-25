@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import slm_synth.llm as llm_module
-from slm_synth.llm import LLMBackend, SharedThrottleGuard
+from slm_synth.llm import AdaptiveRequestController, LLMBackend
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
 from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenerator
@@ -209,7 +209,7 @@ def _backend_for_retry_test():
     backend.retry_backoff_max_seconds = 120.0
     backend.retry_backoff_multiplier = 2.0
     backend.retry_jitter_ratio = 0.0
-    backend.shared_throttle_guard = SharedThrottleGuard(enabled=False)
+    backend.adaptive_controller = AdaptiveRequestController(enabled=False, maximum_in_flight=1)
     return backend
 
 
@@ -290,32 +290,46 @@ def test_retryable_provider_failure_stops_after_bounded_elapsed(monkeypatch):
     assert len(calls) == 1
 
 
-def test_shared_throttle_guard_pauses_after_a_rate_limit_burst_and_resets_after_success(monkeypatch):
-    clock = {"now": 0.0}
-    sleeps = []
-
-    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
-
-    def sleep(seconds):
-        sleeps.append(seconds)
-        clock["now"] += seconds
-
-    monkeypatch.setattr(llm_module.time, "sleep", sleep)
-    guard = SharedThrottleGuard(
-        burst_threshold=2,
-        window_seconds=2.0,
-        initial_cooldown_seconds=5.0,
-        max_cooldown_seconds=20.0,
-        multiplier=2.0,
-        success_reset_count=2,
+def test_adaptive_controller_grows_after_sustained_success():
+    controller = AdaptiveRequestController(
+        maximum_in_flight=16, initial_in_flight=4, minimum_in_flight=2,
+        increase_successes_per_step=2, increase_step=4,
     )
 
-    assert guard.record_rate_limit("model") == (False, 0.0)
-    assert guard.record_rate_limit("model") == (True, 5.0)
-    # In-flight responses must not release a cooldown while the burst gate is active.
-    assert guard.record_success("model") is False
-    assert guard.wait_if_needed() == 5.0
-    assert sleeps == [5.0]
-    assert guard.record_success("model") is False
-    assert guard.record_success("model") is True
-    assert guard.wait_if_needed() == 0.0
+    assert controller.snapshot()["adaptive_current_in_flight_limit"] == 4
+    assert controller.record_success("model") == (False, 4, 4)
+    assert controller.record_success("model") == (True, 4, 8)
+    assert controller.snapshot()["adaptive_peak_in_flight_limit"] == 8
+
+
+def test_adaptive_controller_reduces_window_after_rate_limit_burst(monkeypatch):
+    monkeypatch.setattr(llm_module, "monotonic", lambda: 0.0)
+    controller = AdaptiveRequestController(
+        maximum_in_flight=16, initial_in_flight=8, minimum_in_flight=2,
+        rate_limit_burst_threshold=2, rate_limit_window_seconds=2.0,
+        rate_limit_decrease_factor=0.5, cooldown_initial_seconds=5.0,
+    )
+
+    assert controller.record_rate_limit("model") == (False, 8, 8, 0.0)
+    assert controller.record_rate_limit("model") == (True, 8, 4, 5.0)
+    assert controller.snapshot()["adaptive_min_in_flight_limit"] == 4
+
+
+def test_adaptive_controller_limits_active_provider_calls():
+    import threading
+
+    controller = AdaptiveRequestController(maximum_in_flight=2, initial_in_flight=1, minimum_in_flight=1)
+    entered = threading.Event()
+    controller.acquire()
+
+    def acquire_second_slot():
+        controller.acquire()
+        entered.set()
+        controller.release()
+
+    worker = threading.Thread(target=acquire_second_slot)
+    worker.start()
+    assert not entered.wait(0.05)
+    controller.release()
+    assert entered.wait(1.0)
+    worker.join(timeout=1.0)
