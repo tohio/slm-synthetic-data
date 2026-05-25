@@ -18,6 +18,14 @@ from openai import OpenAI
 load_dotenv()
 
 
+class StructuredRenderedResponseError(RuntimeError):
+    """Renderer returned responses that could not be parsed into a persistable object."""
+
+    def __init__(self, message: str, *, telemetry: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.telemetry = telemetry or {}
+
+
 class AdaptiveRequestController:
     """Admission control for variable-capacity upstream providers.
 
@@ -527,6 +535,7 @@ class LLMBackend:
                     return self._parse_items(raw, batch_size)
                 except Exception as exc:
                     last_error = exc
+                    last_failure_was_rendered_response = True
             finally:
                 self._release_provider_slot()
             if not self._can_retry(attempt, started, last_error):
@@ -552,6 +561,19 @@ class LLMBackend:
             result.update(extra)
         return result
 
+    @staticmethod
+    def _merge_usage(total: dict[str, Any], usage: dict[str, Any]) -> dict[str, Any]:
+        """Accumulate billed usage across completed renderer responses, including parse failures."""
+        merged = dict(total)
+        for key, value in usage.items():
+            if key in {"prompt_tokens", "completion_tokens", "total_tokens"}:
+                merged[key] = int(merged.get(key, 0) or 0) + int(value or 0)
+            elif key == "cost":
+                merged[key] = float(merged.get(key, 0.0) or 0.0) + float(value or 0.0)
+            elif key not in merged:
+                merged[key] = value
+        return merged
+
     def generate_structured_object_with_metadata(
         self,
         *,
@@ -569,6 +591,9 @@ class LLMBackend:
         adaptive_window_decreases = 0
         adaptive_admission_wait_seconds = 0.0
         max_adaptive_cooldown_seconds = 0.0
+        accumulated_usage: dict[str, Any] = {}
+        last_response: Any | None = None
+        last_failure_was_rendered_response = False
         while True:
             attempt += 1
             admission_wait, admission_generation = self._acquire_provider_slot()
@@ -578,7 +603,10 @@ class LLMBackend:
                 response = self._create_structured_completion(prompt, schema, schema_name)
             except Exception as exc:
                 last_error = exc
+                last_failure_was_rendered_response = False
             else:
+                last_response = response
+                accumulated_usage = self._merge_usage(accumulated_usage, self._usage_dict(response))
                 increased, _previous, _current = self.adaptive_controller.record_success(
                     self.model, admission_generation
                 )
@@ -592,7 +620,7 @@ class LLMBackend:
                     telemetry = {
                         "model": getattr(response, "model", self.model),
                         "provider": (getattr(response, "model_extra", None) or {}).get("provider"),
-                        "usage": self._usage_dict(response),
+                        "usage": accumulated_usage,
                         "retry_count": attempt - 1,
                         "retryable_provider_retries": retryable_provider_retries,
                         "retry_sleep_seconds": round(retry_sleep_seconds, 3),
@@ -618,6 +646,26 @@ class LLMBackend:
             retry_sleep_seconds += delay
             adaptive_window_decreases += decreases
             max_adaptive_cooldown_seconds = max(max_adaptive_cooldown_seconds, cooldown)
+        telemetry = {
+            "model": getattr(last_response, "model", self.model),
+            "provider": (getattr(last_response, "model_extra", None) or {}).get("provider")
+            if last_response is not None else None,
+            "usage": accumulated_usage,
+            "retry_count": attempt - 1,
+            "retryable_provider_retries": retryable_provider_retries,
+            "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+            "adaptive_window_increases": adaptive_window_increases,
+            "adaptive_window_decreases": adaptive_window_decreases,
+            "adaptive_admission_wait_seconds": round(adaptive_admission_wait_seconds, 3),
+            "max_adaptive_cooldown_seconds": round(max_adaptive_cooldown_seconds, 3),
+            **self.adaptive_controller.snapshot(),
+            "elapsed_seconds": round(monotonic() - started, 3),
+        }
+        if last_failure_was_rendered_response:
+            raise StructuredRenderedResponseError(
+                f"Structured rendered response unusable after {attempt} attempts: {last_error}",
+                telemetry=telemetry,
+            ) from last_error
         raise RuntimeError(f"Structured LLM request failed after {attempt} attempts: {last_error}")
 
     def generate_structured_object(

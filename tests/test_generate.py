@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import slm_synth.llm as llm_module
-from slm_synth.llm import AdaptiveRequestController, LLMBackend
+from slm_synth.llm import AdaptiveRequestController, LLMBackend, StructuredRenderedResponseError
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
 from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenerator
@@ -264,6 +264,37 @@ def test_non_provider_failures_keep_short_retry_budget(monkeypatch):
         assert "after 2 attempts" in str(exc)
     else:
         raise AssertionError("expected structured generation failure")
+    assert len(calls) == 2
+
+
+def test_malformed_structured_responses_raise_droppable_error_with_accumulated_usage(monkeypatch):
+    backend = _backend_for_retry_test()
+    backend.max_request_retries = 2
+    calls = []
+    monkeypatch.setattr(llm_module.time, "sleep", lambda seconds: None)
+
+    malformed = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"records": ['))],
+        model="deepseek/deepseek-v4-flash",
+        model_extra={"provider": "DeepInfra"},
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "cost": 0.01},
+    )
+
+    def create(*args, **kwargs):
+        calls.append(1)
+        return malformed
+
+    backend._create_structured_completion = create
+    try:
+        backend.generate_structured_object_with_metadata(prompt="prompt", schema={}, schema_name="schema")
+    except StructuredRenderedResponseError as exc:
+        assert "unusable after 2 attempts" in str(exc)
+        assert exc.telemetry["usage"] == {
+            "prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30, "cost": 0.02
+        }
+        assert exc.telemetry["retry_count"] == 1
+    else:
+        raise AssertionError("expected droppable structured rendered response failure")
     assert len(calls) == 2
 
 

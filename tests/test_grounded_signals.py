@@ -11,6 +11,7 @@ from slm_synth.artifacts import (
     TaskCodeArtifactFactory,
 )
 from slm_synth.grounded import GroundedBatchStore, GroundedSignalGenerator
+from slm_synth.llm import StructuredRenderedResponseError
 from slm_synth.artifacts.quality import artifact_fingerprint, validate_artifact
 
 
@@ -59,6 +60,23 @@ class GroundedInvalidFirstBatchLLM(GroundedMockLLM):
             response["records"][0]["artifact_id"] = response["records"][1]["artifact_id"]
         self.calls += 1
         return response
+
+
+class GroundedMalformedFirstBatchLLM(GroundedMockLLM):
+    def __init__(self):
+        self.calls = 0
+
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        self.calls += 1
+        if self.calls == 1:
+            raise StructuredRenderedResponseError(
+                "Structured rendered response unusable after 3 attempts: malformed JSON",
+                telemetry={"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "cost": 0.01}},
+            )
+        return {
+            "data": super().generate_structured_object(prompt=prompt, schema=schema, schema_name=schema_name),
+            "telemetry": {},
+        }
 
 
 @pytest.mark.parametrize("factory", [
@@ -215,6 +233,40 @@ def test_run_signal_discards_transient_rendered_batch_failure_and_continues(monk
     generate.run_signal("factual_restraint", cfg, tmp_path)
     assert llm.calls == 2
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+
+
+@pytest.mark.parametrize("signal", [
+    "arithmetic",
+    "task_code",
+    "educational_qa_mcq_math",
+    "educational_qa_mcq_general",
+    "factual_restraint",
+])
+def test_run_signal_discards_exhausted_malformed_structured_response_for_every_grounded_signal(monkeypatch, tmp_path, signal):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 32, "parallel_requests": 1},
+        "mix": {signal: {"architecture": "grounded", "batch_size": 32, "samples": 64}},
+    }
+    llm = GroundedMalformedFirstBatchLLM()
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
+
+    generate.run_signal(signal, cfg, tmp_path)
+
+    assert len((tmp_path / "raw" / f"{signal}.jsonl").read_text().splitlines()) == 32
+    failed_path = tmp_path / "manifests" / "grounded" / signal / "failed_batches" / "batch_000000000.json"
+    failed = json.loads(failed_path.read_text())
+    assert failed["status"] == "dropped_transient_rendered_failure"
+    assert failed["planned_rows"] == 32
+    assert failed["returned_artifact_ids"] is None
+    assert failed["error_type"] == "GroundedRenderedBatchError"
+
+    metrics = GroundedBatchStore(tmp_path, signal).telemetry_summary()
+    assert metrics["batches"] == 1
+    assert metrics["dropped_batches"] == 1
+    assert metrics["dropped_rows"] == 32
+    assert metrics["cost"] == 0.01
 
 
 def test_grounded_artifacts_have_no_placeholder_quality_failures():

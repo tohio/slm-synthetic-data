@@ -18,6 +18,7 @@ from slm_synth.artifacts import (
 )
 from slm_synth.artifacts.quality import assert_valid_artifacts
 from slm_synth.record_quality import validate_record
+from slm_synth.llm import StructuredRenderedResponseError
 
 
 FACTORY_MAP = {
@@ -367,10 +368,19 @@ class GroundedSignalGenerator:
         assert_valid_artifacts(artifacts)
         prompt = self.build_prompt(artifacts)
         if hasattr(self.llm, "generate_structured_object_with_metadata"):
-            result = self.llm.generate_structured_object_with_metadata(
-                prompt=prompt, schema=self.response_schema(),
-                schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
-            )
+            try:
+                result = self.llm.generate_structured_object_with_metadata(
+                    prompt=prompt, schema=self.response_schema(),
+                    schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
+                )
+            except StructuredRenderedResponseError as exc:
+                raise GroundedRenderedBatchError(
+                    signal=self.signal,
+                    batch_id=batch_id,
+                    artifacts=artifacts,
+                    telemetry=exc.telemetry,
+                    reason=str(exc),
+                ) from exc
             response = result["data"]
             telemetry = result.get("telemetry", {})
         else:
