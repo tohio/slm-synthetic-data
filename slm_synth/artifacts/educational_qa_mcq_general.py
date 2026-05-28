@@ -186,21 +186,22 @@ class EducationalQAMCQGeneralArtifactFactory:
         return self._record(evidence, f"After moving the {obj} along the route {places[0]} -> {places[1]} -> {final_place}, where does {name} leave it?", choices, f"the {final_place}")
 
     def _build_table_lookup(self, index: int) -> dict[str, object]:
-        dept_i, offset_i, city_i = self._decode(index, (len(self.DEPARTMENTS), 17, len(CITIES)))
+        dept_i, offset_i, city_i, person_i = self._decode(index, (len(self.DEPARTMENTS), 17, len(CITIES), len(FIRST_NAMES) * len(LAST_NAMES)))
         departments = [self.DEPARTMENTS[(dept_i + step) % len(self.DEPARTMENTS)] for step in range(4)]
         values = [18 + offset_i, 31 + offset_i, 24 + offset_i, 12 + offset_i]
-        evidence = "Report table for " + CITIES[city_i] + ": " + "; ".join(f"{dept}={value} requests" for dept, value in zip(departments, values)) + "."
+        analyst = full_name(person_i)
+        evidence = f"Report table prepared by {analyst} for {CITIES[city_i]}: " + "; ".join(f"{dept}={value} requests" for dept, value in zip(departments, values)) + "."
         answer = departments[1]
-        return self._record(evidence, f"In the {CITIES[city_i]} report with counts {values}, which department recorded the most requests?", departments, answer)
+        return self._record(evidence, f"In {analyst}'s {CITIES[city_i]} report with counts {values}, which department recorded the most requests?", departments, answer)
 
     def _build_threshold_rule(self, index: int) -> dict[str, object]:
-        dept_i, item_i, offset_i = self._decode(index, (len(self.DEPARTMENTS), len(self.OBJECTS), 11))
-        dept, item = self.DEPARTMENTS[dept_i], self.OBJECTS[item_i]
+        dept_i, item_i, offset_i, person_i = self._decode(index, (len(self.DEPARTMENTS), len(self.OBJECTS), 11, len(FIRST_NAMES) * len(LAST_NAMES)))
+        dept, item, reviewer = self.DEPARTMENTS[dept_i], self.OBJECTS[item_i], full_name(person_i)
         threshold = 20 + offset_i
         counts = [threshold - 3, threshold + 2, threshold - 1, threshold - 5]
         labels = [f"Batch {label}: {count} {item}" for label, count in zip(("A", "B", "C", "D"), counts)]
-        evidence = f"Review rule: the {dept} team escalates a batch of {item} only when its count exceeds {threshold}. " + "; ".join(labels) + "."
-        return self._record(evidence, f"Which {item} batch must the {dept} team escalate?", labels, labels[1])
+        evidence = f"Review assignment: {reviewer} on the {dept} team escalates a batch of {item} only when its count exceeds {threshold}. " + "; ".join(labels) + "."
+        return self._record(evidence, f"Which {item} batch must {reviewer} escalate for the {dept} team?", labels, labels[1])
 
     def _build_temporal_order(self, index: int) -> dict[str, object]:
         obj_i, start_i, place_i, person_i = self._decode(index, (len(self.OBJECTS), len(self.TIME_SLOTS) - 3, len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES)))
@@ -212,45 +213,45 @@ class EducationalQAMCQGeneralArtifactFactory:
         return self._record(evidence, f"At the {place} in the timeline beginning at {times[0]}, what did {name} do immediately before storing the {obj}?", choices, f"recorded the {obj}")
 
     def _build_direction_following(self, index: int) -> dict[str, object]:
-        obj_i, direction_i, place_i = self._decode(index, (len(self.OBJECTS), len(self.DIRECTIONS), len(self.PLACES)))
-        obj, direction = self.OBJECTS[obj_i], self.DIRECTIONS[direction_i]
+        obj_i, direction_i, place_i, person_i = self._decode(index, (len(self.OBJECTS), len(self.DIRECTIONS), len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES)))
+        obj, direction, guide = self.OBJECTS[obj_i], self.DIRECTIONS[direction_i], full_name(person_i)
         opposite = self.DIRECTIONS[(direction_i + 2) % 4]
-        evidence = f"Map note: From the {self.PLACES[place_i]}, walk one block {direction} and place the {obj} there. A separate marker lies one block {opposite}."
-        return self._record(evidence, f"In which direction is the {obj} from the {self.PLACES[place_i]}?", list(self.DIRECTIONS), direction)
+        evidence = f"Map note from {guide}: From the {self.PLACES[place_i]}, walk one block {direction} and place the {obj} there. A separate marker lies one block {opposite}."
+        return self._record(evidence, f"Following {guide}'s map note, in which direction is the {obj} from the {self.PLACES[place_i]}?", list(self.DIRECTIONS), direction)
 
     def _build_conditional_access(self, index: int) -> dict[str, object]:
-        dept_i, obj_i, place_i = self._decode(index, (len(self.DEPARTMENTS), len(self.OBJECTS), len(self.PLACES)))
-        dept, obj, place = self.DEPARTMENTS[dept_i], self.OBJECTS[obj_i], self.PLACES[place_i]
-        evidence = f"Access rule: a person may remove the {obj} from the {place} only if they are on the {dept} team and carry a signed pass."
+        dept_i, obj_i, place_i, person_i = self._decode(index, (len(self.DEPARTMENTS), len(self.OBJECTS), len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES)))
+        dept, obj, place, supervisor = self.DEPARTMENTS[dept_i], self.OBJECTS[obj_i], self.PLACES[place_i], full_name(person_i)
+        evidence = f"Access rule approved by {supervisor}: a person may remove the {obj} from the {place} only if they are on the {dept} team and carry a signed pass."
         allowed = f"A {dept} employee with a signed pass removes the {obj}."
         choices = [allowed, f"A {dept} employee without a pass removes the {obj}.", f"A visitor with a signed pass removes the {obj}.", f"A visitor without a pass removes the {obj}."]
-        return self._record(evidence, f"Which action is permitted for the {obj} kept in the {place}?", choices, allowed)
+        return self._record(evidence, f"Under {supervisor}'s access rule, which action is permitted for the {obj} kept in the {place}?", choices, allowed)
 
     def _build_comparison_claim(self, index: int) -> dict[str, object]:
-        item_i, offset_i, city_i = self._decode(index, (len(self.OBJECTS), 23, len(CITIES)))
-        item = self.OBJECTS[item_i]
+        item_i, offset_i, city_i, person_i = self._decode(index, (len(self.OBJECTS), 23, len(CITIES), len(FIRST_NAMES) * len(LAST_NAMES)))
+        item, analyst = self.OBJECTS[item_i], full_name(person_i)
         values = [12 + offset_i, 19 + offset_i, 15 + offset_i, 9 + offset_i]
         labels = ["North", "East", "South", "West"]
-        evidence = f"Count summary for {item} in {CITIES[city_i]}: " + "; ".join(f"{label} office={value}" for label, value in zip(labels, values)) + "."
+        evidence = f"Count summary prepared by {analyst} for {item} in {CITIES[city_i]}: " + "; ".join(f"{label} office={value}" for label, value in zip(labels, values)) + "."
         claims = [f"The {label} office has {value} {item}." for label, value in zip(labels, values)]
-        return self._record(evidence, f"In {CITIES[city_i]}, which office has the largest reported count of {item}?", claims, claims[1])
+        return self._record(evidence, f"In {analyst}'s {CITIES[city_i]} summary, which office has the largest reported count of {item}?", claims, claims[1])
 
     def _build_category_rule(self, index: int) -> dict[str, object]:
-        category_i, obj_i, color_i = self._decode(index, (len(self.CATEGORIES), len(self.OBJECTS), len(self.MARK_COLORS)))
-        category, obj, color = self.CATEGORIES[category_i], self.OBJECTS[obj_i], self.MARK_COLORS[color_i]
-        evidence = f"Sorting guide: Any package bearing a {color} seal is filed as {category}. The package containing the {obj} bears a {color} seal."
+        category_i, obj_i, color_i, person_i = self._decode(index, (len(self.CATEGORIES), len(self.OBJECTS), len(self.MARK_COLORS), len(FIRST_NAMES) * len(LAST_NAMES)))
+        category, obj, color, clerk = self.CATEGORIES[category_i], self.OBJECTS[obj_i], self.MARK_COLORS[color_i], full_name(person_i)
+        evidence = f"Sorting guide used by {clerk}: Any package bearing a {color} seal is filed as {category}. The package containing the {obj} bears a {color} seal."
         choices = [category] + [self.CATEGORIES[(category_i + step) % len(self.CATEGORIES)] for step in (1, 2, 3)]
-        return self._record(evidence, f"How should the {color}-sealed package containing the {obj} be filed?", choices, category)
+        return self._record(evidence, f"Using {clerk}'s guide, how should the {color}-sealed package containing the {obj} be filed?", choices, category)
 
     def _build_cause_inference(self, index: int) -> dict[str, object]:
-        obj_i, condition_i, place_i = self._decode(index, (len(self.OBJECTS), 4, len(self.PLACES)))
-        obj, place = self.OBJECTS[obj_i], self.PLACES[place_i]
+        obj_i, condition_i, place_i, person_i = self._decode(index, (len(self.OBJECTS), 4, len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES)))
+        obj, place, observer = self.OBJECTS[obj_i], self.PLACES[place_i], full_name(person_i)
         conditions = ("water was added", "the lamp was switched on", "the heater was turned on", "the cover was removed")
         effects = ("the container became heavier", "the work surface became brighter", "the reading increased in temperature", "the item became visible")
         cause, effect = conditions[condition_i], effects[condition_i]
-        evidence = f"Observation at the {place}: Before {cause}, no change was recorded for the {obj}. Immediately after {cause}, {effect}. No other action occurred."
+        evidence = f"Observation by {observer} at the {place}: Before {cause}, no change was recorded for the {obj}. Immediately after {cause}, {effect}. No other action occurred."
         choices = [cause] + [conditions[(condition_i + step) % len(conditions)] for step in (1, 2, 3)]
-        return self._record(evidence, f"Which action most directly explains the change in the {obj} at the {place}?", choices, cause)
+        return self._record(evidence, f"According to {observer}'s observation, which action most directly explains the change in the {obj} at the {place}?", choices, cause)
 
     def _build_schedule_availability(self, index: int) -> dict[str, object]:
         venue_i, start_i, person_i = self._decode(index, (len(VENUES), len(self.TIME_SLOTS) - 3, len(FIRST_NAMES) * len(LAST_NAMES)))
@@ -260,13 +261,13 @@ class EducationalQAMCQGeneralArtifactFactory:
         return self._record(evidence, f"Which time can {name} reserve at the {venue} among {', '.join(times)}?", list(times), times[2])
 
     def _build_inventory_shortage(self, index: int) -> dict[str, object]:
-        item_i, offset_i, dept_i = self._decode(index, (len(self.OBJECTS), 13, len(self.DEPARTMENTS)))
-        item, dept = self.OBJECTS[item_i], self.DEPARTMENTS[dept_i]
+        item_i, offset_i, dept_i, person_i = self._decode(index, (len(self.OBJECTS), 13, len(self.DEPARTMENTS), len(FIRST_NAMES) * len(LAST_NAMES)))
+        item, dept, planner = self.OBJECTS[item_i], self.DEPARTMENTS[dept_i], full_name(person_i)
         required = 30 + offset_i
         quantities = [required + 5, required - 4, required + 1, required + 8]
         locations = [self.PLACES[(item_i + step) % len(self.PLACES)] for step in range(4)]
-        evidence = f"The {dept} team requires at least {required} copies of the {item}. " + "; ".join(f"{place} holds {quantity}" for place, quantity in zip(locations, quantities)) + "."
-        return self._record(evidence, f"Which location cannot supply the required {required} {item} for the {dept} team?", locations, locations[1])
+        evidence = f"Inventory review by {planner}: The {dept} team requires at least {required} copies of the {item}. " + "; ".join(f"{place} holds {quantity}" for place, quantity in zip(locations, quantities)) + "."
+        return self._record(evidence, f"According to {planner}'s review, which location cannot supply the required {required} {item} for the {dept} team?", locations, locations[1])
 
     def _build_source_attribution(self, index: int) -> dict[str, object]:
         first_i, second_i, obj_i, place_i = self._decode(index, (len(FIRST_NAMES) * len(LAST_NAMES), len(FIRST_NAMES) * len(LAST_NAMES), len(self.OBJECTS), len(self.PLACES)))
@@ -279,24 +280,24 @@ class EducationalQAMCQGeneralArtifactFactory:
         return self._record(evidence, f"Who submitted the {obj} later stored in the {place} for review?", choices, first)
 
     def _build_procedure_step(self, index: int) -> dict[str, object]:
-        obj_i, place_i, shift_i = self._decode(index, (len(self.OBJECTS), len(self.PLACES), len(self.PROCEDURE_STEPS)))
-        obj, place = self.OBJECTS[obj_i], self.PLACES[place_i]
+        obj_i, place_i, shift_i, person_i = self._decode(index, (len(self.OBJECTS), len(self.PLACES), len(self.PROCEDURE_STEPS), len(FIRST_NAMES) * len(LAST_NAMES)))
+        obj, place, trainer = self.OBJECTS[obj_i], self.PLACES[place_i], full_name(person_i)
         steps = list(self.PROCEDURE_STEPS[shift_i:]) + list(self.PROCEDURE_STEPS[:shift_i])
-        evidence = f"Procedure for the {obj} at the {place}: first {steps[0]}, next {steps[1]}, then {steps[2]}, and finally {steps[3]}."
+        evidence = f"Procedure assigned by {trainer} for the {obj} at the {place}: first {steps[0]}, next {steps[1]}, then {steps[2]}, and finally {steps[3]}."
         choices = steps
-        return self._record(evidence, f"Which step occurs immediately after the first step for the {obj} at the {place}?", choices, steps[1])
+        return self._record(evidence, f"In {trainer}'s procedure, which step occurs immediately after the first step for the {obj} at the {place}?", choices, steps[1])
 
     def _build_exception_rule(self, index: int) -> dict[str, object]:
-        dept_i, obj_i, place_i = self._decode(index, (len(self.DEPARTMENTS), len(self.OBJECTS), len(self.PLACES)))
-        dept, obj, place = self.DEPARTMENTS[dept_i], self.OBJECTS[obj_i], self.PLACES[place_i]
-        evidence = f"Handling rule: all {obj} must remain in the {place}, except when a {dept} supervisor authorizes temporary inspection."
+        dept_i, obj_i, place_i, person_i = self._decode(index, (len(self.DEPARTMENTS), len(self.OBJECTS), len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES)))
+        dept, obj, place, manager = self.DEPARTMENTS[dept_i], self.OBJECTS[obj_i], self.PLACES[place_i], full_name(person_i)
+        evidence = f"Handling rule issued by {manager}: all {obj} must remain in the {place}, except when a {dept} supervisor authorizes temporary inspection."
         exception = f"A {dept} supervisor authorizes temporary inspection of the {obj}."
         choices = [exception, f"A visitor removes the {obj} without approval.", f"A clerk discards the {obj}.", f"A courier takes the {obj} permanently."]
-        return self._record(evidence, f"Which situation is an allowed exception for the {obj} stored in the {place}?", choices, exception)
+        return self._record(evidence, f"Under {manager}'s rule, which situation is an allowed exception for the {obj} stored in the {place}?", choices, exception)
 
     def _build_trend_interpretation(self, index: int) -> dict[str, object]:
-        item_i, pattern_i, offset_i, place_i = self._decode(index, (len(self.OBJECTS), len(self.TREND_LABELS), 10, len(self.PLACES)))
-        item, label, place = self.OBJECTS[item_i], self.TREND_LABELS[pattern_i], self.PLACES[place_i]
+        item_i, pattern_i, offset_i, place_i, person_i = self._decode(index, (len(self.OBJECTS), len(self.TREND_LABELS), 10, len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES)))
+        item, label, place, analyst = self.OBJECTS[item_i], self.TREND_LABELS[pattern_i], self.PLACES[place_i], full_name(person_i)
         start = 10 + offset_i
         series = {
             "increased": [start, start + 2, start + 4, start + 6],
@@ -304,8 +305,8 @@ class EducationalQAMCQGeneralArtifactFactory:
             "stayed constant": [start, start, start, start],
             "fluctuated": [start, start + 3, start + 1, start + 4],
         }[label]
-        evidence = f"Weekly counts for the {item} at the {place}: week 1={series[0]}, week 2={series[1]}, week 3={series[2]}, week 4={series[3]}."
-        return self._record(evidence, f"Which description best matches the weekly counts {series} for the {item} at the {place}?", list(self.TREND_LABELS), label)
+        evidence = f"Weekly counts compiled by {analyst} for the {item} at the {place}: week 1={series[0]}, week 2={series[1]}, week 3={series[2]}, week 4={series[3]}."
+        return self._record(evidence, f"Which description best matches {analyst}'s weekly counts {series} for the {item} at the {place}?", list(self.TREND_LABELS), label)
 
     def _build_revision_tracking(self, index: int) -> dict[str, object]:
         obj_i, place_i, first_i, second_i = self._decode(index, (len(self.OBJECTS), len(self.PLACES), len(FIRST_NAMES) * len(LAST_NAMES), len(FIRST_NAMES) * len(LAST_NAMES)))

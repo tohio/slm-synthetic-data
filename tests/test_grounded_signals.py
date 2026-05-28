@@ -1,3 +1,4 @@
+import hashlib
 import json
 from collections import Counter, defaultdict
 
@@ -201,6 +202,29 @@ def test_general_mcq_has_no_exact_artifact_duplicates_at_6m_replacement_scale():
     fingerprints = {freeze(row.payload) for row in rows}
     assert len(fingerprints) == len(rows)
 
+
+
+@pytest.mark.parametrize(
+    ("factory_cls", "row_count"),
+    [
+        (EducationalQAMCQGeneralArtifactFactory, 683088),
+        (FactualRestraintArtifactFactory, 213840),
+    ],
+)
+def test_scaled_production_artifacts_have_no_exact_duplicates(factory_cls, row_count):
+    factory = factory_cls()
+    digests = set()
+
+    for index in range(row_count):
+        payload = json.dumps(
+            factory.build(index).payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(payload.encode("utf-8")).digest()
+        assert digest not in digests, f"duplicate payload at index={index}"
+        digests.add(digest)
 
 
 def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_family():

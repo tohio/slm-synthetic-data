@@ -99,9 +99,13 @@ class FactualRestraintArtifactFactory:
     def _build_unannounced_information(self, index: int) -> dict[str, str]:
         template_i = index % len(self.UNANNOUNCED_QUESTION_TEMPLATES)
         scenario_index = index // len(self.UNANNOUNCED_QUESTION_TEMPLATES)
-        company_i, item_i, project_i, year_i, city_i = self._decode(scenario_index, (len(COMPANY_NAMES), len(self.PRODUCT_TYPES), len(PROJECT_NAMES), 21, len(CITIES)))
+        contact_i, company_i, item_i, project_i, year_i, city_i = self._decode(
+            scenario_index,
+            (1024, len(COMPANY_NAMES), len(self.PRODUCT_TYPES), len(PROJECT_NAMES), 21, len(CITIES)),
+        )
         company = COMPANY_NAMES[company_i]
-        question = self.UNANNOUNCED_QUESTION_TEMPLATES[template_i].format(
+        contact = full_name(contact_i)
+        base_question = self.UNANNOUNCED_QUESTION_TEMPLATES[template_i].format(
             company=company,
             company_possessive=self._possessive(company),
             product=self.PRODUCT_TYPES[item_i],
@@ -109,6 +113,7 @@ class FactualRestraintArtifactFactory:
             city=CITIES[city_i],
             year=2027 + year_i,
         )
+        question = f"{contact} asked for a briefing on an unreleased product: {base_question}"
         return {"question": question, "behavior": "State naturally that unannounced details cannot be confirmed; do not invent specifics."}
 
     def _build_rumor(self, index: int) -> dict[str, str]:
