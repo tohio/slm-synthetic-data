@@ -13,7 +13,7 @@ from slm_synth.artifacts import (
     TaskCodeArtifactFactory,
 )
 from slm_synth.grounded import GroundedBatchStore, GroundedSignalGenerator
-from slm_synth.llm import StructuredRenderedResponseError
+from slm_synth.llm import RetryableProviderExhaustedError, StructuredRenderedResponseError
 from slm_synth.artifacts.quality import artifact_fingerprint, validate_artifact
 
 
@@ -62,6 +62,23 @@ class GroundedInvalidFirstBatchLLM(GroundedMockLLM):
             response["records"][0]["artifact_id"] = response["records"][1]["artifact_id"]
         self.calls += 1
         return response
+
+
+class GroundedRetryableProviderFirstBatchLLM(GroundedMockLLM):
+    def __init__(self):
+        self.calls = 0
+
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        self.calls += 1
+        if self.calls == 1:
+            raise RetryableProviderExhaustedError(
+                "Retryable structured provider failure exhausted after 20 attempts: 429",
+                telemetry={"retryable_provider_retries": 20},
+            )
+        return {
+            "data": super().generate_structured_object(prompt=prompt, schema=schema, schema_name=schema_name),
+            "telemetry": {},
+        }
 
 
 class GroundedMalformedFirstBatchLLM(GroundedMockLLM):
@@ -292,6 +309,28 @@ def test_run_signal_resumes_from_completed_grounded_batches(monkeypatch, tmp_pat
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
 
 
+def test_run_signal_requeues_exhausted_retryable_provider_failure_and_continues(monkeypatch, tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {
+            "provider": "openrouter",
+            "model": "deepseek/deepseek-v4-flash",
+            "retries": {"exhausted_retryable_requeue_delay_seconds": 0},
+        },
+        "generation": {"batch_size": 32, "parallel_requests": 1},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 32}},
+    }
+    llm = GroundedRetryableProviderFirstBatchLLM()
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
+
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+
+    assert llm.calls == 2
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+    rejection = (tmp_path / "rejected" / "factual_restraint.jsonl").read_text()
+    assert "requeued_retryable_provider_failure" in rejection
+
+
 def test_run_signal_discards_transient_rendered_batch_failure_and_continues(monkeypatch, tmp_path):
     cfg = {
         "target_total_tokens": 5000,
@@ -390,6 +429,28 @@ def test_batch_store_persists_telemetry(tmp_path):
     assert store.telemetry_summary()["adaptive_peak_in_flight_limit"] == 256
     assert store.telemetry_summary()["adaptive_min_in_flight_limit"] == 64
     assert store.telemetry_summary()["max_adaptive_cooldown_seconds"] == 5.0
+
+
+def test_run_signal_materializes_raw_only_at_start_and_completion(monkeypatch, tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 32, "parallel_requests": 1},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 96}},
+    }
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
+    original = GroundedBatchStore.materialize_raw
+    calls = []
+
+    def counted(self):
+        calls.append(1)
+        return original(self)
+
+    monkeypatch.setattr(GroundedBatchStore, "materialize_raw", counted)
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+
+    assert len(calls) == 2
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 96
 
 
 def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tmp_path):

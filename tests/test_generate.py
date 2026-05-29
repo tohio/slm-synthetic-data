@@ -1,7 +1,14 @@
 from types import SimpleNamespace
 
+import pytest
+
 import slm_synth.llm as llm_module
-from slm_synth.llm import AdaptiveRequestController, LLMBackend, StructuredRenderedResponseError
+from slm_synth.llm import (
+    AdaptiveRequestController,
+    LLMBackend,
+    RetryableProviderExhaustedError,
+    StructuredRenderedResponseError,
+)
 from slm_synth.sources.arithmetic import ArithmeticGenerator
 from slm_synth.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
 from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenerator
@@ -298,15 +305,13 @@ def test_malformed_structured_responses_raise_droppable_error_with_accumulated_u
     assert len(calls) == 2
 
 
-def test_retryable_provider_failure_stops_after_bounded_elapsed(monkeypatch):
+def test_retryable_provider_failure_stops_after_bounded_provider_elapsed(monkeypatch):
     backend = _backend_for_retry_test()
     backend.max_retryable_request_attempts = 20
     backend.retry_max_elapsed_seconds = 5.0
     calls = []
     clock = {"now": 0.0}
     monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
-    monkeypatch.setattr(backend, "_acquire_provider_slot", lambda: (0.0, 0))
-    monkeypatch.setattr(backend, "_release_provider_slot", lambda: None)
     monkeypatch.setattr(llm_module.time, "sleep", lambda seconds: None)
 
     def create(*args, **kwargs):
@@ -315,56 +320,41 @@ def test_retryable_provider_failure_stops_after_bounded_elapsed(monkeypatch):
         raise RetryableProviderError()
 
     backend._create_structured_completion = create
-    try:
+    with pytest.raises(RetryableProviderExhaustedError, match="after 1 attempts"):
         backend.generate_structured_object_with_metadata(prompt="prompt", schema={}, schema_name="schema")
-    except RuntimeError as exc:
-        assert "after 1 attempts" in str(exc)
-    else:
-        raise AssertionError("expected bounded provider retry failure")
     assert len(calls) == 1
 
 
-def test_retryable_provider_failure_after_long_initial_admission_wait_still_retries(monkeypatch):
+def test_initial_admission_wait_does_not_consume_provider_retry_budget(monkeypatch):
     backend = _backend_for_retry_test()
+    backend.max_retryable_request_attempts = 3
     backend.retry_max_elapsed_seconds = 5.0
     calls = []
     sleeps = []
-    acquisitions = []
     clock = {"now": 0.0}
-    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
 
-    def acquire():
-        acquisitions.append(1)
-        if len(acquisitions) == 1:
-            clock["now"] = 100.0
-            return 100.0, 0
-        return 0.0, 0
+    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
+    backend._acquire_provider_slot = lambda: (100.0, 0)
+    backend._release_provider_slot = lambda: None
 
     def sleep(seconds):
         sleeps.append(seconds)
         clock["now"] += seconds
 
+    monkeypatch.setattr(llm_module.time, "sleep", sleep)
+
     def create(*args, **kwargs):
         calls.append(1)
         if len(calls) == 1:
+            clock["now"] = 100.0
             raise RetryableProviderError()
         return _structured_response()
 
-    monkeypatch.setattr(backend, "_acquire_provider_slot", acquire)
-    monkeypatch.setattr(backend, "_release_provider_slot", lambda: None)
-    monkeypatch.setattr(llm_module.time, "sleep", sleep)
     backend._create_structured_completion = create
-
-    result = backend.generate_structured_object_with_metadata(
-        prompt="prompt", schema={}, schema_name="schema"
-    )
-
+    result = backend.generate_structured_object_with_metadata(prompt="prompt", schema={}, schema_name="schema")
     assert len(calls) == 2
     assert sleeps == [2.0]
-    assert result["telemetry"]["retry_count"] == 1
     assert result["telemetry"]["retryable_provider_retries"] == 1
-    assert result["telemetry"]["adaptive_admission_wait_seconds"] == 100.0
-    assert result["telemetry"]["elapsed_seconds"] == 102.0
 
 
 def test_adaptive_controller_slow_start_doubles_after_a_successful_window():

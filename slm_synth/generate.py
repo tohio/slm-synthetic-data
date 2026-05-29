@@ -19,7 +19,12 @@ from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenera
 from slm_synth.sources.factual_restraint import FactualRestraintGenerator
 from slm_synth.sources.task_code import TaskCodeGenerator
 from slm_synth.writer import JSONLWriter
-from slm_synth.grounded import GroundedBatchStore, GroundedRenderedBatchError, GroundedSignalGenerator
+from slm_synth.grounded import (
+    GroundedBatchStore,
+    GroundedRenderedBatchError,
+    GroundedSignalGenerator,
+    GroundedTransientProviderBatchError,
+)
 
 load_dotenv()
 
@@ -206,11 +211,19 @@ def _rounded_batch_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any], bat
     return token_target, target_rows, rounded_rows
 
 
+def _retry_grounded_batch_after_delay(generator: GroundedSignalGenerator, batch_id: int, delay_seconds: float):
+    if delay_seconds > 0:
+        time.sleep(delay_seconds)
+    return generator.generate_batch(batch_id)
+
+
 def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     """Generate one grounded signal with bounded concurrent, atomically persisted batches."""
     mix_cfg = cfg["mix"][name]
     generation_cfg = cfg.get("generation", {}) or {}
     backend_cfg = cfg.get("backend", {}) or {}
+    retry_cfg = backend_cfg.get("retries", {}) or {}
+    transient_requeue_delay_seconds = float(retry_cfg.get("exhausted_retryable_requeue_delay_seconds", 60.0))
     batch_size = int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 32)))
     if not MIN_GROUNDED_BATCH_SIZE <= batch_size <= MAX_GROUNDED_BATCH_SIZE:
         raise ValueError(
@@ -269,6 +282,7 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     active: dict[Any, int] = {}
     next_position = 0
     failures: list[tuple[int, Exception]] = []
+    retryable_requeues: dict[int, int] = {}
     stop_submitting = False
     try:
         with ThreadPoolExecutor(max_workers=parallel_requests) as executor:
@@ -281,13 +295,34 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
                 done, _ = wait(set(active), return_when=FIRST_COMPLETED)
                 for future in done:
                     batch_id = active.pop(future)
+                    resubmitted = False
                     try:
                         artifacts, records, telemetry = future.result()
                         store.write_completed(batch_id=batch_id, artifacts=artifacts, records=records, telemetry=telemetry)
-                        existing_rows = store.materialize_raw()
+                        # Batch manifests are the durable checkpoint. Rebuild raw JSONL only at
+                        # signal start/resume and completion, not once per completed batch.
+                        existing_rows += len(records)
                         usage = telemetry.get("usage", {}) if telemetry else {}
                         cost = float(usage.get("cost", 0.0) or 0.0)
                         print(f"[generate] {name}: batch={batch_id} rows={existing_rows}/{rounded_rows} cost={cost:.8f}")
+                    except GroundedTransientProviderBatchError as exc:
+                        retryable_requeues[batch_id] = retryable_requeues.get(batch_id, 0) + 1
+                        reject_writer.write({
+                            "signal": name, "architecture": "grounded", "batch_id": batch_id,
+                            "batch_size": batch_size, "status": "requeued_retryable_provider_failure",
+                            "requeue_count": retryable_requeues[batch_id], "error": str(exc),
+                            "telemetry": exc.telemetry,
+                        })
+                        print(
+                            f"[generate] Requeue transient provider failure: signal={name} batch={batch_id} "
+                            f"requeue_count={retryable_requeues[batch_id]} "
+                            f"delay={transient_requeue_delay_seconds:.2f}s reason={str(exc)!r}"
+                        )
+                        active[executor.submit(
+                            _retry_grounded_batch_after_delay,
+                            generator, batch_id, transient_requeue_delay_seconds
+                        )] = batch_id
+                        resubmitted = True
                     except GroundedRenderedBatchError as exc:
                         store.write_failed(
                             batch_id=batch_id,
@@ -313,7 +348,7 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
                         })
                         failures.append((batch_id, exc))
                         stop_submitting = True
-                    if not stop_submitting and next_position < len(pending_ids):
+                    if not stop_submitting and not resubmitted and next_position < len(pending_ids):
                         next_id = pending_ids[next_position]
                         active[executor.submit(generator.generate_batch, next_id)] = next_id
                         next_position += 1
@@ -325,9 +360,10 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         raise RuntimeError(
             f"Grounded {name} batch {batch_id} failed; rerun to resume from completed batches."
         ) from exc
+    final_rows = store.materialize_raw()
     metrics = store.telemetry_summary()
     print(
-        f"[generate] Completed grounded signal: {name} rows={store.materialize_raw()}, "
+        f"[generate] Completed grounded signal: {name} rows={final_rows}, "
         f"target_rows={rounded_rows}, batches={metrics['batches']}, "
         f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
         f"provider_retries={metrics['retryable_provider_retries']}, "

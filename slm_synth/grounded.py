@@ -18,7 +18,7 @@ from slm_synth.artifacts import (
 )
 from slm_synth.artifacts.quality import assert_valid_artifacts
 from slm_synth.record_quality import validate_record
-from slm_synth.llm import StructuredRenderedResponseError
+from slm_synth.llm import RetryableProviderExhaustedError, StructuredRenderedResponseError
 
 
 FACTORY_MAP = {
@@ -28,6 +28,25 @@ FACTORY_MAP = {
     "educational_qa_mcq_general": EducationalQAMCQGeneralArtifactFactory,
     "factual_restraint": FactualRestraintArtifactFactory,
 }
+
+
+class GroundedTransientProviderBatchError(RuntimeError):
+    """A retryable provider outage exhausted one attempt window; batch must be retried."""
+
+    def __init__(
+        self,
+        *,
+        signal: str,
+        batch_id: int,
+        artifacts: list[GroundedArtifact],
+        telemetry: dict[str, Any],
+        reason: str,
+    ) -> None:
+        super().__init__(reason)
+        self.signal = signal
+        self.batch_id = int(batch_id)
+        self.artifacts = artifacts
+        self.telemetry = telemetry or {}
 
 
 class GroundedRenderedBatchError(ValueError):
@@ -373,6 +392,14 @@ class GroundedSignalGenerator:
                     prompt=prompt, schema=self.response_schema(),
                     schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
                 )
+            except RetryableProviderExhaustedError as exc:
+                raise GroundedTransientProviderBatchError(
+                    signal=self.signal,
+                    batch_id=batch_id,
+                    artifacts=artifacts,
+                    telemetry=exc.telemetry,
+                    reason=str(exc),
+                ) from exc
             except StructuredRenderedResponseError as exc:
                 raise GroundedRenderedBatchError(
                     signal=self.signal,
