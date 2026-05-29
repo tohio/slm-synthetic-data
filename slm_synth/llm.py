@@ -56,6 +56,8 @@ class AdaptiveRequestController:
         rate_limit_burst_threshold: int = 4,
         rate_limit_window_seconds: float = 2.0,
         rate_limit_decrease_factor: float = 0.50,
+        sustained_rate_limit_attempt_window: int = 60,
+        sustained_rate_limit_threshold: int = 20,
         cooldown_initial_seconds: float = 5.0,
         cooldown_max_seconds: float = 60.0,
         cooldown_multiplier: float = 2.0,
@@ -73,11 +75,16 @@ class AdaptiveRequestController:
         self.rate_limit_burst_threshold = max(1, int(rate_limit_burst_threshold))
         self.rate_limit_window_seconds = max(0.0, float(rate_limit_window_seconds))
         self.rate_limit_decrease_factor = min(1.0, max(0.01, float(rate_limit_decrease_factor)))
+        self.sustained_rate_limit_attempt_window = max(1, int(sustained_rate_limit_attempt_window))
+        self.sustained_rate_limit_threshold = min(
+            self.sustained_rate_limit_attempt_window, max(1, int(sustained_rate_limit_threshold))
+        )
         self.cooldown_initial_seconds = max(0.0, float(cooldown_initial_seconds))
         self.cooldown_max_seconds = max(self.cooldown_initial_seconds, float(cooldown_max_seconds))
         self.cooldown_multiplier = max(1.0, float(cooldown_multiplier))
         self._condition = threading.Condition()
         self._events: deque[float] = deque()
+        self._attempt_outcomes: deque[bool] = deque(maxlen=self.sustained_rate_limit_attempt_window)
         self._current_limit = self.initial_in_flight if self.enabled else self.maximum_in_flight
         self._active_requests = 0
         self._peak_limit = self._current_limit
@@ -113,7 +120,7 @@ class AdaptiveRequestController:
     def record_rate_limit(
         self, model: str, admission_generation: int | None = None
     ) -> tuple[bool, int, int, float]:
-        """Shrink on a current-window 429 burst; ignore stale in-flight fallout."""
+        """Shrink on burst or sustained 429 pressure; ignore stale in-flight fallout."""
         if not self.enabled:
             return False, self.maximum_in_flight, self.maximum_in_flight, 0.0
         now = monotonic()
@@ -126,12 +133,26 @@ class AdaptiveRequestController:
             if now < self._cooldown_until:
                 return False, self._current_limit, self._current_limit, 0.0
             self._events.append(now)
+            self._attempt_outcomes.append(True)
             cutoff = now - self.rate_limit_window_seconds
             while self._events and self._events[0] < cutoff:
                 self._events.popleft()
-            threshold = min(self.rate_limit_burst_threshold, self._current_limit)
-            if len(self._events) < threshold:
+            burst_threshold = min(self.rate_limit_burst_threshold, self._current_limit)
+            burst_detected = len(self._events) >= burst_threshold
+            sustained_events = sum(self._attempt_outcomes)
+            sustained_detected = (
+                len(self._attempt_outcomes) >= self.sustained_rate_limit_attempt_window
+                and sustained_events >= self.sustained_rate_limit_threshold
+            )
+            if not burst_detected and not sustained_detected:
                 return False, self._current_limit, self._current_limit, 0.0
+            trigger = "burst" if burst_detected else "sustained"
+            event_count = burst_threshold if burst_detected else sustained_events
+            window_label = (
+                f"{self.rate_limit_window_seconds:.2f}s"
+                if burst_detected
+                else f"{self.sustained_rate_limit_attempt_window} attempts"
+            )
             previous = self._current_limit
             reduced = max(self.minimum_in_flight, int(previous * self.rate_limit_decrease_factor))
             if reduced >= previous and previous > self.minimum_in_flight:
@@ -145,10 +166,11 @@ class AdaptiveRequestController:
             self._next_cooldown_seconds = min(cooldown * self.cooldown_multiplier, self.cooldown_max_seconds)
             self._successes_since_adjustment = 0
             self._events.clear()
+            self._attempt_outcomes.clear()
             self._condition.notify_all()
         print(
-            f"[llm] Adaptive admission decreased: model={model} mode=aimd "
-            f"events={threshold} window={self.rate_limit_window_seconds:.2f}s "
+            f"[llm] Adaptive admission decreased: model={model} mode=aimd trigger={trigger} "
+            f"events={event_count} window={window_label} "
             f"in_flight_limit={previous}->{reduced} cooldown={cooldown:.2f}s"
         )
         return True, previous, reduced, cooldown
@@ -167,6 +189,7 @@ class AdaptiveRequestController:
                 return False, self._current_limit, self._current_limit
             if monotonic() < self._cooldown_until:
                 return False, self._current_limit, self._current_limit
+            self._attempt_outcomes.append(False)
             self._successes_since_adjustment += 1
             required_successes = (
                 self._current_limit if self._slow_start else self.increase_successes_per_step
@@ -190,6 +213,8 @@ class AdaptiveRequestController:
             self._peak_limit = max(self._peak_limit, increased)
             self._successes_since_adjustment = 0
             self._next_cooldown_seconds = self.cooldown_initial_seconds
+            self._events.clear()
+            self._attempt_outcomes.clear()
             self._condition.notify_all()
         print(
             f"[llm] Adaptive admission increased: model={model} mode={mode} "
@@ -244,6 +269,8 @@ class LLMBackend:
         adaptive_rate_limit_burst_threshold: int = 4,
         adaptive_rate_limit_window_seconds: float = 2.0,
         adaptive_rate_limit_decrease_factor: float = 0.50,
+        adaptive_sustained_rate_limit_attempt_window: int = 60,
+        adaptive_sustained_rate_limit_threshold: int = 20,
         adaptive_cooldown_initial_seconds: float = 5.0,
         adaptive_cooldown_max_seconds: float = 60.0,
         adaptive_cooldown_multiplier: float = 2.0,
@@ -297,6 +324,8 @@ class LLMBackend:
             rate_limit_burst_threshold=adaptive_rate_limit_burst_threshold,
             rate_limit_window_seconds=adaptive_rate_limit_window_seconds,
             rate_limit_decrease_factor=adaptive_rate_limit_decrease_factor,
+            sustained_rate_limit_attempt_window=adaptive_sustained_rate_limit_attempt_window,
+            sustained_rate_limit_threshold=adaptive_sustained_rate_limit_threshold,
             cooldown_initial_seconds=adaptive_cooldown_initial_seconds,
             cooldown_max_seconds=adaptive_cooldown_max_seconds,
             cooldown_multiplier=adaptive_cooldown_multiplier,
@@ -349,6 +378,8 @@ class LLMBackend:
             adaptive_rate_limit_burst_threshold=self.adaptive_controller.rate_limit_burst_threshold,
             adaptive_rate_limit_window_seconds=self.adaptive_controller.rate_limit_window_seconds,
             adaptive_rate_limit_decrease_factor=self.adaptive_controller.rate_limit_decrease_factor,
+            adaptive_sustained_rate_limit_attempt_window=self.adaptive_controller.sustained_rate_limit_attempt_window,
+            adaptive_sustained_rate_limit_threshold=self.adaptive_controller.sustained_rate_limit_threshold,
             adaptive_cooldown_initial_seconds=self.adaptive_controller.cooldown_initial_seconds,
             adaptive_cooldown_max_seconds=self.adaptive_controller.cooldown_max_seconds,
             adaptive_cooldown_multiplier=self.adaptive_controller.cooldown_multiplier,

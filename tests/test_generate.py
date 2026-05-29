@@ -401,6 +401,50 @@ def test_adaptive_controller_reduces_window_after_rate_limit_burst(monkeypatch):
     assert controller.snapshot()["adaptive_min_in_flight_limit"] == 4
 
 
+def test_adaptive_controller_reduces_window_after_sustained_rate_limit_pressure(monkeypatch, capsys):
+    clock = {"now": 0.0}
+    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
+    controller = AdaptiveRequestController(
+        maximum_in_flight=64, initial_in_flight=32, minimum_in_flight=1,
+        rate_limit_burst_threshold=4, rate_limit_window_seconds=2.0,
+        rate_limit_decrease_factor=0.5,
+        sustained_rate_limit_attempt_window=10, sustained_rate_limit_threshold=4,
+        cooldown_initial_seconds=5.0,
+    )
+
+    outcomes = [True, False, False, True, False, True, False, False, False, True]
+    result = None
+    for is_rate_limit in outcomes:
+        clock["now"] += 3.0  # Never permit the fast 2-second burst detector to fire.
+        if is_rate_limit:
+            result = controller.record_rate_limit("model")
+        else:
+            controller.record_success("model")
+
+    assert result == (True, 32, 16, 5.0)
+    assert controller.snapshot()["adaptive_current_in_flight_limit"] == 16
+    assert "trigger=sustained" in capsys.readouterr().out
+
+
+def test_adaptive_controller_sustained_pressure_requires_full_attempt_window(monkeypatch):
+    clock = {"now": 0.0}
+    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
+    controller = AdaptiveRequestController(
+        maximum_in_flight=64, initial_in_flight=32, minimum_in_flight=1,
+        rate_limit_burst_threshold=4, rate_limit_window_seconds=2.0,
+        sustained_rate_limit_attempt_window=10, sustained_rate_limit_threshold=4,
+        cooldown_initial_seconds=0.0,
+    )
+
+    for _ in range(4):
+        clock["now"] += 3.0
+        assert controller.record_rate_limit("model") == (False, 32, 32, 0.0)
+        clock["now"] += 3.0
+        controller.record_success("model")
+
+    assert controller.snapshot()["adaptive_current_in_flight_limit"] == 32
+
+
 def test_adaptive_controller_ignores_late_429s_from_previous_window(monkeypatch):
     monkeypatch.setattr(llm_module, "monotonic", lambda: 0.0)
     controller = AdaptiveRequestController(

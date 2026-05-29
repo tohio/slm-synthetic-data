@@ -110,6 +110,8 @@ def build_llm(
         adaptive_rate_limit_burst_threshold=int(retry_cfg.get("adaptive_rate_limit_burst_threshold", 4)),
         adaptive_rate_limit_window_seconds=float(retry_cfg.get("adaptive_rate_limit_window_seconds", 2.0)),
         adaptive_rate_limit_decrease_factor=float(retry_cfg.get("adaptive_rate_limit_decrease_factor", 0.50)),
+        adaptive_sustained_rate_limit_attempt_window=int(retry_cfg.get("adaptive_sustained_rate_limit_attempt_window", 60)),
+        adaptive_sustained_rate_limit_threshold=int(retry_cfg.get("adaptive_sustained_rate_limit_threshold", 20)),
         adaptive_cooldown_initial_seconds=float(retry_cfg.get("adaptive_cooldown_initial_seconds", 5.0)),
         adaptive_cooldown_max_seconds=float(retry_cfg.get("adaptive_cooldown_max_seconds", 60.0)),
         adaptive_cooldown_multiplier=float(retry_cfg.get("adaptive_cooldown_multiplier", 2.0)),

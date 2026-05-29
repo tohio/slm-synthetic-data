@@ -36,6 +36,9 @@ backend:
     adaptive_rate_limit_burst_threshold: 4
     adaptive_rate_limit_window_seconds: 2.0
     adaptive_rate_limit_decrease_factor: 0.50
+    # Catch prolonged throttling even when 429 responses are spread beyond the burst window.
+    adaptive_sustained_rate_limit_attempt_window: 60
+    adaptive_sustained_rate_limit_threshold: 20
     adaptive_cooldown_initial_seconds: 5.0
     adaptive_cooldown_max_seconds: 60.0
     adaptive_cooldown_multiplier: 2.0
