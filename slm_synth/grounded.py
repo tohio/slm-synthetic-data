@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
-import ast
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
@@ -191,6 +191,7 @@ class GroundedBatchStore:
         adaptive_peak_in_flight_limit = 0
         adaptive_min_in_flight_limit: int | None = None
         max_adaptive_cooldown_seconds = 0.0
+
         for path in self._completed_paths():
             telemetry = self._load(path).get("telemetry", {}) or {}
             usage = telemetry.get("usage", {}) or {}
@@ -207,16 +208,22 @@ class GroundedBatchStore:
             adaptive_window_decreases += int(telemetry.get("adaptive_window_decreases", 0) or 0)
             adaptive_admission_wait_seconds += float(telemetry.get("adaptive_admission_wait_seconds", 0.0) or 0.0)
             adaptive_peak_in_flight_limit = max(
-                adaptive_peak_in_flight_limit, int(telemetry.get("adaptive_peak_in_flight_limit", 0) or 0)
+                adaptive_peak_in_flight_limit,
+                int(telemetry.get("adaptive_peak_in_flight_limit", 0) or 0),
             )
             observed_min = telemetry.get("adaptive_min_in_flight_limit")
             if observed_min is not None:
                 observed_min = int(observed_min)
-                adaptive_min_in_flight_limit = observed_min if adaptive_min_in_flight_limit is None else min(adaptive_min_in_flight_limit, observed_min)
+                adaptive_min_in_flight_limit = (
+                    observed_min
+                    if adaptive_min_in_flight_limit is None
+                    else min(adaptive_min_in_flight_limit, observed_min)
+                )
             max_adaptive_cooldown_seconds = max(
                 max_adaptive_cooldown_seconds,
                 float(telemetry.get("max_adaptive_cooldown_seconds", 0.0) or 0.0),
             )
+
         for batch_id in self.failed_batch_ids():
             payload = self._load(self._failed_path(batch_id))
             telemetry = payload.get("telemetry", {}) or {}
@@ -235,21 +242,33 @@ class GroundedBatchStore:
             adaptive_window_decreases += int(telemetry.get("adaptive_window_decreases", 0) or 0)
             adaptive_admission_wait_seconds += float(telemetry.get("adaptive_admission_wait_seconds", 0.0) or 0.0)
             adaptive_peak_in_flight_limit = max(
-                adaptive_peak_in_flight_limit, int(telemetry.get("adaptive_peak_in_flight_limit", 0) or 0)
+                adaptive_peak_in_flight_limit,
+                int(telemetry.get("adaptive_peak_in_flight_limit", 0) or 0),
             )
             observed_min = telemetry.get("adaptive_min_in_flight_limit")
             if observed_min is not None:
                 observed_min = int(observed_min)
-                adaptive_min_in_flight_limit = observed_min if adaptive_min_in_flight_limit is None else min(adaptive_min_in_flight_limit, observed_min)
+                adaptive_min_in_flight_limit = (
+                    observed_min
+                    if adaptive_min_in_flight_limit is None
+                    else min(adaptive_min_in_flight_limit, observed_min)
+                )
             max_adaptive_cooldown_seconds = max(
                 max_adaptive_cooldown_seconds,
                 float(telemetry.get("max_adaptive_cooldown_seconds", 0.0) or 0.0),
             )
+
         return {
-            "batches": batches, "dropped_batches": dropped_batches, "dropped_rows": dropped_rows,
-            "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens, "cost": cost, "elapsed_seconds": elapsed_seconds,
-            "retry_count": retries, "retryable_provider_retries": retryable_provider_retries,
+            "batches": batches,
+            "dropped_batches": dropped_batches,
+            "dropped_rows": dropped_rows,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "cost": cost,
+            "elapsed_seconds": elapsed_seconds,
+            "retry_count": retries,
+            "retryable_provider_retries": retryable_provider_retries,
             "retry_sleep_seconds": round(retry_sleep_seconds, 3),
             "adaptive_window_increases": adaptive_window_increases,
             "adaptive_window_decreases": adaptive_window_decreases,
@@ -258,7 +277,6 @@ class GroundedBatchStore:
             "adaptive_min_in_flight_limit": adaptive_min_in_flight_limit or 0,
             "max_adaptive_cooldown_seconds": round(max_adaptive_cooldown_seconds, 3),
         }
-
 
 
 class GroundedSignalGenerator:
@@ -274,11 +292,20 @@ class GroundedSignalGenerator:
 
     def response_schema(self) -> dict[str, Any]:
         common = {"artifact_id": {"type": "string"}}
+
         if self.signal == "arithmetic":
-            fields = {**common, "question": {"type": "string"}, "steps": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 5}}
+            fields = {
+                **common,
+                "question": {"type": "string"},
+                "steps": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 5},
+            }
             required = ["artifact_id", "question", "steps"]
         elif self.signal == "task_code":
-            fields = {**common, "task": {"type": "string"}, "plan": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4}}
+            fields = {
+                **common,
+                "task": {"type": "string"},
+                "plan": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
+            }
             required = ["artifact_id", "task", "plan"]
         elif self.signal == "educational_qa_mcq_math":
             fields = {**common, "question": {"type": "string"}, "explanation": {"type": "string"}}
@@ -289,16 +316,32 @@ class GroundedSignalGenerator:
         else:
             fields = {**common, "safe_answer": {"type": "string"}}
             required = ["artifact_id", "safe_answer"]
-        item = {"type": "object", "properties": fields, "required": required, "additionalProperties": False}
+
+        item = {
+            "type": "object",
+            "properties": fields,
+            "required": required,
+            "additionalProperties": False,
+        }
         return {
             "type": "object",
-            "properties": {"records": {"type": "array", "items": item, "minItems": self.batch_size, "maxItems": self.batch_size}},
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": item,
+                    "minItems": self.batch_size,
+                    "maxItems": self.batch_size,
+                }
+            },
             "required": ["records"],
             "additionalProperties": False,
         }
 
     def build_prompt(self, artifacts: list[GroundedArtifact]) -> str:
-        rows = [{"artifact_id": item.artifact_id, "family": item.family, "payload": item.payload} for item in artifacts]
+        rows = [
+            {"artifact_id": item.artifact_id, "family": item.family, "payload": item.payload}
+            for item in artifacts
+        ]
         common = (
             "Generate one final synthetic PRETRAINING record component for each grounded artifact below. "
             "Every grounded artifact is authoritative. Preserve artifact_id exactly and return records in the same order. "
@@ -328,9 +371,10 @@ class GroundedSignalGenerator:
             "factual_restraint": (
                 "For each artifact, generate a concise natural user-facing assistant answer to the supplied question. "
                 "Follow the behavior requirement without inventing facts or writing policy instructions such as "
-                "'Do not provide'. Use direct language such as 'I can\'t provide' or 'I can\'t verify'."
+                "'Do not provide'. Use direct language such as 'I can\\'t provide' or 'I can\\'t verify'."
             ),
         }[self.signal]
+
         return common + instructions + "\n\nGROUNDED ARTIFACTS:\n" + json.dumps(rows, ensure_ascii=False, indent=2)
 
     @staticmethod
@@ -339,44 +383,63 @@ class GroundedSignalGenerator:
 
     def _finalize(self, artifact: GroundedArtifact, row: dict[str, Any]) -> dict[str, Any]:
         payload = artifact.payload
+
         if self.signal == "arithmetic":
             question = str(row.get("question", "")).strip()
             observed = self._numeric_literals(question)
             required = list(payload["required_numeric_literals"])
+
             if Counter(observed) != Counter(required):
                 raise ValueError(f"Rendered arithmetic question changed numeric facts for {artifact.artifact_id}")
             if payload["answer"] in observed and payload["answer"] not in required:
                 raise ValueError(f"Rendered arithmetic question leaks answer for {artifact.artifact_id}")
+
             record = {
-                "type": "arithmetic", "question": question, "steps": row.get("steps"), "answer": payload["answer"],
-                "verification_expression": payload["expression"], "verification_answer": payload["answer"],
+                "type": "arithmetic",
+                "question": question,
+                "steps": row.get("steps"),
+                "answer": payload["answer"],
+                "verification_expression": payload["expression"],
+                "verification_answer": payload["answer"],
             }
             result = validate_record("arithmetic", record, require_arithmetic_verification=True)
+
         elif self.signal == "task_code":
             task = str(row.get("task", "")).strip()
             lower = task.lower()
+
             if not lower.startswith("write a python function that") or "```" in task or "\ndef " in lower:
                 raise ValueError(f"Rendered task_code task is not a clean instruction for {artifact.artifact_id}")
+
             record = {"type": "task_code", "task": task, "plan": row.get("plan"), "code": payload["code"]}
             result = validate_record("task_code", record)
+
         elif self.signal == "educational_qa_mcq_math":
             question = str(row.get("question", "")).strip()
+
             if Counter(self._numeric_literals(question)) != Counter(payload["required_numeric_literals"]):
                 raise ValueError(f"Rendered math MCQ question changed numeric facts for {artifact.artifact_id}")
+
             record = {
-                "type": "educational_qa_mcq_math", "question": question, "choices": payload["choices"],
-                "correct_index": payload["correct_index"], "explanation": row.get("explanation"),
-                "verification_expression": payload["expression"], "verification_answer": payload["answer"],
+                "type": "educational_qa_mcq_math",
+                "question": question,
+                "choices": payload["choices"],
+                "correct_index": payload["correct_index"],
+                "explanation": row.get("explanation"),
+                "verification_expression": payload["expression"],
+                "verification_answer": payload["answer"],
             }
             result = validate_record("educational_qa_mcq_math", record, require_mcq_verification=True)
+
         elif self.signal == "educational_qa_mcq_general":
             explanation = row.get("explanation")
             count_match = re.search(
-                r"values\\s*=\\s*(\\[[^\\]]+\\])\\s*[\\r\\n]+"
-                r"result\\s*=\\s*values\\.count\\(([-]?\\d+)\\)",
+                r"values\s*=\s*(\[[^\]]+\])\s*[\r\n]+"
+                r"result\s*=\s*values\.count\(([-]?\d+)\)",
                 str(payload.get("evidence", "")),
                 re.I,
             )
+
             if count_match:
                 values = ast.literal_eval(count_match.group(1))
                 target = int(count_match.group(2))
@@ -388,26 +451,38 @@ class GroundedSignalGenerator:
                 )
 
             record = {
-                "type": "educational_qa_mcq_general", "evidence": payload["evidence"],
-                "question": payload["question"], "choices": payload["choices"],
-                "correct_index": payload["correct_index"], "explanation": explanation,
+                "type": "educational_qa_mcq_general",
+                "evidence": payload["evidence"],
+                "question": payload["question"],
+                "choices": payload["choices"],
+                "correct_index": payload["correct_index"],
+                "explanation": explanation,
             }
             result = validate_record("educational_qa_mcq_general", record)
+
         else:
-            record = {"type": "factual_restraint", "question": payload["question"], "safe_answer": row.get("safe_answer")}
+            record = {
+                "type": "factual_restraint",
+                "question": payload["question"],
+                "safe_answer": row.get("safe_answer"),
+            }
             result = validate_record("factual_restraint", record)
+
         if not result.ok:
             raise ValueError(f"Rendered {self.signal} record failed validation for {artifact.artifact_id}: {result.issues}")
+
         return record
 
     def generate_batch(self, batch_id: int) -> tuple[list[GroundedArtifact], list[dict[str, Any]], dict[str, Any]]:
         artifacts = self.factory.build_batch(batch_id, self.batch_size)
         assert_valid_artifacts(artifacts)
         prompt = self.build_prompt(artifacts)
+
         if hasattr(self.llm, "generate_structured_object_with_metadata"):
             try:
                 result = self.llm.generate_structured_object_with_metadata(
-                    prompt=prompt, schema=self.response_schema(),
+                    prompt=prompt,
+                    schema=self.response_schema(),
                     schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
                 )
             except RetryableProviderExhaustedError as exc:
@@ -426,24 +501,32 @@ class GroundedSignalGenerator:
                     telemetry=exc.telemetry,
                     reason=str(exc),
                 ) from exc
+
             response = result["data"]
             telemetry = result.get("telemetry", {})
         else:
             response = self.llm.generate_structured_object(
-                prompt=prompt, schema=self.response_schema(),
+                prompt=prompt,
+                schema=self.response_schema(),
                 schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
             )
             telemetry = {}
+
         returned_ids: list[Any] | None = None
+
         try:
             rows = response.get("records") if isinstance(response, dict) else None
             if not isinstance(rows, list) or len(rows) != self.batch_size:
                 raise ValueError(f"Expected {self.batch_size} grounded {self.signal} records")
+
             expected = {artifact.artifact_id: artifact for artifact in artifacts}
             returned_ids = [row.get("artifact_id") for row in rows if isinstance(row, dict)]
+
             if len(returned_ids) != len(set(returned_ids)) or set(returned_ids) != set(expected):
                 raise ValueError(f"Grounded {self.signal} response has missing, duplicate, or unexpected artifact IDs")
+
             records = [self._finalize(expected[row["artifact_id"]], row) for row in rows]
+
         except ValueError as exc:
             raise GroundedRenderedBatchError(
                 signal=self.signal,
@@ -453,4 +536,5 @@ class GroundedSignalGenerator:
                 reason=str(exc),
                 returned_artifact_ids=returned_ids,
             ) from exc
+
         return artifacts, records, telemetry
