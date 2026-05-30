@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import ast
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
@@ -369,10 +370,27 @@ class GroundedSignalGenerator:
             }
             result = validate_record("educational_qa_mcq_math", record, require_mcq_verification=True)
         elif self.signal == "educational_qa_mcq_general":
+            explanation = row.get("explanation")
+            count_match = re.search(
+                r"values\\s*=\\s*(\\[[^\\]]+\\])\\s*[\\r\\n]+"
+                r"result\\s*=\\s*values\\.count\\(([-]?\\d+)\\)",
+                str(payload.get("evidence", "")),
+                re.I,
+            )
+            if count_match:
+                values = ast.literal_eval(count_match.group(1))
+                target = int(count_match.group(2))
+                expected = values.count(target)
+                explanation = (
+                    f"The list `values` contains {expected} occurrence"
+                    f"{'' if expected == 1 else 's'} of the integer {target}, "
+                    f"so `values.count({target})` returns {expected}."
+                )
+
             record = {
                 "type": "educational_qa_mcq_general", "evidence": payload["evidence"],
                 "question": payload["question"], "choices": payload["choices"],
-                "correct_index": payload["correct_index"], "explanation": row.get("explanation"),
+                "correct_index": payload["correct_index"], "explanation": explanation,
             }
             result = validate_record("educational_qa_mcq_general", record)
         else:

@@ -510,3 +510,37 @@ def test_run_signal_rejects_concurrency_above_qualification_limit(tmp_path):
     }
     with pytest.raises(ValueError, match="parallel_requests between 1 and 1024"):
         generate.run_signal("factual_restraint", cfg, tmp_path)
+
+def test_general_mcq_count_pattern_uses_deterministic_explanation():
+    from slm_synth.artifacts.educational_qa_mcq_general import EducationalQAMCQGeneralArtifactFactory
+    from slm_synth.grounded import GroundedSignalGenerator
+
+    factory = EducationalQAMCQGeneralArtifactFactory()
+
+    artifact = None
+    for index in range(5000):
+        candidate = factory.build(index)
+        evidence = str(candidate.payload.get("evidence", ""))
+        if "values.count(" in evidence:
+            artifact = candidate
+            break
+
+    assert artifact is not None
+
+    renderer = GroundedSignalGenerator(
+        signal="educational_qa_mcq_general",
+        factory=factory,
+        llm=None,
+        batch_size=1,
+    )
+
+    bad_llm_row = {
+        "explanation": "Incorrectly, the count is three occurrences."
+    }
+
+    record = renderer._finalize(artifact, bad_llm_row)
+
+    assert "three occurrences" not in record["explanation"].lower()
+    assert "`values.count(" in record["explanation"]
+    assert record["choices"][record["correct_index"]] in record["explanation"]
+
