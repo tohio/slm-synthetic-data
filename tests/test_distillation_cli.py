@@ -321,3 +321,54 @@ def test_generate_seed_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
     assert calls[0]["count_per_signal"] is None
     assert calls[0]["counts_by_signal"] == {"cloud": 2, "database": 2}
     assert calls[0]["token_target"] == "100K"
+
+
+def test_build_dataset_card_cli_writes_markdown(tmp_path, capsys):
+    run_manifest = tmp_path / "smoke-001.manifest.json"
+    output = tmp_path / "README.md"
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generation_run": "smoke-001",
+                "teacher_model": "openai/gpt-4.1-mini",
+                "teacher_provider": "openrouter",
+                "token_target": "100K",
+                "signals": ["cloud"],
+                "datasets": [
+                    {
+                        "signal": "cloud",
+                        "dataset_path": "data/distillation/datasets/cloud.jsonl",
+                        "manifest_path": "data/distillation/manifests/cloud.smoke-001.manifest.json",
+                        "row_count": 1,
+                    }
+                ],
+                "total_rows": 1,
+                "metadata": {"signal_count": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "build-dataset-card",
+                "--run-manifest",
+                str(run_manifest),
+                "--output",
+                str(output),
+                "--dataset-name",
+                "SLM Synthetic Distillation Smoke",
+                "--license",
+                "mit",
+            ]
+        )
+        == 0
+    )
+
+    text = output.read_text(encoding="utf-8")
+    assert "# SLM Synthetic Distillation Smoke" in text
+    assert "- Teacher model: `openai/gpt-4.1-mini`" in text
+    assert "| cloud | 1 | `data/distillation/datasets/cloud.jsonl` |" in text
+    assert "wrote dataset card" in capsys.readouterr().out

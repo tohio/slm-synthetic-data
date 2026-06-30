@@ -10,6 +10,7 @@ from typing import Any
 
 from slm_synth.distillation.batches import render_teacher_batch_prompt
 from slm_synth.distillation.budget import DEFAULT_ESTIMATED_TOKENS_PER_ROW, build_token_budget_plan
+from slm_synth.distillation.card import write_dataset_card
 from slm_synth.distillation.prompts import validate_prompt_record
 from slm_synth.distillation.generation import generate_and_materialize_signal_batch
 from slm_synth.distillation.orchestration import generate_seed_multi_signal_run
@@ -185,6 +186,18 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build_dataset_card(args: argparse.Namespace) -> int:
+    path = write_dataset_card(
+        run_manifest_path=args.run_manifest,
+        output_path=args.output,
+        dataset_name=args.dataset_name,
+        license_name=args.license,
+        language=args.language,
+    )
+    print(f"wrote dataset card to {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.distillation.cli",
@@ -272,6 +285,14 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
     seed_run_parser.set_defaults(func=cmd_generate_seed_run)
+
+    card_parser = subparsers.add_parser("build-dataset-card")
+    card_parser.add_argument("--run-manifest", required=True)
+    card_parser.add_argument("--output", required=True)
+    card_parser.add_argument("--dataset-name", required=True)
+    card_parser.add_argument("--license", default=None)
+    card_parser.add_argument("--language", default="en")
+    card_parser.set_defaults(func=cmd_build_dataset_card)
 
     return parser
 
