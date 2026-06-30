@@ -1,5 +1,3 @@
-"""Deprecated compatibility alias for the retired mixed MCQ source."""
+"""Compatibility wrapper for slm_synth.pretrain.sources.educational_qa_mcq."""
 
-from slm_synth.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
-
-EducationalQAMCQGenerator = EducationalQAMCQGeneralGenerator
+from slm_synth.pretrain.sources.educational_qa_mcq import *  # noqa: F401,F403

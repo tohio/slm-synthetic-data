@@ -1,14 +1,3 @@
-from __future__ import annotations
+"""Compatibility wrapper for slm_synth.pretrain.artifacts.base."""
 
-from dataclasses import dataclass
-from typing import Any
-
-
-@dataclass(frozen=True)
-class GroundedArtifact:
-    """A deterministic fact-bearing input rendered into a natural final record."""
-
-    signal: str
-    family: str
-    artifact_id: str
-    payload: dict[str, Any]
+from slm_synth.pretrain.artifacts.base import *  # noqa: F401,F403
