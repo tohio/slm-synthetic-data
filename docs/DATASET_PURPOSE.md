@@ -1,21 +1,44 @@
 # Dataset Purpose
 
-This repository generates synthetic data signals that can be mixed into the training corpus for small language model pretraining and continued-pretraining.
+This repository produces two different dataset families. They are intentionally separate.
 
-The generated signals are designed to supplement broader training data with targeted coverage for arithmetic, Python code, mathematical MCQ discrimination, general educational MCQ discrimination, and factual-restraint behavior.
+## Pretraining Synthetic Data
 
-## Signal Scope
+Pretraining records are targeted synthetic signals for a broader pretraining or continued-pretraining mix.
 
-- `arithmetic` — synthetic arithmetic signal for numeric reasoning coverage.
-- `task_code` — synthetic Python code signal for code-pattern exposure.
-- `educational_qa_mcq_math` — mathematical multiple-choice signal with raw-stage numeric verification.
-- `educational_qa_mcq_general` — non-math educational multiple-choice signal grounded in information supplied by each question.
-- `factual_restraint` — synthetic factual-restraint signal for cautious-answer behavior.
+| Signal | Purpose |
+|---|---|
+| `arithmetic` | Numeric reasoning coverage with verified integer arithmetic. |
+| `task_code` | Python code-pattern exposure from local task specifications. |
+| `educational_qa_mcq_math` | Mathematical multiple-choice discrimination with verification. |
+| `educational_qa_mcq_general` | Educational multiple-choice discrimination grounded in supplied evidence. |
+| `factual_restraint` | Cautious-answer behavior for uncertainty, privacy, and missing-context cases. |
 
-## Intended Use
+Pretraining records are not SFT, DPO, or response-distillation rows. They are intended to be mixed with broader raw or curated pretraining data downstream.
 
-Use these datasets as targeted signals in a broader pretraining or continued-pretraining data mix. The two MCQ datasets may be combined downstream when a unified MCQ mixture is desired. They are not intended to be described as SFT, DPO, or standalone training datasets.
+## Response Distillation Data
 
-## Generation Method
+Distillation records are prompt-response examples generated from local prompts and teacher responses.
 
-Each published record is produced through two independent model calls: a candidate-authoring pass creates an unanswered question or task, and a response-completion pass supplies the answer or solution. For MCQ records, Python derives the final answer key from the returned answer and repairs missing answer choices when possible. The default scalable configuration uses `llama-3.1-8b-instant` for both passes.
+Public distillation rows use this schema:
+
+```json
+{"id": "string", "prompt": "string", "reasoning": null, "response": "string"}
+```
+
+`reasoning` may also be a list of strings when step-by-step supervision is useful.
+
+Teacher model, provider, generation run, signal, difficulty, and internal metadata are excluded from public rows. Those details are stored in local manifests and dataset cards.
+
+## Token Targets
+
+Distillation token targets are planning presets:
+
+| Preset | Total tokens |
+|---|---:|
+| `smoke` | 100K |
+| `pilot` | 1M |
+| `scale-check` | 10M |
+| `final` | 100M |
+
+The planner converts token targets into approximate row counts using an estimated tokens-per-row value. Final training-token counts should be measured downstream with the actual training tokenizer.

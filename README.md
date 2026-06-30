@@ -1,43 +1,15 @@
 # SLM Synthetic Data
 
-This repository builds a reusable synthetic pretraining corpus for small language models up to approximately 1.5B parameters. The production path uses **grounded artifact generation** followed by **OpenRouter / DeepSeek rendering**.
+Synthetic data generation for the SLM projects.
 
-## Qualified generation architecture
+This repository has two separate workflows:
 
-```text
-deterministic grounded artifact generator
-→ homogeneous batches of 32 grounded artifacts
-→ deepseek/deepseek-v4-flash strict structured rendering
-→ persisted batch manifest and resumable raw JSONL
-→ validation → exact deduplication → Hugging Face publish
-```
+| Workflow | Package | Output | Purpose |
+|---|---|---|---|
+| Pretraining synthetic data | `slm_synth.pretrain` | Validated and deduped JSONL records | Targeted signals for pretraining or continued pretraining |
+| Response distillation data | `slm_synth.distillation` | One JSONL dataset per signal | Prompt-response datasets for teacher response distillation |
 
-The design was qualified with single-record tests and batch-size testing. Batches of 32 were selected after repeated successful stress runs. Each final record is rooted in a deterministic, prevalidated artifact rather than a model-invented candidate.
-
-## Synthetic signals
-
-| Signal | Grounded source | Final stored record |
-|---|---|---|
-| `arithmetic` | Verified integer arithmetic backbone | `question`, `steps`, `answer` |
-| `task_code` | Valid local Python function | `task`, `plan`, `code` |
-| `educational_qa_mcq_math` | Verified math item with fixed choices/answer | `question`, `choices`, `correct_index`, `explanation` |
-| `educational_qa_mcq_general` | Fixed evidence and answer relationship | `evidence`, `question`, `choices`, `correct_index`, `explanation` |
-| `factual_restraint` | Controlled uncertainty/privacy/context scenario | `question`, `safe_answer` |
-
-## Locked production corpus mix
-
-| Signal | Estimated raw generation target |
-|---|---:|
-| `task_code` | 300.0M |
-| `educational_qa_mcq_general` | 187.5M |
-| `arithmetic` | 112.5M |
-| `educational_qa_mcq_math` | 112.5M |
-| `factual_restraint` | 50.0M |
-| **Total** | **762.5M** |
-
-The repository generates once and persists output for repeated downstream use. It intentionally accepts later validation/deduplication loss rather than planning top-up generation.
-
-`TOKENS` is an estimated planning target converted into record counts through per-signal `avg_tokens_per_sample` values. This repository does **not** import the downstream training tokenizer; final training-token totals are measured when the corpus is tokenized for training.
+OpenRouter is the only supported production provider. Shared provider, retry, concurrency, and structured-output logic lives in `slm_synth/llm.py`.
 
 ## Setup
 
@@ -54,10 +26,24 @@ OPENROUTER_API_KEY=...
 HF_TOKEN=...       # only needed for publishing
 ```
 
-## Quick smoke run
+## Pretraining Workflow
+
+The pretraining workflow generates grounded synthetic records, validates them, exact-deduplicates them, and can publish the final corpus.
+
+Supported pretraining signals:
+
+| Signal | Stored record |
+|---|---|
+| `arithmetic` | `question`, `steps`, `answer` |
+| `task_code` | `task`, `plan`, `code` |
+| `educational_qa_mcq_math` | `question`, `choices`, `correct_index`, `explanation` |
+| `educational_qa_mcq_general` | `evidence`, `question`, `choices`, `correct_index`, `explanation` |
+| `factual_restraint` | `question`, `safe_answer` |
+
+Smoke run:
 
 ```bash
-make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_quality_smoke
+make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_smoke
 make preflight-artifacts
 make generate
 make report-artifacts
@@ -67,43 +53,82 @@ make report-duplicates STAGE=deduped
 make report-lengths STAGE=deduped
 ```
 
-Inspect the generated records and length calibration before creating the production configuration:
+Production-sized configuration:
 
 ```bash
 make production-config CONCURRENCY=4
 ```
 
-## Resume and telemetry
+## Distillation Workflow
 
-Generation persists every completed DeepSeek request under:
+The distillation workflow builds local prompt records, asks a teacher for `reasoning` and `response`, validates teacher ids, and writes public rows with this schema:
 
-```text
-data/runs/<run_name>/manifests/grounded/<signal>/batches/
+```json
+{"id": "string", "prompt": "string", "reasoning": null, "response": "string"}
 ```
 
-Each manifest stores grounded artifacts, rendered records and request telemetry. Running `make generate` again resumes from completed batches and reconstructs the raw JSONL output without duplicate completed requests.
+`reasoning` may also be a list of strings. Public rows do not include `signal`, `metadata`, `teacher_model`, `teacher_provider`, `generation_run`, or `difficulty`; those fields stay in local manifests and dataset cards.
 
-## Quality controls
+Supported distillation signals:
 
-- `make preflight-artifacts` walks the full configured artifact plan before paid rendering and rejects exact artifact duplicates or quality issues.
-- Every batch is also checked immediately before model rendering for correctness, placeholders and schema-specific quality problems.
-- `make report-artifacts` reports artifact-level exact duplicates, family coverage and structural variety.
-- `make validate` validates final rendered records.
-- `make dedup` applies exact deduplication to validated records.
-- `make report-lengths` produces estimated per-record length calibration for target-row planning.
+| Signal |
+|---|
+| `arithmetic` |
+| `code` |
+| `debugging` |
+| `database` |
+| `cloud` |
+| `data_transform` |
+| `educational_qa` |
+| `factual_restraint` |
+| `planning` |
+| `instruction` |
 
-## Repository layout
+Plan a token target:
 
-```text
-configs/                  Config generator and grounded template
-slm_synth/artifacts/      Deterministic grounded artifact factories and preflight quality checks
-slm_synth/grounded.py     Batch renderer, anchoring and atomic batch persistence
-slm_synth/llm.py          OpenRouter/DeepSeek structured output client and retry telemetry
-slm_synth/generate.py     Pipeline orchestration and bounded concurrency
-slm_synth/report_artifacts.py  Artifact diversity/quality report
-slm_synth/report_lengths.py    Per-signal size calibration report
-slm_synth/validate.py     Raw-to-validated record validation
-slm_synth/dedup.py        Exact deduplication
+```bash
+make distill-plan DISTILL_TARGET=smoke
 ```
 
-Full commands: [docs/COMMANDS.md](docs/COMMANDS.md)
+Generate a seed run across all distillation signals:
+
+```bash
+make distill-generate-seed-run \
+  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
+  DISTILL_GENERATION_RUN=smoke-001 \
+  DISTILL_TARGET=smoke
+```
+
+Build a dataset card from the run manifest:
+
+```bash
+make distill-build-dataset-card \
+  DISTILL_RUN_MANIFEST=data/distillation/manifests/smoke-001.manifest.json \
+  DISTILL_DATASET_CARD=data/distillation/README.md \
+  DISTILL_DATASET_NAME="SLM Synthetic Distillation Smoke"
+```
+
+Token target presets:
+
+| Preset | Total tokens |
+|---|---:|
+| `smoke` | 100K |
+| `pilot` | 1M |
+| `scale-check` | 10M |
+| `final` | 100M |
+
+## Repository Layout
+
+```text
+configs/                       Pretraining config generator and template
+prompts/                       Pretraining prompt helpers
+slm_synth/llm.py               Shared OpenRouter client, retries, and concurrency
+slm_synth/pretrain/            Pretraining generation, validation, dedup, reports, publish
+slm_synth/distillation/        Response distillation schema, prompts, generation, manifests
+tests/                         Unit tests for pretraining and distillation workflows
+docs/                          Command reference and supporting project docs
+```
+
+Compatibility wrappers remain at older `slm_synth.*` module paths while the pretraining implementation lives under `slm_synth.pretrain`.
+
+Full command reference: [docs/COMMANDS.md](docs/COMMANDS.md)

@@ -1,17 +1,18 @@
 # Tests
 
-This directory contains tests for the synthetic data pipeline.
+This directory contains tests for pretraining synthetic generation and response distillation.
 
-## Test categories
+## Test Categories
 
 | Category | Purpose | Network required |
 |---|---|---|
 | Schema tests | Validate record shape and field constraints. | No |
 | Dedup tests | Verify exact dedup behavior. | No |
-| Generate tests | Exercise generator plumbing and parsing behavior. | Usually no, unless explicitly configured for live calls. |
+| Generate tests | Exercise generator plumbing and parsing behavior. | Usually no |
 | Validate tests | Verify raw-to-validated stage behavior. | No |
+| Distillation tests | Validate public row schema, teacher matching, manifests, CLI helpers, and card generation. | No for unit tests |
 
-## Run tests
+## Run Tests
 
 Install test dependency if needed:
 
@@ -22,45 +23,68 @@ python -m pip install pytest
 Run the suite:
 
 ```bash
-python -m pytest -q
+pytest -q
 ```
 
-## Pipeline smoke test
-
-For an end-to-end local run using the supported Groq path:
+Focused distillation suite:
 
 ```bash
-make configure PROFILE=balanced TOKENS=200000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
-rm -rf data
-python bootstrap_dirs.py
-make generate
-python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
-make validate
-make dedup
-python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage deduped
+pytest -q tests/test_distillation_*.py
 ```
 
-Expected characteristics for a healthy smoke test:
+## Pretraining Smoke Test
 
-- generation completes with `rejected_batches=0`,
-- validation rejects are zero or very low for general signals; math-MCQ validation rejects must be reviewed against its verification gate,
-- exact duplicate rate before dedup is low,
+```bash
+make configure TOKENS=100000 BATCH=32 CONCURRENCY=4 RUN=grounded_smoke
+make preflight-artifacts
+make generate
+make report-artifacts
+make validate
+make dedup
+make report-duplicates STAGE=deduped
+make report-lengths STAGE=deduped
+```
+
+Expected characteristics:
+
+- generation completes without unresolved failed batches,
+- validation rejects are zero or low enough to inspect,
+- exact duplicate rate is low before dedup,
 - deduped duplicate rate is `0.00%`,
 - no bad JSON is reported.
 
-## Supported live models
+## Distillation Non-Network Smoke Test
 
-Live generation tests should use one of the validated models:
+```bash
+make distill-build-prompts DISTILL_SIGNAL=arithmetic DISTILL_COUNT=2
+make distill-render-teacher-prompt DISTILL_SIGNAL=arithmetic
+```
 
-- `llama-3.1-8b-instant`
-- `llama-3.3-70b-versatile`
+Create a local teacher response JSON matching the rendered prompt ids, then run:
 
-Other models may be used experimentally, but test results should not be interpreted as production support.
+```bash
+make distill-materialize-batch \
+  DISTILL_SIGNAL=arithmetic \
+  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
+  DISTILL_TEACHER_RESPONSE=/tmp/arithmetic.teacher_response.json
+```
 
-## Dedup expectations
+## Distillation Live Smoke Test
 
-The test suite covers separate `educational_qa_mcq_math` and `educational_qa_mcq_general` paths. Math MCQs verify raw numeric metadata and strip it before output.
+Requires `OPENROUTER_API_KEY`:
 
-For synthetic data, exact dedup is expected. Fuzzy dedup should not be enabled by default in tests for these signals.
+```bash
+make distill-generate-seed-run \
+  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
+  DISTILL_GENERATION_RUN=smoke-001 \
+  DISTILL_TARGET=smoke
+```
 
-A large exact-duplicate drop rate usually indicates a generation diversity issue, not a dedup success.
+Public distillation rows should contain only:
+
+```text
+id
+prompt
+reasoning
+response
+```

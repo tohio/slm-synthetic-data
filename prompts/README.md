@@ -1,10 +1,12 @@
 # Prompts
 
-Prompt modules define the two-pass candidate and response tasks and schema guidance for each synthetic signal.
+This directory contains prompt helpers for the pretraining synthetic workflow.
 
-## Contract
+The current production pretraining path uses grounded artifacts plus OpenRouter structured rendering. Distillation prompt records live under `slm_synth/distillation/` because response distillation has a different public schema and teacher contract.
 
-Both the candidate pass and the independent response pass ask the model to return a JSON object with an `items` array:
+## Pretraining Contract
+
+Pretraining renderer prompts ask the model to return a JSON object with an `items` array:
 
 ```json
 {
@@ -14,40 +16,34 @@ Both the candidate pass and the independent response pass ask the model to retur
 }
 ```
 
-The pipeline intentionally avoids bare top-level JSON arrays because JSON object output is more reliable with the supported Groq models.
-
-## Signals
-
-| Signal | File | Purpose |
-|---|---|---|
-| Signal | Candidate pass | Response pass |
-|---|---|---|
-| `arithmetic` | Unanswered integer question | Steps and exact answer |
-| `task_code` | Task specification only | Plan and Python function |
-| `educational_qa_mcq_math` | Question and choices without a key | Solved answer, explanation, and numeric verification metadata; Python repairs choices and derives the key |
-| `educational_qa_mcq_general` | Grounded question and choices without a key | Supported answer text and explanation; Python locates/inserts the answer and derives the key |
-| `factual_restraint` | Question only | Safe restrained answer |
-
-## Diversity
-
-Per-batch diversity context is applied to the candidate-authoring pass. The independent response pass answers the resulting fixed candidates. Every candidate prompt requires a coherent, internally solvable or answerable task before returning a record, and every response prompt requires a completion that addresses the exact candidate without invented assumptions or omitted requirements. Mathematical MCQ responses carry temporary raw-stage verification fields that are checked and removed before export, and explanations containing answer-key or generation-error commentary are rejected. Arithmetic responses similarly carry temporary numeric verification fields that are checked and removed before export. General MCQ responses must ground the answer in explicit supplied evidence. Task-code responses must implement every atomic task requirement without silently dropping constraints. Factual-restraint responses must avoid invented specifics while distinguishing genuine uncertainty from ordinary answerable facts. For both MCQ signals, the response model no longer writes `correct_index`; Python derives it from the returned answer text and repairs a missing answer choice when possible.
-
-## Prompt rules
-
 Prompts should:
 
 - keep the top-level JSON object contract,
 - avoid markdown and code fences,
 - keep string fields JSON-safe,
-- produce concise records,
+- preserve the schema expected by `slm_synth.pretrain.schemas`,
 - avoid generic repeated examples,
-- preserve the schema expected by `slm_synth.schemas`.
+- keep final records concise.
 
-When changing prompts, run a small generation test and duplicate report before scaling:
+## Pretraining Signals
+
+| Signal | Purpose |
+|---|---|
+| `arithmetic` | Render verified integer arithmetic artifacts into question, steps, and answer records. |
+| `task_code` | Render local Python task artifacts into task, plan, and function records. |
+| `educational_qa_mcq_math` | Render verified math MCQ artifacts into question, choices, answer index, and explanation records. |
+| `educational_qa_mcq_general` | Render evidence-grounded MCQ artifacts into question, choices, answer index, and explanation records. |
+| `factual_restraint` | Render controlled uncertainty/privacy/context artifacts into cautious answer records. |
+
+## Smoke Check
+
+After changing pretraining prompts or prompt wrappers:
 
 ```bash
-make configure PROFILE=balanced TOKENS=200000 BATCH=4 CONCURRENCY=8 SERVICE_TIER=flex
-python bootstrap_dirs.py
+make configure TOKENS=100000 BATCH=32 CONCURRENCY=4 RUN=prompt_smoke
+make preflight-artifacts
 make generate
-python -m slm_synth.report_duplicates --config configs/synthetic.yaml --stage raw
+make validate
+make dedup
+make report-duplicates STAGE=deduped
 ```

@@ -1,24 +1,11 @@
-# SLM Synthetic Data — Command Reference
+# Command Reference
 
-The pipeline generates grounded synthetic pretraining records with **OpenRouter** and the qualified renderer `deepseek/deepseek-v4-flash`.
+This repository supports two workflows:
 
-## Architecture
-
-```text
-deterministic grounded artifact factory
-→ signal-homogeneous request of 32 artifacts
-→ one strict structured-output DeepSeek rendering request
-→ atomic completed-batch manifest + resumable raw JSONL
-→ validate → exact dedup → publish
-```
-
-All five signals use the grounded path:
-
-- `arithmetic`
-- `task_code`
-- `educational_qa_mcq_math`
-- `educational_qa_mcq_general`
-- `factual_restraint`
+| Workflow | Main command family |
+|---|---|
+| Pretraining synthetic data | `make configure`, `make generate`, `make validate`, `make dedup` |
+| Response distillation data | `make distill-*` |
 
 ## Environment
 
@@ -29,136 +16,156 @@ OPENROUTER_API_KEY=...
 HF_TOKEN=...
 ```
 
-`HF_TOKEN` is required only when pushing data. Never commit `.env`.
+`HF_TOKEN` is required only when pushing data. Do not commit `.env`.
 
-## Variables
+## Pretraining Variables
 
 | Variable | Default | Description |
 |---|---:|---|
 | `PROFILE` | `balanced` | Runtime posture: `speed`, `balanced`, or `quality`. |
-| `TOKENS` | `200000` | Estimated generation target; converted to row targets using calibrated per-signal averages. |
-| `MODEL` | `deepseek/deepseek-v4-flash` | OpenRouter renderer override. DeepSeek is the qualified baseline. |
-| `BATCH` | `32` | Grounded artifacts per request. Only `32` is qualified for production. |
-| `CONCURRENCY` | profile default | Number of in-flight grounded batch requests. Defaults: speed `8`, balanced `4`, quality `2`. |
-| `RUN` | generated | Optional run name override for a fresh output directory. |
+| `TOKENS` | `200000` | Estimated generation target used to derive row counts. |
+| `MODEL` | config default | Optional OpenRouter renderer override. |
+| `BATCH` | `32` | Grounded artifacts per request. |
+| `CONCURRENCY` | profile default | Number of in-flight batch requests. |
+| `RUN` | generated | Optional run name. |
 | `HF_REPO` | environment/default | Optional Hugging Face destination override. |
-| `SIGNAL` | unset | Restrict a command to one signal. |
-| `STAGE` | `deduped` | Stage for duplicate/length reporting. |
+| `SIGNAL` | unset | Restrict a command to one pretraining signal. |
+| `STAGE` | `deduped` | Stage for duplicate and length reporting. |
 
-## Configure
+## Pretraining Commands
 
-Small all-signal smoke run:
+Configure a smoke run:
 
 ```bash
-make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_quality_smoke
+make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_smoke
 ```
 
-Locked production-target configuration:
+Configure the locked production target:
 
 ```bash
 make production-config CONCURRENCY=4
 ```
 
-This writes `configs/synthetic.yaml` with the fixed corpus mix:
-
-| Signal | Estimated target at full production scale |
-|---|---:|
-| `task_code` | 300.0M |
-| `educational_qa_mcq_general` | 187.5M |
-| `arithmetic` | 112.5M |
-| `educational_qa_mcq_math` | 112.5M |
-| `factual_restraint` | 50.0M |
-| **Total** | **762.5M** |
-
-The repository deliberately does not import a downstream training tokenizer. `TOKENS` is an estimated planning unit used to derive record counts. The final training-token count is measured downstream when the corpus is tokenized for training.
-
-## Preflight planned artifacts before paid rendering
+Run the pretraining pipeline:
 
 ```bash
 make preflight-artifacts
-```
-
-This deterministically walks the configured grounded-artifact plan before any model requests are made. It fails on placeholder/quality problems or exact grounded-artifact duplicates and stores an artifact report plus a SQLite fingerprint index under `manifests/grounded/`.
-
-## Generate and resume
-
-```bash
 make generate
+make report-artifacts
+make validate
+make dedup
+make report-duplicates STAGE=deduped
+make report-lengths STAGE=deduped
 ```
 
-Generate only one signal:
+Run one pretraining signal:
 
 ```bash
 make generate SIGNAL=task_code
 ```
 
-Completed requests are stored atomically under:
-
-```text
-data/runs/<run_name>/manifests/grounded/<signal>/batches/
-```
-
-Rerunning `make generate` safely resumes from persisted completed batches and does not repeat completed requests. Transport interruptions may be retried automatically; unresolved failures are written to `rejected/` and the run can be resumed.
-
-## Validate artifact diversity before scaling
+Publish deduped data:
 
 ```bash
-make report-artifacts
+make push HF_REPO=<namespace>/<repo>
 ```
 
-This reports grounded artifact totals, exact artifact duplicates, structure counts, family coverage, and placeholder/quality issues. It reads the persisted grounded artifacts, not only the model-rendered wording.
+## Distillation Variables
 
-A production run must not proceed if this report finds exact artifact duplicates or quality issues.
+| Variable | Default | Description |
+|---|---:|---|
+| `DISTILL_SIGNAL` | `arithmetic` | Single signal for prompt, materialize, and batch commands. |
+| `DISTILL_SIGNALS` | unset | Space-separated signal list for planning or seed runs. |
+| `DISTILL_COUNT` | `2` | Prompt count for `distill-build-prompts`. |
+| `DISTILL_TARGET` | `smoke` | Token target preset or explicit target accepted by the planner. |
+| `DISTILL_ESTIMATED_TOKENS_PER_ROW` | `512` | Planning estimate used to convert token targets into row counts. |
+| `DISTILL_PROMPTS` | `/tmp/<signal>.prompts.jsonl` | Local prompt-record JSONL path. |
+| `DISTILL_TEACHER_PROMPT` | `/tmp/<signal>.teacher_prompt.txt` | Rendered teacher prompt path. |
+| `DISTILL_TEACHER_RESPONSE` | `/tmp/<signal>.teacher_response.json` | Local teacher response JSON path for non-network materialization. |
+| `DISTILL_OUTPUT_DIR` | `data/distillation/datasets` | Public JSONL output directory. |
+| `DISTILL_MANIFEST_DIR` | `data/distillation/manifests` | Local manifest output directory. |
+| `DISTILL_TEACHER_MODEL` | unset | OpenRouter teacher model. Required for generation/materialization. |
+| `DISTILL_GENERATION_RUN` | `smoke-001` | Run id written to manifests. |
+| `DISTILL_MAX_TOKENS` | `1024` | Teacher response max tokens. |
+| `DISTILL_TOKEN_TARGET` | unset | Optional token-target label for single-batch commands. |
+| `DISTILL_RUN_MANIFEST` | `data/distillation/manifests/<run>.manifest.json` | Run manifest used for dataset-card generation. |
+| `DISTILL_DATASET_CARD` | `data/distillation/README.md` | Dataset card output path. |
+| `DISTILL_DATASET_NAME` | `SLM Synthetic Distillation` | Dataset card title. |
+| `DISTILL_LICENSE` | unset | Optional dataset-card license metadata. |
 
-## Validate and deduplicate rendered output
+## Distillation Commands
+
+Plan a token target:
 
 ```bash
-make validate
-make dedup
-make report-duplicates STAGE=deduped
+make distill-plan DISTILL_TARGET=smoke
 ```
 
-Synthetic data uses exact-only deduplication by default. Fuzzy deduplication remains disabled because structural similarity is expected in controlled generated data.
-
-## Calibrate estimated row sizing
-
-After a clean smoke or validation run:
+Build seed prompts for one signal:
 
 ```bash
-make report-lengths STAGE=deduped
+make distill-build-prompts DISTILL_SIGNAL=arithmetic DISTILL_COUNT=2
 ```
 
-The report estimates per-record sizes using serialized character length and writes:
-
-```text
-data/runs/<run_name>/manifests/length_report_deduped.json
-```
-
-Use the recommended per-signal values to adjust `avg_tokens_per_sample` before the full production configuration. This is planning calibration, not a downstream tokenizer replacement.
-
-## Recommended workflow
+Render a teacher prompt without calling the provider:
 
 ```bash
-# Small quality smoke test
-make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_quality_smoke
-make preflight-artifacts
-make generate
-make report-artifacts
-make validate
-make dedup
-make report-duplicates STAGE=deduped
-make report-lengths STAGE=deduped
-
-# After reviewing records and calibrated averages, prepare the one-time large run
-make production-config CONCURRENCY=4
-make generate
+make distill-render-teacher-prompt DISTILL_SIGNAL=arithmetic
 ```
 
-## Monitoring
+Materialize a local teacher response:
 
 ```bash
-watch -n 10 'find data/runs -path "*/raw/*.jsonl" -printf "%p %s\n" | sort'
-find data/runs -path '*/manifests/grounded/*/batches/*.json' | wc -l
+make distill-materialize-batch \
+  DISTILL_SIGNAL=arithmetic \
+  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
+  DISTILL_TEACHER_RESPONSE=/tmp/arithmetic.teacher_response.json
 ```
 
-Use `tmux` for long generation runs.
+Generate one live OpenRouter batch:
+
+```bash
+make distill-generate-batch \
+  DISTILL_SIGNAL=arithmetic \
+  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini
+```
+
+Generate a seed run across all supported distillation signals:
+
+```bash
+make distill-generate-seed-run \
+  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
+  DISTILL_GENERATION_RUN=smoke-001 \
+  DISTILL_TARGET=smoke
+```
+
+Generate selected distillation signals:
+
+```bash
+make distill-generate-seed-run \
+  DISTILL_SIGNALS="arithmetic code debugging" \
+  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
+  DISTILL_TARGET=smoke
+```
+
+Build a dataset card from a run manifest:
+
+```bash
+make distill-build-dataset-card \
+  DISTILL_RUN_MANIFEST=data/distillation/manifests/smoke-001.manifest.json \
+  DISTILL_DATASET_CARD=data/distillation/README.md \
+  DISTILL_DATASET_NAME="SLM Synthetic Distillation Smoke" \
+  DISTILL_LICENSE=mit
+```
+
+## Tests
+
+```bash
+pytest -q
+```
+
+Focused distillation tests:
+
+```bash
+pytest -q tests/test_distillation_*.py
+```

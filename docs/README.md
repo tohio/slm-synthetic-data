@@ -1,16 +1,11 @@
 # Documentation
 
-This directory contains supplementary project documentation.
-
-Start with the root `README.md` for usage instructions. Additional docs in this directory should describe stable project behavior, design decisions, or future work in a public-repo style.
-
-## Current docs
+Start with the root `README.md` for setup and workflow overview.
 
 | File | Purpose |
 |---|---|
-| `TODO.md` | Maintainer task list and future improvements. |
+| `COMMANDS.md` | Makefile and CLI command reference for pretraining and distillation workflows. |
+| `DATASET_PURPOSE.md` | Dataset-family definitions, intended use, and row-schema boundaries. |
+| `DISK_SETUP.md` | Local disk and data-directory setup notes. |
+| `TODO.md` | Maintainer task list. |
 | `architecture.png` | Optional architecture diagram. |
-
-## References
-
-- [Command reference](COMMANDS.md)
