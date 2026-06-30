@@ -231,12 +231,14 @@ class AdaptiveRequestController:
             }
 
 
-class LLMBackend:
-    """OpenAI-compatible LLM client for legacy and grounded generation paths.
+SUPPORTED_PROVIDERS = {"openrouter"}
 
-    Legacy Groq sources use ``generate_batch`` with an ``{"items": [...]}``
-    object contract. Grounded OpenRouter sources use ``generate_structured_object``
-    with strict JSON Schema responses.
+
+class LLMBackend:
+    """OpenAI-compatible OpenRouter client for generation paths.
+
+    ``generate_batch`` uses an ``{"items": [...]}`` object contract.
+    ``generate_structured_object`` uses strict JSON Schema responses.
     """
 
     def __init__(
@@ -277,22 +279,18 @@ class LLMBackend:
         require_parameters: bool = True,
         allow_fallbacks: bool = False,
     ):
-        if provider not in {"groq", "openrouter"}:
-            raise ValueError(f"Unsupported provider: {provider}")
+        provider = str(provider).lower().strip()
+        if provider not in SUPPORTED_PROVIDERS:
+            supported = ", ".join(sorted(SUPPORTED_PROVIDERS))
+            raise ValueError(f"Unsupported provider '{provider}'. Supported providers: {supported}")
 
-        if provider == "groq":
-            api_key = os.environ.get("GROQ_API_KEY")
-            base_url = "https://api.groq.com/openai/v1"
-            missing_key = "GROQ_API_KEY"
-            default_headers = None
-        else:
-            api_key = os.environ.get("OPENROUTER_API_KEY")
-            base_url = "https://openrouter.ai/api/v1"
-            missing_key = "OPENROUTER_API_KEY"
-            default_headers = {
-                "HTTP-Referer": "https://github.com/tohio/slm-synthetic-data",
-                "X-Title": "SLM grounded synthetic generation",
-            }
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        base_url = "https://openrouter.ai/api/v1"
+        missing_key = "OPENROUTER_API_KEY"
+        default_headers = {
+            "HTTP-Referer": "https://github.com/tohio/slm-synthetic-data",
+            "X-Title": "SLM grounded synthetic generation",
+        }
         if not api_key:
             raise RuntimeError(f"{missing_key} is not set in the environment.")
 
@@ -440,16 +438,7 @@ class LLMBackend:
         kwargs = self._base_kwargs(prompt)
         if self.json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        if self.service_tier and self.provider == "groq":
-            kwargs["service_tier"] = self.service_tier
-        try:
-            return self.client.chat.completions.create(**kwargs)
-        except TypeError:
-            tier = kwargs.pop("service_tier", None)
-            if tier:
-                kwargs["extra_body"] = {"service_tier": tier}
-                return self.client.chat.completions.create(**kwargs)
-            raise
+        return self.client.chat.completions.create(**kwargs)
 
     def _create_structured_completion(self, prompt: str, schema: dict[str, Any], schema_name: str):
         if self.provider != "openrouter":

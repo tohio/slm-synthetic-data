@@ -83,7 +83,7 @@ def build_llm(
     warn_if_unsupported_model(model_name, context=f"synthetic {role} generation")
 
     return LLMBackend(
-        provider=base_cfg.get("provider", "groq"),
+        provider=base_cfg.get("provider", "openrouter"),
         model=model_name,
         max_tokens=_int_cfg(signal_cfg.get("max_tokens"), base_cfg.get("max_tokens"), default=1024),
         temperature=_float_cfg(signal_cfg.get("temperature"), base_cfg.get("temperature"), default=0.2),

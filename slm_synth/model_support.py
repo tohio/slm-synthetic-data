@@ -6,8 +6,6 @@ from typing import Optional, TextIO
 
 SUPPORTED_MODELS = {
     "deepseek/deepseek-v4-flash": "openrouter",
-    "llama-3.1-8b-instant": "groq",
-    "llama-3.3-70b-versatile": "groq",
 }
 _WARNED: set[str] = set()
 

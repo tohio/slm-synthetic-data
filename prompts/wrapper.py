@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 # -------------------------------------------------------------------
 # Batched wrapper templates
 # -------------------------------------------------------------------
-# Groq/OpenAI JSON object mode requires a top-level JSON object, not a
+# OpenAI-compatible JSON object mode requires a top-level JSON object, not a
 # bare JSON array. Both candidate and response passes ask for {"items": [...]}.
 
 BATCHED_WRAPPER_TEMPLATE = """You are a synthetic data candidate generator.
