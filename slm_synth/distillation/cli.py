@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.distillation.batches import render_teacher_batch_prompt
+from slm_synth.distillation.budget import DEFAULT_ESTIMATED_TOKENS_PER_ROW, build_token_budget_plan
 from slm_synth.distillation.prompts import validate_prompt_record
 from slm_synth.distillation.generation import generate_and_materialize_signal_batch
 from slm_synth.distillation.orchestration import generate_seed_multi_signal_run
@@ -129,17 +130,41 @@ def cmd_generate_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plan_token_target(args: argparse.Namespace) -> int:
+    signals = args.signals if args.signals else None
+    plan = build_token_budget_plan(
+        target=args.target,
+        signals=signals,
+        estimated_tokens_per_row=args.estimated_tokens_per_row,
+    )
+    print(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def cmd_generate_seed_run(args: argparse.Namespace) -> int:
     signals = args.signals if args.signals else None
+    counts_by_signal = None
+    token_target = args.token_target
+    if args.target_preset is not None:
+        plan = build_token_budget_plan(
+            target=args.target_preset,
+            signals=signals,
+            estimated_tokens_per_row=args.estimated_tokens_per_row,
+        )
+        counts_by_signal = plan.counts_by_signal
+        if token_target is None:
+            token_target = plan.target_label
+
     result = generate_seed_multi_signal_run(
         signals=signals,
         count_per_signal=args.count_per_signal,
+        counts_by_signal=counts_by_signal,
         output_dir=args.output_dir,
         manifest_dir=args.manifest_dir,
         teacher_model=args.teacher_model,
         generation_run=args.generation_run,
         max_tokens=args.max_tokens,
-        token_target=args.token_target,
+        token_target=token_target,
         start_index=args.start_index,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -217,9 +242,17 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.set_defaults(func=cmd_generate_batch)
 
 
+    plan_parser = subparsers.add_parser("plan-token-target")
+    plan_parser.add_argument("--target", required=True)
+    plan_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
+    plan_parser.add_argument("--estimated-tokens-per-row", type=int, default=DEFAULT_ESTIMATED_TOKENS_PER_ROW)
+    plan_parser.set_defaults(func=cmd_plan_token_target)
+
     seed_run_parser = subparsers.add_parser("generate-seed-run")
     seed_run_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
-    seed_run_parser.add_argument("--count-per-signal", required=True, type=int)
+    seed_run_parser.add_argument("--count-per-signal", type=int, default=None)
+    seed_run_parser.add_argument("--target-preset", default=None)
+    seed_run_parser.add_argument("--estimated-tokens-per-row", type=int, default=DEFAULT_ESTIMATED_TOKENS_PER_ROW)
     seed_run_parser.add_argument("--output-dir", required=True)
     seed_run_parser.add_argument("--manifest-dir", required=True)
     seed_run_parser.add_argument("--teacher-model", required=True)

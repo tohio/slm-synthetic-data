@@ -239,3 +239,79 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
     assert calls[0]["token_target"] == "100K"
     captured = capsys.readouterr()
     assert "generated and materialized 4 row(s) across 2 signal(s): cloud, database" in captured.out
+
+
+def test_plan_token_target_cli_prints_json_plan(capsys):
+    assert (
+        main(
+            [
+                "plan-token-target",
+                "--target",
+                "100K",
+                "--signals",
+                "cloud",
+                "database",
+                "--estimated-tokens-per-row",
+                "25000",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["target_tokens"] == 100_000
+    assert payload["target_label"] == "100K"
+    assert payload["estimated_tokens_per_row"] == 25_000
+    assert payload["counts_by_signal"] == {"cloud": 2, "database": 2}
+
+
+def test_generate_seed_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
+    output_dir = tmp_path / "datasets"
+    manifest_dir = tmp_path / "manifests"
+    calls = []
+
+    def fake_generate_seed_multi_signal_run(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            generation_run = "pilot-001"
+            row_count = 4
+            results = [object(), object()]
+            signals = ("cloud", "database")
+
+        return Result()
+
+    monkeypatch.setattr(
+        "slm_synth.distillation.cli.generate_seed_multi_signal_run",
+        fake_generate_seed_multi_signal_run,
+    )
+
+    assert (
+        main(
+            [
+                "generate-seed-run",
+                "--signals",
+                "cloud",
+                "database",
+                "--target-preset",
+                "100K",
+                "--estimated-tokens-per-row",
+                "25000",
+                "--output-dir",
+                str(output_dir),
+                "--manifest-dir",
+                str(manifest_dir),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--generation-run",
+                "pilot-001",
+                "--max-tokens",
+                "512",
+            ]
+        )
+        == 0
+    )
+
+    assert calls[0]["count_per_signal"] is None
+    assert calls[0]["counts_by_signal"] == {"cloud": 2, "database": 2}
+    assert calls[0]["token_target"] == "100K"
