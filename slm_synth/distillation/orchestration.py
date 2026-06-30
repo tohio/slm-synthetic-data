@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.distillation.generation import StructuredTeacherBackend, generate_and_materialize_signal_batch
+from slm_synth.distillation.io import write_run_manifest
 from slm_synth.distillation.runs import DistillationRunResult
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
@@ -19,6 +20,7 @@ class MultiSignalRunResult:
 
     generation_run: str
     results: tuple[DistillationRunResult, ...]
+    manifest_path: Path
 
     @property
     def row_count(self) -> int:
@@ -106,13 +108,13 @@ def generate_seed_multi_signal_run(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 1,
+    run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
 ) -> MultiSignalRunResult:
     """Generate one seed batch for each requested signal and materialize outputs.
 
     This is intentionally a thin loop over the existing single-signal live path.
-    It does not perform token-budget planning, dataset-card generation, run-level
-    manifest writing, or Makefile integration.
+    It does not perform dataset-card generation or Makefile integration.
     """
     if not isinstance(generation_run, str) or not generation_run.strip():
         raise ValueError("generation_run must be a non-empty string")
@@ -150,7 +152,33 @@ def generate_seed_multi_signal_run(
         )
         results.append(result)
 
-    return MultiSignalRunResult(generation_run=generation_run, results=tuple(results))
+    run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
+    write_run_manifest(
+        manifest_path=run_manifest_path,
+        generation_run=generation_run,
+        teacher_model=teacher_model,
+        teacher_provider="openrouter",
+        token_target=token_target,
+        datasets=[
+            {
+                "signal": result.signal,
+                "dataset_path": result.dataset_path,
+                "manifest_path": result.manifest_path,
+                "row_count": result.row_count,
+            }
+            for result in results
+        ],
+        metadata={
+            "signal_count": len(results),
+            "start_index": start_index,
+        },
+    )
+
+    return MultiSignalRunResult(
+        generation_run=generation_run,
+        results=tuple(results),
+        manifest_path=run_manifest_path,
+    )
 
 
 def _validate_count(count: Any) -> int:

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.distillation.io import write_jsonl, write_manifest, write_signal_dataset
+from slm_synth.distillation.io import write_jsonl, write_manifest, write_run_manifest, write_signal_dataset
 
 
 def test_write_jsonl_writes_public_rows_only(tmp_path):
@@ -114,4 +114,65 @@ def test_write_manifest_rejects_non_openrouter_provider(tmp_path):
             teacher_model="some-model",
             teacher_provider="groq",
             generation_run="run-001",
+        )
+
+
+def test_write_run_manifest_summarizes_signal_outputs(tmp_path):
+    manifest_path = write_run_manifest(
+        manifest_path=tmp_path / "manifests" / "smoke-001.manifest.json",
+        generation_run="smoke-001",
+        teacher_model="openai/gpt-4.1-mini",
+        teacher_provider="openrouter",
+        token_target="100K",
+        datasets=[
+            {
+                "signal": "cloud",
+                "dataset_path": tmp_path / "datasets" / "cloud.jsonl",
+                "manifest_path": tmp_path / "manifests" / "cloud.smoke-001.manifest.json",
+                "row_count": 2,
+            },
+            {
+                "signal": "database",
+                "dataset_path": tmp_path / "datasets" / "database.jsonl",
+                "manifest_path": tmp_path / "manifests" / "database.smoke-001.manifest.json",
+                "row_count": 3,
+            },
+        ],
+        metadata={"signal_count": 2},
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["generation_run"] == "smoke-001"
+    assert manifest["teacher_provider"] == "openrouter"
+    assert manifest["teacher_model"] == "openai/gpt-4.1-mini"
+    assert manifest["token_target"] == "100K"
+    assert manifest["signals"] == ["cloud", "database"]
+    assert manifest["total_rows"] == 5
+    assert manifest["metadata"] == {"signal_count": 2}
+    assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "cloud.jsonl")
+    assert manifest["datasets"][0]["manifest_path"] == str(tmp_path / "manifests" / "cloud.smoke-001.manifest.json")
+
+
+def test_write_run_manifest_rejects_duplicate_signals(tmp_path):
+    with pytest.raises(ValueError, match="duplicate signal"):
+        write_run_manifest(
+            manifest_path=tmp_path / "manifest.json",
+            generation_run="smoke-001",
+            teacher_model="openai/gpt-4.1-mini",
+            teacher_provider="openrouter",
+            token_target="100K",
+            datasets=[
+                {
+                    "signal": "cloud",
+                    "dataset_path": tmp_path / "cloud-a.jsonl",
+                    "manifest_path": tmp_path / "cloud-a.manifest.json",
+                    "row_count": 1,
+                },
+                {
+                    "signal": "cloud",
+                    "dataset_path": tmp_path / "cloud-b.jsonl",
+                    "manifest_path": tmp_path / "cloud-b.manifest.json",
+                    "row_count": 1,
+                },
+            ],
         )

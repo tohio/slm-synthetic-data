@@ -96,3 +96,75 @@ def write_manifest(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default) + "\n", encoding="utf-8")
     return path
+
+
+def write_run_manifest(
+    *,
+    manifest_path: str | Path,
+    generation_run: str,
+    teacher_model: str,
+    teacher_provider: str,
+    token_target: str | int | None,
+    datasets: Iterable[Mapping[str, Any]],
+    metadata: Mapping[str, Any] | None = None,
+) -> Path:
+    """Write a local-only manifest summarizing a multi-signal run.
+
+    This manifest ties together the signal-specific datasets and manifests from
+    one generation run. It is intentionally local provenance data, not part of
+    the public training row schema.
+    """
+    if not isinstance(generation_run, str) or not generation_run.strip():
+        raise ValueError("generation_run must be a non-empty string")
+    if not isinstance(teacher_model, str) or not teacher_model.strip():
+        raise ValueError("teacher_model must be a non-empty string")
+    if teacher_provider.strip().lower() != "openrouter":
+        raise ValueError("teacher_provider must be 'openrouter'")
+
+    normalized_datasets: list[dict[str, Any]] = []
+    seen_signals: set[str] = set()
+    total_rows = 0
+    for dataset in datasets:
+        signal = validate_signal(dataset.get("signal"))
+        if signal in seen_signals:
+            raise ValueError(f"duplicate signal in run manifest datasets: {signal}")
+        seen_signals.add(signal)
+
+        row_count = dataset.get("row_count")
+        if not isinstance(row_count, int) or row_count < 0:
+            raise ValueError("dataset row_count must be a non-negative integer")
+
+        dataset_path = dataset.get("dataset_path")
+        manifest_item_path = dataset.get("manifest_path")
+        if dataset_path is None:
+            raise ValueError("dataset_path is required for each run manifest dataset")
+        if manifest_item_path is None:
+            raise ValueError("manifest_path is required for each run manifest dataset")
+
+        normalized_datasets.append(
+            {
+                "signal": signal,
+                "dataset_path": str(Path(dataset_path)),
+                "manifest_path": str(Path(manifest_item_path)),
+                "row_count": row_count,
+            }
+        )
+        total_rows += row_count
+
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "generation_run": generation_run,
+        "teacher_model": teacher_model,
+        "teacher_provider": "openrouter",
+        "token_target": token_target,
+        "signals": [dataset["signal"] for dataset in normalized_datasets],
+        "datasets": normalized_datasets,
+        "total_rows": total_rows,
+        "metadata": dict(metadata or {}),
+    }
+
+    path = Path(manifest_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default) + "\n", encoding="utf-8")
+    return path

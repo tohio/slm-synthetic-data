@@ -72,6 +72,7 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert result.signals == ("cloud", "database")
     assert result.row_count == 2
     assert [item.row_count for item in result.results] == [1, 1]
+    assert result.manifest_path == tmp_path / "manifests" / "smoke-001.manifest.json"
 
     cloud_row = json.loads((tmp_path / "datasets" / "cloud.jsonl").read_text(encoding="utf-8").strip())
     database_row = json.loads((tmp_path / "datasets" / "database.jsonl").read_text(encoding="utf-8").strip())
@@ -84,10 +85,17 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
 
     cloud_manifest = json.loads((tmp_path / "manifests" / "cloud.smoke-001.manifest.json").read_text())
     database_manifest = json.loads((tmp_path / "manifests" / "database.smoke-001.manifest.json").read_text())
+    run_manifest = json.loads((tmp_path / "manifests" / "smoke-001.manifest.json").read_text())
     assert cloud_manifest["teacher_provider"] == "openrouter"
     assert database_manifest["teacher_model"] == "openai/gpt-4.1-mini"
     assert cloud_manifest["metadata"]["prompt_count"] == 1
     assert database_manifest["metadata"]["prompt_count"] == 1
+    assert run_manifest["generation_run"] == "smoke-001"
+    assert run_manifest["signals"] == ["cloud", "database"]
+    assert run_manifest["total_rows"] == 2
+    assert run_manifest["datasets"][0]["signal"] == "cloud"
+    assert run_manifest["datasets"][1]["signal"] == "database"
+    assert run_manifest["metadata"]["signal_count"] == 2
 
     assert backends["cloud"].calls[0]["schema_name"] == "cloud_distillation_batch"
     assert backends["database"].calls[0]["schema_name"] == "database_distillation_batch"
