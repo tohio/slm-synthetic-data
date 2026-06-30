@@ -182,3 +182,60 @@ def test_generate_batch_cli_uses_live_generation_wrapper(tmp_path, monkeypatch, 
     assert calls[0]["prompt_records"][0]["id"] == "debugging-000001"
     captured = capsys.readouterr()
     assert "generated and materialized 1 debugging row" in captured.out
+
+
+def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypatch, capsys):
+    output_dir = tmp_path / "datasets"
+    manifest_dir = tmp_path / "manifests"
+    calls = []
+
+    def fake_generate_seed_multi_signal_run(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            generation_run = "smoke-001"
+            row_count = 4
+            results = [object(), object()]
+            signals = ("cloud", "database")
+
+        return Result()
+
+    monkeypatch.setattr(
+        "slm_synth.distillation.cli.generate_seed_multi_signal_run",
+        fake_generate_seed_multi_signal_run,
+    )
+
+    assert (
+        main(
+            [
+                "generate-seed-run",
+                "--signals",
+                "cloud",
+                "database",
+                "--count-per-signal",
+                "2",
+                "--output-dir",
+                str(output_dir),
+                "--manifest-dir",
+                str(manifest_dir),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--generation-run",
+                "smoke-001",
+                "--max-tokens",
+                "512",
+                "--token-target",
+                "100K",
+            ]
+        )
+        == 0
+    )
+
+    assert calls[0]["signals"] == ["cloud", "database"]
+    assert calls[0]["count_per_signal"] == 2
+    assert calls[0]["teacher_model"] == "openai/gpt-4.1-mini"
+    assert calls[0]["generation_run"] == "smoke-001"
+    assert calls[0]["max_tokens"] == 512
+    assert calls[0]["token_target"] == "100K"
+    captured = capsys.readouterr()
+    assert "generated and materialized 4 row(s) across 2 signal(s): cloud, database" in captured.out
