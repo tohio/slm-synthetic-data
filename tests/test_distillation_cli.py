@@ -123,3 +123,62 @@ def test_materialize_batch_cli_rejects_non_object_teacher_response(tmp_path):
                 "smoke-001",
             ]
         )
+
+
+def test_generate_batch_cli_uses_live_generation_wrapper(tmp_path, monkeypatch, capsys):
+    prompts = tmp_path / "prompts.jsonl"
+    output_dir = tmp_path / "datasets"
+    manifest_dir = tmp_path / "manifests"
+    main(["build-seed-prompts", "--signal", "debugging", "--count", "1", "--output", str(prompts)])
+
+    calls = []
+
+    def fake_generate_and_materialize_signal_batch(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            signal = "debugging"
+            row_count = 1
+            dataset_path = output_dir / "debugging.jsonl"
+            manifest_path = manifest_dir / "debugging.smoke-001.manifest.json"
+
+        return Result()
+
+    monkeypatch.setattr(
+        "slm_synth.distillation.cli.generate_and_materialize_signal_batch",
+        fake_generate_and_materialize_signal_batch,
+    )
+
+    assert (
+        main(
+            [
+                "generate-batch",
+                "--signal",
+                "debugging",
+                "--prompts",
+                str(prompts),
+                "--output-dir",
+                str(output_dir),
+                "--manifest-dir",
+                str(manifest_dir),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--generation-run",
+                "smoke-001",
+                "--max-tokens",
+                "512",
+                "--token-target",
+                "100K",
+            ]
+        )
+        == 0
+    )
+
+    assert calls[0]["signal"] == "debugging"
+    assert calls[0]["teacher_model"] == "openai/gpt-4.1-mini"
+    assert calls[0]["generation_run"] == "smoke-001"
+    assert calls[0]["max_tokens"] == 512
+    assert calls[0]["token_target"] == "100K"
+    assert calls[0]["prompt_records"][0]["id"] == "debugging-000001"
+    captured = capsys.readouterr()
+    assert "generated and materialized 1 debugging row" in captured.out

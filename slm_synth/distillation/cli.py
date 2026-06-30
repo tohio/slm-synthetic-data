@@ -1,9 +1,4 @@
-"""Command-line helpers for non-network response-distillation materialization.
-
-The CLI intentionally avoids provider calls. It can build local seed prompt
-records, render a teacher batch prompt for an external call, and materialize a
-validated teacher-response JSON file into public JSONL plus a local manifest.
-"""
+"""Command-line helpers for response-distillation materialization."""
 
 from __future__ import annotations
 
@@ -14,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.distillation.batches import render_teacher_batch_prompt
-from slm_synth.distillation.io import write_jsonl
 from slm_synth.distillation.prompts import validate_prompt_record
+from slm_synth.distillation.generation import generate_and_materialize_signal_batch
 from slm_synth.distillation.runs import materialize_teacher_batch
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
@@ -102,6 +97,37 @@ def cmd_materialize_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_generate_batch(args: argparse.Namespace) -> int:
+    signal = validate_signal(args.signal)
+    prompt_records = _read_jsonl(args.prompts)
+    result = generate_and_materialize_signal_batch(
+        signal=signal,
+        prompt_records=prompt_records,
+        output_dir=args.output_dir,
+        manifest_dir=args.manifest_dir,
+        teacher_model=args.teacher_model,
+        generation_run=args.generation_run,
+        max_tokens=args.max_tokens,
+        token_target=args.token_target,
+        dataset_filename=args.dataset_filename,
+        manifest_filename=args.manifest_filename,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        request_timeout=args.request_timeout,
+        max_request_retries=args.max_request_retries,
+        max_retryable_request_attempts=args.max_retryable_request_attempts,
+        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+    )
+    print(
+        "generated and materialized "
+        f"{result.row_count} {result.signal} row(s) to {result.dataset_path}; "
+        f"manifest: {result.manifest_path}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.distillation.cli",
@@ -137,6 +163,28 @@ def build_parser() -> argparse.ArgumentParser:
     materialize_parser.add_argument("--dataset-filename", default=None)
     materialize_parser.add_argument("--manifest-filename", default=None)
     materialize_parser.set_defaults(func=cmd_materialize_batch)
+
+
+    generate_parser = subparsers.add_parser("generate-batch")
+    generate_parser.add_argument("--signal", required=True, choices=signal_choices)
+    generate_parser.add_argument("--prompts", required=True)
+    generate_parser.add_argument("--output-dir", required=True)
+    generate_parser.add_argument("--manifest-dir", required=True)
+    generate_parser.add_argument("--teacher-model", required=True)
+    generate_parser.add_argument("--generation-run", required=True)
+    generate_parser.add_argument("--max-tokens", type=int, required=True)
+    generate_parser.add_argument("--token-target", default=None)
+    generate_parser.add_argument("--dataset-filename", default=None)
+    generate_parser.add_argument("--manifest-filename", default=None)
+    generate_parser.add_argument("--temperature", type=float, default=0.2)
+    generate_parser.add_argument("--top-p", type=float, default=0.95)
+    generate_parser.add_argument("--request-timeout", type=float, default=None)
+    generate_parser.add_argument("--max-request-retries", type=int, default=3)
+    generate_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
+    generate_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
+    generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
+    generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=1)
+    generate_parser.set_defaults(func=cmd_generate_batch)
 
     return parser
 
