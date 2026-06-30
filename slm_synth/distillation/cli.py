@@ -1,0 +1,151 @@
+"""Command-line helpers for non-network response-distillation materialization.
+
+The CLI intentionally avoids provider calls. It can build local seed prompt
+records, render a teacher batch prompt for an external call, and materialize a
+validated teacher-response JSON file into public JSONL plus a local manifest.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Any
+
+from slm_synth.distillation.batches import render_teacher_batch_prompt
+from slm_synth.distillation.io import write_jsonl
+from slm_synth.distillation.prompts import validate_prompt_record
+from slm_synth.distillation.runs import materialize_teacher_batch
+from slm_synth.distillation.seeds import build_seed_prompt_records
+from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
+
+
+def _read_json(path: str | Path) -> Any:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    input_path = Path(path)
+    for line_number, line in enumerate(input_path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSONL in {input_path} at line {line_number}: {exc}") from exc
+        if not isinstance(value, Mapping):
+            raise ValueError(f"JSONL record in {input_path} at line {line_number} must be an object")
+        records.append(validate_prompt_record(value))
+    return records
+
+
+def _write_jsonl_unvalidated(rows: Iterable[Mapping[str, Any]], path: str | Path) -> int:
+    """Write internal prompt records to JSONL without public-row validation."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with output_path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            validated = validate_prompt_record(row)
+            handle.write(json.dumps(validated, ensure_ascii=False) + "\n")
+            count += 1
+    return count
+
+
+def cmd_build_seed_prompts(args: argparse.Namespace) -> int:
+    signal = validate_signal(args.signal)
+    records = build_seed_prompt_records(signal=signal, count=args.count, start_index=args.start_index)
+    count = _write_jsonl_unvalidated(records, args.output)
+    print(f"wrote {count} {signal} prompt record(s) to {args.output}")
+    return 0
+
+
+def cmd_render_teacher_prompt(args: argparse.Namespace) -> int:
+    signal = validate_signal(args.signal)
+    prompt_records = _read_jsonl(args.prompts)
+    rendered = render_teacher_batch_prompt(signal=signal, prompt_records=prompt_records)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(rendered + "\n", encoding="utf-8")
+    print(f"wrote teacher batch prompt to {output_path}")
+    return 0
+
+
+def cmd_materialize_batch(args: argparse.Namespace) -> int:
+    signal = validate_signal(args.signal)
+    prompt_records = _read_jsonl(args.prompts)
+    teacher_response = _read_json(args.teacher_response)
+    if not isinstance(teacher_response, Mapping):
+        raise ValueError("teacher response file must contain a JSON object")
+
+    result = materialize_teacher_batch(
+        signal=signal,
+        prompt_records=prompt_records,
+        teacher_response=teacher_response,
+        output_dir=args.output_dir,
+        manifest_dir=args.manifest_dir,
+        teacher_model=args.teacher_model,
+        teacher_provider=args.teacher_provider,
+        generation_run=args.generation_run,
+        token_target=args.token_target,
+        dataset_filename=args.dataset_filename,
+        manifest_filename=args.manifest_filename,
+        metadata={"source_prompt_file": str(Path(args.prompts))},
+    )
+    print(
+        "materialized "
+        f"{result.row_count} {result.signal} row(s) to {result.dataset_path}; "
+        f"manifest: {result.manifest_path}"
+    )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m slm_synth.distillation.cli",
+        description="Non-network helpers for response-distillation prompt and dataset materialization.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    signal_choices = sorted(DISTILLATION_SIGNALS)
+
+    seed_parser = subparsers.add_parser("build-seed-prompts")
+    seed_parser.add_argument("--signal", required=True, choices=signal_choices)
+    seed_parser.add_argument("--count", required=True, type=int)
+    seed_parser.add_argument("--output", required=True)
+    seed_parser.add_argument("--start-index", type=int, default=1)
+    seed_parser.set_defaults(func=cmd_build_seed_prompts)
+
+    render_parser = subparsers.add_parser("render-teacher-prompt")
+    render_parser.add_argument("--signal", required=True, choices=signal_choices)
+    render_parser.add_argument("--prompts", required=True)
+    render_parser.add_argument("--output", required=True)
+    render_parser.set_defaults(func=cmd_render_teacher_prompt)
+
+    materialize_parser = subparsers.add_parser("materialize-batch")
+    materialize_parser.add_argument("--signal", required=True, choices=signal_choices)
+    materialize_parser.add_argument("--prompts", required=True)
+    materialize_parser.add_argument("--teacher-response", required=True)
+    materialize_parser.add_argument("--output-dir", required=True)
+    materialize_parser.add_argument("--manifest-dir", required=True)
+    materialize_parser.add_argument("--teacher-model", required=True)
+    materialize_parser.add_argument("--generation-run", required=True)
+    materialize_parser.add_argument("--teacher-provider", default="openrouter")
+    materialize_parser.add_argument("--token-target", default=None)
+    materialize_parser.add_argument("--dataset-filename", default=None)
+    materialize_parser.add_argument("--manifest-filename", default=None)
+    materialize_parser.set_defaults(func=cmd_materialize_batch)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
