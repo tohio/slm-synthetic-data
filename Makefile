@@ -40,8 +40,20 @@ DISTILL_RUN_MANIFEST ?= $(DISTILL_MANIFEST_DIR)/$(DISTILL_GENERATION_RUN).manife
 DISTILL_SIGNALS_ARG := $(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),)
 DISTILL_TOKEN_TARGET_ARG := $(if $(DISTILL_TOKEN_TARGET),--token-target $(DISTILL_TOKEN_TARGET),)
 DISTILL_LICENSE_ARG := $(if $(DISTILL_LICENSE),--license $(DISTILL_LICENSE),)
+SFT_FAMILY ?= answer_only_arithmetic
+SFT_COUNT ?= 100
+SFT_OUTPUT_DIR ?= data/sft/datasets
+SFT_MANIFEST_DIR ?= data/sft/manifests
+SFT_GENERATION_RUN ?= sft-smoke-001
+SFT_START_INDEX ?= 1
+DPO_FAMILY ?= answer_only_arithmetic
+DPO_COUNT ?= 100
+DPO_OUTPUT_DIR ?= data/dpo/datasets
+DPO_MANIFEST_DIR ?= data/dpo/manifests
+DPO_GENERATION_RUN ?= dpo-smoke-001
+DPO_START_INDEX ?= 1
 
-.PHONY: help configure production-config preflight-artifacts generate validate dedup report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card test clean
+.PHONY: help configure production-config preflight-artifacts generate validate dedup report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card sft-materialize-seed dpo-materialize-seed test clean
 
 help:
 > @echo ""
@@ -74,6 +86,10 @@ help:
 > @echo "  distill-generate-seed-run    Generate seed batches across one or more signals"
 > @echo "  distill-build-dataset-card   Build a dataset card from a run manifest"
 > @echo ""
+> @echo "SFT/DPO:"
+> @echo "  sft-materialize-seed         Build deterministic SFT seed JSONL + manifest"
+> @echo "  dpo-materialize-seed         Build deterministic DPO seed JSONL + manifest"
+> @echo ""
 > @echo "Examples:"
 > @echo "  make configure TOKENS=250000 BATCH=64 CONCURRENCY=8 MAX_TOKENS=16384 RUN=batch_qual_250k_b64_c8"
 > @echo "  make generate"
@@ -81,6 +97,8 @@ help:
 > @echo "  make production-config CONCURRENCY=4"
 > @echo "  make distill-plan DISTILL_TARGET=smoke"
 > @echo "  make distill-generate-seed-run DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini DISTILL_TARGET=smoke"
+> @echo "  make sft-materialize-seed SFT_FAMILY=repeat_exact_n_times SFT_COUNT=25"
+> @echo "  make dpo-materialize-seed DPO_FAMILY=repeat_exact_n_times DPO_COUNT=25"
 > @echo ""
 
 configure:
@@ -187,6 +205,24 @@ distill-build-dataset-card:
 >   --output $(DISTILL_DATASET_CARD) \
 >   --dataset-name "$(DISTILL_DATASET_NAME)" \
 >   $(DISTILL_LICENSE_ARG)
+
+sft-materialize-seed:
+> $(PYTHON) -m slm_synth.sft.cli materialize-seed-dataset \
+>   --family $(SFT_FAMILY) \
+>   --count $(SFT_COUNT) \
+>   --output-dir $(SFT_OUTPUT_DIR) \
+>   --manifest-dir $(SFT_MANIFEST_DIR) \
+>   --generation-run $(SFT_GENERATION_RUN) \
+>   --start-index $(SFT_START_INDEX)
+
+dpo-materialize-seed:
+> $(PYTHON) -m slm_synth.dpo.cli materialize-seed-dataset \
+>   --family $(DPO_FAMILY) \
+>   --count $(DPO_COUNT) \
+>   --output-dir $(DPO_OUTPUT_DIR) \
+>   --manifest-dir $(DPO_MANIFEST_DIR) \
+>   --generation-run $(DPO_GENERATION_RUN) \
+>   --start-index $(DPO_START_INDEX)
 
 test:
 > pytest -q
