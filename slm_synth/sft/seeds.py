@@ -11,6 +11,7 @@ from slm_synth.taxonomy.holdouts import HoldoutRegistry, load_default_holdout_re
 SFT_SEED_FAMILIES = frozenset(
     {
         "answer_only_arithmetic",
+        "code_generation_function",
         "list_exact_n_items",
         "private_or_unverifiable_company_fact",
         "repeat_exact_n_times",
@@ -47,6 +48,12 @@ def build_seed_rows(
         )
     if normalized_family == "list_exact_n_items":
         return build_list_exact_n_items_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "code_generation_function":
+        return build_code_generation_function_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -228,6 +235,48 @@ def build_private_or_unverifiable_company_fact_rows(
     raise ValueError(f"could not build {count} private-company fact SFT rows")
 
 
+def build_code_generation_function_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build SFT rows for simple code generation without using held-out tasks."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _code_generation_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"sft_code_generation_function_{row_number:06d}",
+            "messages": [
+                {"role": "user", "content": candidate["prompt"]},
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "metadata": {
+                "category": "code_generation",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_sft_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} code-generation SFT rows")
+
+
 def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
     templates = (
         "Answer with only the number: What is {left} + {right}?",
@@ -357,6 +406,58 @@ def _private_company_fact_candidates() -> Iterable[dict[str, Any]]:
                         "time_window": time_window.replace(" ", "_"),
                     },
                 }
+
+
+def _code_generation_candidates() -> Iterable[dict[str, Any]]:
+    tasks = (
+        {
+            "function_name": "multiply",
+            "task_key": "multiply_two_numbers",
+            "prompt": "Write a Python function named multiply that multiplies two numbers. Return only code.",
+            "answer": "def multiply(a, b):\n    return a * b",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "is_even",
+            "task_key": "is_even_number",
+            "prompt": "Write a Python function named is_even that returns True if a number is even. Return only code.",
+            "answer": "def is_even(n):\n    return n % 2 == 0",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "last_item",
+            "task_key": "return_last_item",
+            "prompt": "Write a Python function named last_item that returns the last item in a list. Return only code.",
+            "answer": "def last_item(items):\n    return items[-1]",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "count_items",
+            "task_key": "count_items",
+            "prompt": "Write a Python function named count_items that returns the length of a list. Return only code.",
+            "answer": "def count_items(items):\n    return len(items)",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "cube",
+            "task_key": "cube_number",
+            "prompt": "Write a Python function named cube that returns the cube of a number. Return only code.",
+            "answer": "def cube(x):\n    return x * x * x",
+            "difficulty": 1,
+        },
+    )
+
+    for task in tasks:
+        yield {
+            **task,
+            "template_family": "simple_function_generation",
+            "eval_family": "code_generation_function",
+            "holdout_key": {
+                "type": "code_generation",
+                "function_name": task["function_name"],
+                "function_task": task["task_key"],
+            },
+        }
 
 
 def _validate_family(family: str) -> str:

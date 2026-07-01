@@ -2,6 +2,7 @@ import pytest
 
 from slm_synth.dpo.seeds import (
     build_answer_only_arithmetic_rows,
+    build_code_generation_function_rows,
     build_list_exact_n_items_rows,
     build_private_or_unverifiable_company_fact_rows,
     build_repeat_exact_n_times_rows,
@@ -55,6 +56,20 @@ class RejectFirstPrivateCompanyRegistry:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
+class RejectFirstCodeGenerationRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {
+            "type": "code_generation",
+            "function_name": "multiply",
+            "function_task": "multiply_two_numbers",
+        }:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
 def test_build_answer_only_arithmetic_rows_creates_valid_dpo_rows():
     rows = build_answer_only_arithmetic_rows(count=2)
 
@@ -94,6 +109,12 @@ def test_build_seed_rows_dispatches_private_company_family():
     rows = build_seed_rows(family="private_or_unverifiable_company_fact", count=1, start_index=7)
 
     assert rows[0]["id"] == "dpo_private_or_unverifiable_company_fact_000007"
+
+
+def test_build_seed_rows_dispatches_code_generation_family():
+    rows = build_seed_rows(family="code_generation_function", count=1, start_index=7)
+
+    assert rows[0]["id"] == "dpo_code_generation_function_000007"
 
 
 def test_build_seed_rows_rejects_unknown_family():
@@ -297,4 +318,66 @@ def test_build_private_or_unverifiable_company_fact_rows_allows_sibling_not_eval
 
     assert "Anthropic" not in rows[0]["prompt"][0]["content"]
     assert rows[0]["chosen"][0]["content"] == "I do not have access to that private or non-public information."
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_build_code_generation_function_rows_creates_valid_dpo_rows():
+    rows = build_code_generation_function_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "dpo_code_generation_function_000001",
+        "dpo_code_generation_function_000002",
+    ]
+    assert rows[0]["prompt"][0]["content"] == (
+        "Write a Python function named multiply that multiplies two numbers. Return only code."
+    )
+    assert rows[0]["chosen"][0]["content"] == "def multiply(a, b):\n    return a * b"
+    assert rows[0]["rejected"][0]["content"] == "Here is the function:\n\ndef multiply(a, b):\n    return a * b"
+    assert rows[0]["metadata"]["category"] == "code_generation"
+    assert rows[0]["metadata"]["failure_mode"] == "code_includes_explanation"
+    assert rows[0]["metadata"]["template_family"] == "simple_function_generation"
+    assert rows[0]["metadata"]["eval_family"] == "code_generation_function"
+
+
+def test_build_code_generation_function_rows_skips_holdout_keys():
+    registry = RejectFirstCodeGenerationRegistry()
+
+    rows = build_code_generation_function_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {
+        "type": "code_generation",
+        "function_name": "multiply",
+        "function_task": "multiply_two_numbers",
+    }
+    assert rows[0]["prompt"][0]["content"] != (
+        "Write a Python function named multiply that multiplies two numbers. Return only code."
+    )
+    assert rows[0]["id"] == "dpo_code_generation_function_000001"
+
+
+def test_build_code_generation_function_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "code_generation_function": [
+                {
+                    "id": "code_generation_square",
+                    "prompt": "Write a Python function named square that returns the square of a number. Return only code.",
+                    "answer": "def square",
+                    "holdout_key": {
+                        "type": "code_generation",
+                        "function_name": "square",
+                        "function_task": "square_number",
+                    },
+                }
+            ]
+        }
+    )
+
+    rows = build_code_generation_function_rows(count=1, holdout_registry=registry)
+
+    assert "square" not in rows[0]["prompt"][0]["content"]
+    assert rows[0]["chosen"][0]["content"].startswith("def multiply")
     assert rows[0]["chosen"] != rows[0]["rejected"]

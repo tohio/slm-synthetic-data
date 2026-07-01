@@ -7,6 +7,7 @@ from slm_synth.sft.schema import validate_message, validate_sft_row
 from slm_synth.sft.seeds import (
     SFT_SEED_FAMILIES,
     build_answer_only_arithmetic_rows,
+    build_code_generation_function_rows,
     build_list_exact_n_items_rows,
     build_private_or_unverifiable_company_fact_rows,
     build_repeat_exact_n_times_rows,
@@ -18,6 +19,7 @@ __all__ = [
     "SFTSeedRunResult",
     "build_manifest_payload",
     "build_answer_only_arithmetic_rows",
+    "build_code_generation_function_rows",
     "build_list_exact_n_items_rows",
     "build_private_or_unverifiable_company_fact_rows",
     "build_repeat_exact_n_times_rows",
