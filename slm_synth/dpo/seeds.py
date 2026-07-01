@@ -16,6 +16,7 @@ DPO_SEED_FAMILIES = frozenset(
         "clear_sky_color_qa",
         "code_generation_function",
         "code_explanation_no_code",
+        "direct_subtraction",
         "function_completion_body_only",
         "list_exact_n_items",
         "private_or_unverifiable_company_fact",
@@ -59,6 +60,12 @@ def build_seed_rows(
         )
     if normalized_family == "clear_sky_color_qa":
         return build_clear_sky_color_qa_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "direct_subtraction":
+        return build_direct_subtraction_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -344,6 +351,55 @@ def build_clear_sky_color_qa_rows(
         row_number += 1
 
     raise ValueError(f"could not build {count} sky-color DPO rows")
+
+
+def build_direct_subtraction_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build direct subtraction DPO pairs without using held-out items."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _direct_subtraction_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        answer = str(candidate["answer"])
+        row = {
+            "id": f"dpo_direct_subtraction_{row_number:06d}",
+            "prompt": [
+                {"role": "user", "content": candidate["prompt"]},
+            ],
+            "chosen": [
+                {"role": "assistant", "content": answer},
+            ],
+            "rejected": [
+                {"role": "assistant", "content": str(candidate["rejected"])},
+            ],
+            "metadata": {
+                "category": "direct_arithmetic",
+                "failure_mode": "wrong_numeric_answer",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_dpo_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} direct-subtraction DPO rows")
 
 
 def build_repeat_exact_n_times_rows(
@@ -747,7 +803,35 @@ def _clear_sky_color_candidates() -> Iterable[dict[str, Any]]:
                 "relation": relation,
                 "answer": answer,
             },
-        }
+            }
+
+
+def _direct_subtraction_candidates() -> Iterable[dict[str, Any]]:
+    templates = (
+        "What is {left} - {right}?",
+        "Compute {left} - {right}.",
+        "Answer with only the number: {left} - {right}",
+    )
+
+    for left in range(13, 120):
+        for right in range(2, left):
+            answer = left - right
+            rejected = answer + 1
+            for template in templates:
+                prompt = template.format(left=left, right=right)
+                yield {
+                    "prompt": prompt,
+                    "answer": answer,
+                    "rejected": rejected,
+                    "difficulty": 1 if left < 50 else 2,
+                    "template_family": "direct_subtraction",
+                    "eval_family": "direct_subtraction",
+                    "holdout_key": {
+                        "type": "arithmetic",
+                        "operation": "subtract",
+                        "operands": [left, right],
+                    },
+                }
 
 
 def _repeat_candidates() -> Iterable[dict[str, Any]]:

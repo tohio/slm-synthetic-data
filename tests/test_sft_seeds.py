@@ -7,6 +7,7 @@ from slm_synth.sft.seeds import (
     build_clear_sky_color_qa_rows,
     build_code_explanation_no_code_rows,
     build_code_generation_function_rows,
+    build_direct_subtraction_rows,
     build_function_completion_body_only_rows,
     build_list_exact_n_items_rows,
     build_private_or_unverifiable_company_fact_rows,
@@ -57,6 +58,16 @@ class RejectFirstSkyColorRegistry:
             "relation": "cloudless_day_sky_color",
             "answer": "blue",
         }:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
+class RejectFirstSubtractionRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {"type": "arithmetic", "operation": "subtract", "operands": [13, 2]}:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
@@ -168,6 +179,12 @@ def test_build_seed_rows_dispatches_sky_color_family():
     rows = build_seed_rows(family="clear_sky_color_qa", count=1, start_index=7)
 
     assert rows[0]["id"] == "sft_clear_sky_color_qa_000007"
+
+
+def test_build_seed_rows_dispatches_direct_subtraction_family():
+    rows = build_seed_rows(family="direct_subtraction", count=1, start_index=7)
+
+    assert rows[0]["id"] == "sft_direct_subtraction_000007"
 
 
 def test_build_seed_rows_dispatches_repeat_family():
@@ -412,6 +429,53 @@ def test_build_clear_sky_color_qa_rows_allows_sibling_not_eval_holdout():
 
     assert rows[0]["messages"][0]["content"] != "What color is the sky on a clear day?"
     assert rows[0]["messages"][1]["content"] == "blue"
+
+
+def test_build_direct_subtraction_rows_creates_valid_sft_rows():
+    rows = build_direct_subtraction_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "sft_direct_subtraction_000001",
+        "sft_direct_subtraction_000002",
+    ]
+    assert rows[0]["messages"][0]["content"] == "What is 13 - 2?"
+    assert rows[0]["messages"][1]["content"] == "11"
+    assert rows[0]["metadata"]["category"] == "direct_arithmetic"
+    assert rows[0]["metadata"]["template_family"] == "direct_subtraction"
+    assert rows[0]["metadata"]["eval_family"] == "direct_subtraction"
+
+
+def test_build_direct_subtraction_rows_skips_holdout_keys():
+    registry = RejectFirstSubtractionRegistry()
+
+    rows = build_direct_subtraction_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {"type": "arithmetic", "operation": "subtract", "operands": [13, 2]}
+    assert rows[0]["messages"][0]["content"] != "What is 13 - 2?"
+    assert rows[0]["id"] == "sft_direct_subtraction_000001"
+
+
+def test_build_direct_subtraction_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "direct_subtraction": [
+                {
+                    "id": "arithmetic_subtract_direct",
+                    "prompt": "What is 12 - 5?",
+                    "answer": "7",
+                    "holdout_key": {"type": "arithmetic", "operation": "subtract", "operands": [12, 5]},
+                }
+            ]
+        }
+    )
+
+    rows = build_direct_subtraction_rows(count=1, holdout_registry=registry)
+
+    assert "12 - 5" not in rows[0]["messages"][0]["content"]
+    assert rows[0]["messages"][1]["content"] == "11"
 
 
 def test_build_repeat_exact_n_times_rows_creates_valid_sft_rows():
