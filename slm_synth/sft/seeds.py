@@ -8,7 +8,7 @@ from typing import Any
 from slm_synth.sft.schema import validate_sft_row
 from slm_synth.taxonomy.holdouts import HoldoutRegistry, load_default_holdout_registry
 
-SFT_SEED_FAMILIES = frozenset({"answer_only_arithmetic"})
+SFT_SEED_FAMILIES = frozenset({"answer_only_arithmetic", "repeat_exact_n_times"})
 
 
 def build_seed_rows(
@@ -28,6 +28,12 @@ def build_seed_rows(
     registry = holdout_registry or load_default_holdout_registry()
     if normalized_family == "answer_only_arithmetic":
         return build_answer_only_arithmetic_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "repeat_exact_n_times":
+        return build_repeat_exact_n_times_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -77,6 +83,48 @@ def build_answer_only_arithmetic_rows(
     raise ValueError(f"could not build {count} answer-only arithmetic SFT rows")
 
 
+def build_repeat_exact_n_times_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build exact-repeat SFT siblings without using held-out items."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _repeat_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"sft_repeat_exact_n_times_{row_number:06d}",
+            "messages": [
+                {"role": "user", "content": candidate["prompt"]},
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "metadata": {
+                "category": "exact_output_format_control",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_sft_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} exact-repeat SFT rows")
+
+
 def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
     templates = (
         "Answer with only the number: What is {left} + {right}?",
@@ -99,6 +147,39 @@ def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
                         "type": "arithmetic",
                         "operation": "add",
                         "operands": [left, right],
+                    },
+                }
+
+
+def _repeat_candidates() -> Iterable[dict[str, Any]]:
+    tokens = ("dog", "blue", "yes", "sun", "green", "book", "code", "river")
+    templates = (
+        "Repeat {token} exactly {count_word} times.",
+        'Output "{token}" exactly {count_word} times.',
+        "Write {token} exactly {count_word} times and nothing else.",
+    )
+    count_words = {
+        2: "two",
+        3: "three",
+        4: "four",
+        5: "five",
+    }
+
+    for token in tokens:
+        for count, count_word in count_words.items():
+            answer = " ".join([token] * count)
+            for template in templates:
+                prompt = template.format(token=token, count_word=count_word)
+                yield {
+                    "prompt": prompt,
+                    "answer": answer,
+                    "difficulty": 1 if count <= 3 else 2,
+                    "template_family": "repeat_word_count",
+                    "eval_family": "repeat_exact_n_times",
+                    "holdout_key": {
+                        "type": "repeat_exact_n_times",
+                        "token": token,
+                        "count": count,
                     },
                 }
 

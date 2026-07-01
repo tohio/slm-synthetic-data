@@ -2,6 +2,7 @@ import pytest
 
 from slm_synth.sft.seeds import (
     build_answer_only_arithmetic_rows,
+    build_repeat_exact_n_times_rows,
     build_seed_rows,
 )
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
@@ -14,6 +15,16 @@ class RejectFirstAdditionRegistry:
     def reject_if_holdout(self, *, prompt, holdout_key=None):
         self.seen.append((prompt, holdout_key))
         if holdout_key == {"type": "arithmetic", "operation": "add", "operands": [3, 4]}:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
+class RejectFirstRepeatRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {"type": "repeat_exact_n_times", "token": "dog", "count": 2}:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
@@ -34,6 +45,12 @@ def test_build_seed_rows_dispatches_supported_family():
     rows = build_seed_rows(family="answer_only_arithmetic", count=1, start_index=7)
 
     assert rows[0]["id"] == "sft_answer_only_arithmetic_000007"
+
+
+def test_build_seed_rows_dispatches_repeat_family():
+    rows = build_seed_rows(family="repeat_exact_n_times", count=1, start_index=7)
+
+    assert rows[0]["id"] == "sft_repeat_exact_n_times_000007"
 
 
 def test_build_seed_rows_rejects_unknown_family():
@@ -77,3 +94,50 @@ def test_build_answer_only_arithmetic_rows_allows_sibling_not_eval_holdout():
 
     assert "2 + 2" not in rows[0]["messages"][0]["content"]
     assert rows[0]["messages"][1]["content"] == "7"
+
+
+def test_build_repeat_exact_n_times_rows_creates_valid_sft_rows():
+    rows = build_repeat_exact_n_times_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "sft_repeat_exact_n_times_000001",
+        "sft_repeat_exact_n_times_000002",
+    ]
+    assert rows[0]["messages"][0]["content"] == "Repeat dog exactly two times."
+    assert rows[0]["messages"][1]["content"] == "dog dog"
+    assert rows[0]["metadata"]["category"] == "exact_output_format_control"
+    assert rows[0]["metadata"]["template_family"] == "repeat_word_count"
+    assert rows[0]["metadata"]["eval_family"] == "repeat_exact_n_times"
+
+
+def test_build_repeat_exact_n_times_rows_skips_holdout_keys():
+    registry = RejectFirstRepeatRegistry()
+
+    rows = build_repeat_exact_n_times_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {"type": "repeat_exact_n_times", "token": "dog", "count": 2}
+    assert rows[0]["messages"][0]["content"] != "Repeat dog exactly two times."
+    assert rows[0]["id"] == "sft_repeat_exact_n_times_000001"
+
+
+def test_build_repeat_exact_n_times_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "repeat_exact_n_times": [
+                {
+                    "id": "format_repeat_cat",
+                    "prompt": "Repeat cat exactly three times.",
+                    "answer": "cat cat cat",
+                    "holdout_key": {"type": "repeat_exact_n_times", "token": "cat", "count": 3},
+                }
+            ]
+        }
+    )
+
+    rows = build_repeat_exact_n_times_rows(count=1, holdout_registry=registry)
+
+    assert "cat" not in rows[0]["messages"][0]["content"]
+    assert rows[0]["messages"][1]["content"] == "dog dog"
