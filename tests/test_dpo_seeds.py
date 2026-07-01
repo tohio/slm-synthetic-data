@@ -3,6 +3,7 @@ import pytest
 from slm_synth.dpo.seeds import (
     build_answer_only_arithmetic_rows,
     build_capital_city_qa_rows,
+    build_clear_sky_color_qa_rows,
     build_code_explanation_no_code_rows,
     build_code_generation_function_rows,
     build_function_completion_body_only_rows,
@@ -31,6 +32,20 @@ class RejectFirstCapitalCityRegistry:
     def reject_if_holdout(self, *, prompt, holdout_key=None):
         self.seen.append((prompt, holdout_key))
         if holdout_key == {"type": "capital_city", "country": "Italy", "answer": "Rome"}:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
+class RejectFirstSkyColorRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {
+            "type": "factual_relation",
+            "relation": "cloudless_day_sky_color",
+            "answer": "blue",
+        }:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
@@ -134,6 +149,12 @@ def test_build_seed_rows_dispatches_capital_city_family():
     rows = build_seed_rows(family="capital_city_qa", count=1, start_index=7)
 
     assert rows[0]["id"] == "dpo_capital_city_qa_000007"
+
+
+def test_build_seed_rows_dispatches_sky_color_family():
+    rows = build_seed_rows(family="clear_sky_color_qa", count=1, start_index=7)
+
+    assert rows[0]["id"] == "dpo_clear_sky_color_qa_000007"
 
 
 def test_build_seed_rows_dispatches_repeat_family():
@@ -270,6 +291,64 @@ def test_build_capital_city_qa_rows_allows_sibling_not_eval_holdout():
     assert "France" not in rows[0]["prompt"][0]["content"]
     assert "Japan" not in rows[0]["prompt"][0]["content"]
     assert rows[0]["chosen"][0]["content"] == "Rome"
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_build_clear_sky_color_qa_rows_creates_valid_dpo_rows():
+    rows = build_clear_sky_color_qa_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "dpo_clear_sky_color_qa_000001",
+        "dpo_clear_sky_color_qa_000002",
+    ]
+    assert rows[0]["prompt"][0]["content"] == "On a cloudless day, what color does the sky usually appear?"
+    assert rows[0]["chosen"][0]["content"] == "blue"
+    assert rows[0]["rejected"][0]["content"] == "green"
+    assert rows[0]["metadata"]["category"] == "concise_factual_qa"
+    assert rows[0]["metadata"]["failure_mode"] == "wrong_factual_answer"
+    assert rows[0]["metadata"]["template_family"] == "sky_color_direct"
+    assert rows[0]["metadata"]["eval_family"] == "clear_sky_color_qa"
+
+
+def test_build_clear_sky_color_qa_rows_skips_holdout_keys():
+    registry = RejectFirstSkyColorRegistry()
+
+    rows = build_clear_sky_color_qa_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {
+        "type": "factual_relation",
+        "relation": "cloudless_day_sky_color",
+        "answer": "blue",
+    }
+    assert rows[0]["prompt"][0]["content"] != "On a cloudless day, what color does the sky usually appear?"
+    assert rows[0]["id"] == "dpo_clear_sky_color_qa_000001"
+
+
+def test_build_clear_sky_color_qa_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "clear_sky_color_qa": [
+                {
+                    "id": "factual_sky",
+                    "prompt": "What color is the sky on a clear day?",
+                    "answer": "blue",
+                    "holdout_key": {
+                        "type": "factual_relation",
+                        "relation": "clear_day_sky_color",
+                        "answer": "blue",
+                    },
+                }
+            ]
+        }
+    )
+
+    rows = build_clear_sky_color_qa_rows(count=1, holdout_registry=registry)
+
+    assert rows[0]["prompt"][0]["content"] != "What color is the sky on a clear day?"
+    assert rows[0]["chosen"][0]["content"] == "blue"
     assert rows[0]["chosen"] != rows[0]["rejected"]
 
 

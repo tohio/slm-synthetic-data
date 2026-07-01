@@ -12,6 +12,7 @@ DPO_SEED_FAMILIES = frozenset(
     {
         "answer_only_arithmetic",
         "capital_city_qa",
+        "clear_sky_color_qa",
         "code_generation_function",
         "code_explanation_no_code",
         "function_completion_body_only",
@@ -45,6 +46,12 @@ def build_seed_rows(
         )
     if normalized_family == "capital_city_qa":
         return build_capital_city_qa_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "clear_sky_color_qa":
+        return build_clear_sky_color_qa_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -183,6 +190,54 @@ def build_capital_city_qa_rows(
         row_number += 1
 
     raise ValueError(f"could not build {count} capital-city DPO rows")
+
+
+def build_clear_sky_color_qa_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build sky-color DPO pairs without using held-out items."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _clear_sky_color_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"dpo_clear_sky_color_qa_{row_number:06d}",
+            "prompt": [
+                {"role": "user", "content": candidate["prompt"]},
+            ],
+            "chosen": [
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "rejected": [
+                {"role": "assistant", "content": candidate["rejected"]},
+            ],
+            "metadata": {
+                "category": "concise_factual_qa",
+                "failure_mode": "wrong_factual_answer",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_dpo_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} sky-color DPO rows")
 
 
 def build_repeat_exact_n_times_rows(
@@ -537,6 +592,56 @@ def _capital_city_candidates() -> Iterable[dict[str, Any]]:
                     "answer": capital,
                 },
             }
+
+
+def _clear_sky_color_candidates() -> Iterable[dict[str, Any]]:
+    facts = (
+        (
+            "On a cloudless day, what color does the sky usually appear?",
+            "blue",
+            "green",
+            "cloudless_day_sky_color",
+        ),
+        (
+            "What color is the sky usually at midday when there are no clouds?",
+            "blue",
+            "red",
+            "midday_clear_sky_color",
+        ),
+        (
+            "During clear daytime weather, what color is the sky generally?",
+            "blue",
+            "black",
+            "clear_daytime_sky_color",
+        ),
+        (
+            "In normal daylight with no storm clouds, what color does the sky look?",
+            "blue",
+            "orange",
+            "normal_daylight_sky_color",
+        ),
+        (
+            "What is the usual color of a cloud-free daytime sky?",
+            "blue",
+            "purple",
+            "cloud_free_daytime_sky_color",
+        ),
+    )
+
+    for prompt, answer, rejected, relation in facts:
+        yield {
+            "prompt": prompt,
+            "answer": answer,
+            "rejected": rejected,
+            "difficulty": 1,
+            "template_family": "sky_color_direct",
+            "eval_family": "clear_sky_color_qa",
+            "holdout_key": {
+                "type": "factual_relation",
+                "relation": relation,
+                "answer": answer,
+            },
+        }
 
 
 def _repeat_candidates() -> Iterable[dict[str, Any]]:
