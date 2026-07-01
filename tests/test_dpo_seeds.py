@@ -2,6 +2,7 @@ import pytest
 
 from slm_synth.dpo.seeds import (
     build_answer_only_arithmetic_rows,
+    build_list_exact_n_items_rows,
     build_repeat_exact_n_times_rows,
     build_seed_rows,
 )
@@ -25,6 +26,16 @@ class RejectFirstRepeatRegistry:
     def reject_if_holdout(self, *, prompt, holdout_key=None):
         self.seen.append((prompt, holdout_key))
         if holdout_key == {"type": "repeat_exact_n_times", "token": "dog", "count": 2}:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
+class RejectFirstListRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {"type": "list_exact_n_items", "item_type": "animals", "count": 2}:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
@@ -55,6 +66,12 @@ def test_build_seed_rows_dispatches_repeat_family():
     rows = build_seed_rows(family="repeat_exact_n_times", count=1, start_index=7)
 
     assert rows[0]["id"] == "dpo_repeat_exact_n_times_000007"
+
+
+def test_build_seed_rows_dispatches_list_family():
+    rows = build_seed_rows(family="list_exact_n_items", count=1, start_index=7)
+
+    assert rows[0]["id"] == "dpo_list_exact_n_items_000007"
 
 
 def test_build_seed_rows_rejects_unknown_family():
@@ -148,4 +165,54 @@ def test_build_repeat_exact_n_times_rows_allows_sibling_not_eval_holdout():
 
     assert "cat" not in rows[0]["prompt"][0]["content"]
     assert rows[0]["chosen"][0]["content"] == "dog dog"
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_build_list_exact_n_items_rows_creates_valid_dpo_rows():
+    rows = build_list_exact_n_items_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "dpo_list_exact_n_items_000001",
+        "dpo_list_exact_n_items_000002",
+    ]
+    assert rows[0]["prompt"][0]["content"] == "List exactly two animals."
+    assert rows[0]["chosen"][0]["content"] == "dog, cat"
+    assert rows[0]["rejected"][0]["content"] == "dog, cat, horse"
+    assert rows[0]["metadata"]["category"] == "exact_output_format_control"
+    assert rows[0]["metadata"]["failure_mode"] == "format_violation"
+    assert rows[0]["metadata"]["template_family"] == "list_n_items"
+    assert rows[0]["metadata"]["eval_family"] == "list_exact_n_items"
+
+
+def test_build_list_exact_n_items_rows_skips_holdout_keys():
+    registry = RejectFirstListRegistry()
+
+    rows = build_list_exact_n_items_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {"type": "list_exact_n_items", "item_type": "animals", "count": 2}
+    assert rows[0]["prompt"][0]["content"] != "List exactly two animals."
+    assert rows[0]["id"] == "dpo_list_exact_n_items_000001"
+
+
+def test_build_list_exact_n_items_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "list_exact_n_items": [
+                {
+                    "id": "format_three_colors",
+                    "prompt": "List exactly three colors.",
+                    "answer": None,
+                    "holdout_key": {"type": "list_exact_n_items", "item_type": "colors", "count": 3},
+                }
+            ]
+        }
+    )
+
+    rows = build_list_exact_n_items_rows(count=1, holdout_registry=registry)
+
+    assert "colors" not in rows[0]["prompt"][0]["content"]
+    assert rows[0]["chosen"][0]["content"] == "dog, cat"
     assert rows[0]["chosen"] != rows[0]["rejected"]

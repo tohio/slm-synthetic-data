@@ -8,7 +8,7 @@ from typing import Any
 from slm_synth.sft.schema import validate_sft_row
 from slm_synth.taxonomy.holdouts import HoldoutRegistry, load_default_holdout_registry
 
-SFT_SEED_FAMILIES = frozenset({"answer_only_arithmetic", "repeat_exact_n_times"})
+SFT_SEED_FAMILIES = frozenset({"answer_only_arithmetic", "list_exact_n_items", "repeat_exact_n_times"})
 
 
 def build_seed_rows(
@@ -34,6 +34,12 @@ def build_seed_rows(
         )
     if normalized_family == "repeat_exact_n_times":
         return build_repeat_exact_n_times_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "list_exact_n_items":
+        return build_list_exact_n_items_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -125,6 +131,48 @@ def build_repeat_exact_n_times_rows(
     raise ValueError(f"could not build {count} exact-repeat SFT rows")
 
 
+def build_list_exact_n_items_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build exact-list SFT siblings without using held-out items."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _list_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"sft_list_exact_n_items_{row_number:06d}",
+            "messages": [
+                {"role": "user", "content": candidate["prompt"]},
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "metadata": {
+                "category": "exact_output_format_control",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_sft_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} exact-list SFT rows")
+
+
 def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
     templates = (
         "Answer with only the number: What is {left} + {right}?",
@@ -179,6 +227,44 @@ def _repeat_candidates() -> Iterable[dict[str, Any]]:
                     "holdout_key": {
                         "type": "repeat_exact_n_times",
                         "token": token,
+                        "count": count,
+                    },
+                }
+
+
+def _list_candidates() -> Iterable[dict[str, Any]]:
+    item_sets = (
+        ("animals", ("dog", "cat", "horse", "bird", "fish")),
+        ("fruits", ("apple", "banana", "pear", "orange", "plum")),
+        ("planets", ("Mercury", "Venus", "Earth", "Mars", "Jupiter")),
+        ("shapes", ("circle", "square", "triangle", "rectangle", "oval")),
+        ("tools", ("hammer", "saw", "wrench", "drill", "level")),
+    )
+    templates = (
+        "List exactly {count_word} {item_type}.",
+        "Name exactly {count_word} {item_type}.",
+        "Give exactly {count_word} {item_type} and nothing else.",
+    )
+    count_words = {
+        2: "two",
+        3: "three",
+        4: "four",
+    }
+
+    for item_type, items in item_sets:
+        for count, count_word in count_words.items():
+            answer = ", ".join(items[:count])
+            for template in templates:
+                prompt = template.format(count_word=count_word, item_type=item_type)
+                yield {
+                    "prompt": prompt,
+                    "answer": answer,
+                    "difficulty": 1 if count <= 3 else 2,
+                    "template_family": "list_n_items",
+                    "eval_family": "list_exact_n_items",
+                    "holdout_key": {
+                        "type": "list_exact_n_items",
+                        "item_type": item_type,
                         "count": count,
                     },
                 }
