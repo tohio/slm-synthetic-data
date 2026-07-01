@@ -13,6 +13,7 @@ DPO_SEED_FAMILIES = frozenset(
         "ai_concept_explanation",
         "answer_only_arithmetic",
         "capital_city_qa",
+        "code_expression_result",
         "clear_sky_color_qa",
         "code_generation_function",
         "code_explanation_no_code",
@@ -61,6 +62,12 @@ def build_seed_rows(
         )
     if normalized_family == "clear_sky_color_qa":
         return build_clear_sky_color_qa_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "code_expression_result":
+        return build_code_expression_result_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -358,6 +365,54 @@ def build_clear_sky_color_qa_rows(
         row_number += 1
 
     raise ValueError(f"could not build {count} sky-color DPO rows")
+
+
+def build_code_expression_result_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build Python expression-result DPO pairs without using held-out items."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _code_expression_result_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"dpo_code_expression_result_{row_number:06d}",
+            "prompt": [
+                {"role": "user", "content": candidate["prompt"]},
+            ],
+            "chosen": [
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "rejected": [
+                {"role": "assistant", "content": candidate["rejected"]},
+            ],
+            "metadata": {
+                "category": "code_expression_evaluation",
+                "failure_mode": "code_logic_error",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_dpo_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} code-expression DPO rows")
 
 
 def build_direct_subtraction_rows(
@@ -859,6 +914,40 @@ def _clear_sky_color_candidates() -> Iterable[dict[str, Any]]:
                 "relation": relation,
                 "answer": answer,
             },
+            }
+
+
+def _code_expression_result_candidates() -> Iterable[dict[str, Any]]:
+    tasks = (
+        ("2 + 3 * 4", "14", "20", "integer_arithmetic_expression", 1),
+        ("len([1, 2, 3, 4])", "4", "3", "len_list_expression", 1),
+        ("'ab' * 3", "ababab", "ab3", "string_repeat_expression", 1),
+        ("sum([5, 7, 9])", "21", "20", "sum_list_expression", 1),
+        ("sorted([3, 1, 2])[0]", "1", "3", "sorted_index_expression", 2),
+        ("'hello'.upper()", "HELLO", "hello", "string_method_expression", 1),
+        ("10 // 3", "3", "3.3333333333333335", "integer_floor_division_expression", 1),
+        ("[x * 2 for x in [1, 2, 3]][-1]", "6", "3", "list_comprehension_index_expression", 2),
+    )
+    templates = (
+        "What is the result of this Python expression? Return only the output.\n\n{expression}",
+        "Evaluate this Python expression. Return only the result.\n\n{expression}",
+    )
+
+    for expression, answer, rejected, expression_key, difficulty in tasks:
+        for template in templates:
+            prompt = template.format(expression=expression)
+            yield {
+                "prompt": prompt,
+                "answer": answer,
+                "rejected": rejected,
+                "difficulty": difficulty,
+                "template_family": "python_expression_result",
+                "eval_family": "code_expression_result",
+                "holdout_key": {
+                    "type": "code_expression",
+                    "expression_key": expression_key,
+                    "expression": expression,
+                },
             }
 
 

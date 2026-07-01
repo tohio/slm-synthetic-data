@@ -6,6 +6,7 @@ from slm_synth.dpo.seeds import (
     build_capital_city_qa_rows,
     build_clear_sky_color_qa_rows,
     build_code_explanation_no_code_rows,
+    build_code_expression_result_rows,
     build_code_generation_function_rows,
     build_direct_division_rows,
     build_direct_subtraction_rows,
@@ -58,6 +59,20 @@ class RejectFirstSkyColorRegistry:
             "type": "factual_relation",
             "relation": "cloudless_day_sky_color",
             "answer": "blue",
+        }:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
+class RejectFirstCodeExpressionRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {
+            "type": "code_expression",
+            "expression_key": "integer_arithmetic_expression",
+            "expression": "2 + 3 * 4",
         }:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
@@ -194,6 +209,12 @@ def test_build_seed_rows_dispatches_sky_color_family():
     rows = build_seed_rows(family="clear_sky_color_qa", count=1, start_index=7)
 
     assert rows[0]["id"] == "dpo_clear_sky_color_qa_000007"
+
+
+def test_build_seed_rows_dispatches_code_expression_family():
+    rows = build_seed_rows(family="code_expression_result", count=1, start_index=7)
+
+    assert rows[0]["id"] == "dpo_code_expression_result_000007"
 
 
 def test_build_seed_rows_dispatches_direct_subtraction_family():
@@ -461,6 +482,67 @@ def test_build_clear_sky_color_qa_rows_allows_sibling_not_eval_holdout():
 
     assert rows[0]["prompt"][0]["content"] != "What color is the sky on a clear day?"
     assert rows[0]["chosen"][0]["content"] == "blue"
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_build_code_expression_result_rows_creates_valid_dpo_rows():
+    rows = build_code_expression_result_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "dpo_code_expression_result_000001",
+        "dpo_code_expression_result_000002",
+    ]
+    assert rows[0]["prompt"][0]["content"] == (
+        "What is the result of this Python expression? Return only the output.\n\n"
+        "2 + 3 * 4"
+    )
+    assert rows[0]["chosen"][0]["content"] == "14"
+    assert rows[0]["rejected"][0]["content"] == "20"
+    assert rows[0]["metadata"]["category"] == "code_expression_evaluation"
+    assert rows[0]["metadata"]["failure_mode"] == "code_logic_error"
+    assert rows[0]["metadata"]["template_family"] == "python_expression_result"
+    assert rows[0]["metadata"]["eval_family"] == "code_expression_result"
+
+
+def test_build_code_expression_result_rows_skips_holdout_keys():
+    registry = RejectFirstCodeExpressionRegistry()
+
+    rows = build_code_expression_result_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {
+        "type": "code_expression",
+        "expression_key": "integer_arithmetic_expression",
+        "expression": "2 + 3 * 4",
+    }
+    assert "2 + 3 * 4" not in rows[0]["prompt"][0]["content"]
+    assert rows[0]["id"] == "dpo_code_expression_result_000001"
+
+
+def test_build_code_expression_result_rows_allows_future_holdout_sibling():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "code_expression_result": [
+                {
+                    "id": "code_expression_len_tuple",
+                    "prompt": "What is the result of this Python expression? Return only the output.\n\nlen((1, 2))",
+                    "answer": "2",
+                    "holdout_key": {
+                        "type": "code_expression",
+                        "expression_key": "len_tuple_expression",
+                        "expression": "len((1, 2))",
+                    },
+                }
+            ]
+        }
+    )
+
+    rows = build_code_expression_result_rows(count=1, holdout_registry=registry)
+
+    assert "len((1, 2))" not in rows[0]["prompt"][0]["content"]
+    assert rows[0]["chosen"][0]["content"] == "14"
     assert rows[0]["chosen"] != rows[0]["rejected"]
 
 
