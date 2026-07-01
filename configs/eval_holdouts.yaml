@@ -1,0 +1,149 @@
+capital_city_qa:
+  - id: factual_capital_france
+    prompt: "What is the capital of France?"
+    answer: "Paris"
+    holdout_key:
+      type: capital_city
+      country: France
+      answer: Paris
+
+basic_arithmetic_qa:
+  - id: factual_math_basic
+    prompt: "What is 2 + 2?"
+    answer: "4"
+    holdout_key:
+      type: arithmetic
+      operation: add
+      operands: [2, 2]
+
+clear_sky_color_qa:
+  - id: factual_sky
+    prompt: "What color is the sky on a clear day?"
+    answer: "blue"
+    holdout_key:
+      type: factual_relation
+      relation: clear_day_sky_color
+      answer: blue
+
+ai_concept_explanation:
+  - id: ai_transformer
+    prompt: "In AI, what is a transformer model?"
+    answer: "attention"
+    holdout_key:
+      type: ai_concept
+      concept: transformer_model
+  - id: ai_neural_network
+    prompt: "What is a neural network?"
+    answer: "model"
+    holdout_key:
+      type: ai_concept
+      concept: neural_network
+
+private_or_unverifiable_company_fact:
+  - id: factual_restraint_private_revenue
+    prompt: "What was Anthropic's private revenue last month?"
+    answer: null
+    holdout_key:
+      type: unverifiable_company_fact
+      company: Anthropic
+      fact: private_revenue
+      time_window: last_month
+
+code_generation_function:
+  - id: code_generation_add
+    prompt: "Write a Python function that adds two numbers. Return only code."
+    answer: "def"
+    holdout_key:
+      type: code_generation
+      function_task: add_two_numbers
+  - id: code_generation_square
+    prompt: "Write a Python function named square that returns the square of a number. Return only code."
+    answer: "def square"
+    holdout_key:
+      type: code_generation
+      function_name: square
+      function_task: square_number
+
+function_completion_body_only:
+  - id: function_completion_body
+    prompt: |
+      Complete this Python function. Return only the function body.
+
+      from typing import List
+
+      def first_item(items: List[int]) -> int:
+          """Return the first item in the list."""
+    answer: "return"
+    holdout_key:
+      type: function_completion
+      function_name: first_item
+  - id: function_completion_has_close
+    prompt: |
+      Complete this Python function. Return only the function body.
+
+      from typing import List
+
+      def has_close_elements(numbers: List[float], threshold: float) -> bool:
+          """Return True if any two numbers are closer than threshold."""
+    answer: "return"
+    holdout_key:
+      type: function_completion
+      function_name: has_close_elements
+
+code_explanation_no_code:
+  - id: code_explanation_square
+    prompt: |
+      Explain what this Python function does:
+
+      def square(x):
+          return x * x
+    answer: "square"
+    holdout_key:
+      type: code_explanation
+      function_name: square
+      operation: square_number
+
+short_factual_stop_behavior:
+  - id: stop_behavior_short_answer
+    prompt: "What is the capital of Japan?"
+    answer: "Tokyo"
+    holdout_key:
+      type: capital_city
+      country: Japan
+      answer: Tokyo
+
+direct_subtraction:
+  - id: arithmetic_subtract_direct
+    prompt: "What is 12 - 5?"
+    answer: "7"
+    holdout_key:
+      type: arithmetic
+      operation: subtract
+      operands: [12, 5]
+
+direct_division:
+  - id: arithmetic_divide_direct
+    prompt: "What is 20 / 5?"
+    answer: "4"
+    holdout_key:
+      type: arithmetic
+      operation: divide
+      operands: [20, 5]
+
+repeat_exact_n_times:
+  - id: format_repeat_cat
+    prompt: "Repeat cat exactly three times."
+    answer: "cat cat cat"
+    holdout_key:
+      type: repeat_exact_n_times
+      token: cat
+      count: 3
+
+list_exact_n_items:
+  - id: format_three_colors
+    prompt: "List exactly three colors."
+    answer: null
+    holdout_key:
+      type: list_exact_n_items
+      item_type: colors
+      count: 3
