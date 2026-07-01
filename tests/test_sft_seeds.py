@@ -2,6 +2,7 @@ import pytest
 
 from slm_synth.sft.seeds import (
     build_answer_only_arithmetic_rows,
+    build_code_explanation_no_code_rows,
     build_code_generation_function_rows,
     build_function_completion_body_only_rows,
     build_list_exact_n_items_rows,
@@ -81,6 +82,20 @@ class RejectFirstFunctionCompletionRegistry:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
+class RejectFirstCodeExplanationRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {
+            "type": "code_explanation",
+            "function_name": "double",
+            "operation": "double_number",
+        }:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
 def test_build_answer_only_arithmetic_rows_creates_valid_sft_rows():
     rows = build_answer_only_arithmetic_rows(count=2)
 
@@ -128,6 +143,12 @@ def test_build_seed_rows_dispatches_function_completion_family():
     rows = build_seed_rows(family="function_completion_body_only", count=1, start_index=7)
 
     assert rows[0]["id"] == "sft_function_completion_body_only_000007"
+
+
+def test_build_seed_rows_dispatches_code_explanation_family():
+    rows = build_seed_rows(family="code_explanation_no_code", count=1, start_index=7)
+
+    assert rows[0]["id"] == "sft_code_explanation_no_code_000007"
 
 
 def test_build_seed_rows_rejects_unknown_family():
@@ -435,3 +456,60 @@ def test_build_function_completion_body_only_rows_allows_sibling_not_eval_holdou
     assert "first_item" not in rows[0]["messages"][0]["content"]
     assert "has_close_elements" not in rows[0]["messages"][0]["content"]
     assert rows[0]["messages"][1]["content"] == "return x * 2"
+
+
+def test_build_code_explanation_no_code_rows_creates_valid_sft_rows():
+    rows = build_code_explanation_no_code_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "sft_code_explanation_no_code_000001",
+        "sft_code_explanation_no_code_000002",
+    ]
+    assert "def double" in rows[0]["messages"][0]["content"]
+    assert rows[0]["messages"][1]["content"] == "It returns the input value multiplied by two."
+    assert "def double" not in rows[0]["messages"][1]["content"]
+    assert "```" not in rows[0]["messages"][1]["content"]
+    assert rows[0]["metadata"]["category"] == "general_instruction_following"
+    assert rows[0]["metadata"]["template_family"] == "plain_code_explanation"
+    assert rows[0]["metadata"]["eval_family"] == "code_explanation_no_code"
+
+
+def test_build_code_explanation_no_code_rows_skips_holdout_keys():
+    registry = RejectFirstCodeExplanationRegistry()
+
+    rows = build_code_explanation_no_code_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {
+        "type": "code_explanation",
+        "function_name": "double",
+        "operation": "double_number",
+    }
+    assert "def double" not in rows[0]["messages"][0]["content"]
+    assert rows[0]["id"] == "sft_code_explanation_no_code_000001"
+
+
+def test_build_code_explanation_no_code_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "code_explanation_no_code": [
+                {
+                    "id": "code_explanation_square",
+                    "prompt": "Explain what this Python function does:\n\ndef square(x):\n    return x * x",
+                    "answer": "square",
+                    "holdout_key": {
+                        "type": "code_explanation",
+                        "function_name": "square",
+                        "operation": "square_number",
+                    },
+                }
+            ]
+        }
+    )
+
+    rows = build_code_explanation_no_code_rows(count=1, holdout_registry=registry)
+
+    assert "square" not in rows[0]["messages"][0]["content"]
+    assert rows[0]["messages"][1]["content"] == "It returns the input value multiplied by two."

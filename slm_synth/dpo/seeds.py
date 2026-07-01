@@ -12,6 +12,7 @@ DPO_SEED_FAMILIES = frozenset(
     {
         "answer_only_arithmetic",
         "code_generation_function",
+        "code_explanation_no_code",
         "function_completion_body_only",
         "list_exact_n_items",
         "private_or_unverifiable_company_fact",
@@ -55,6 +56,12 @@ def build_seed_rows(
         )
     if normalized_family == "code_generation_function":
         return build_code_generation_function_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "code_explanation_no_code":
+        return build_code_explanation_no_code_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -363,6 +370,54 @@ def build_function_completion_body_only_rows(
     raise ValueError(f"could not build {count} function-completion DPO rows")
 
 
+def build_code_explanation_no_code_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build DPO pairs for code explanations that should not repeat code."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _code_explanation_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"dpo_code_explanation_no_code_{row_number:06d}",
+            "prompt": [
+                {"role": "user", "content": candidate["prompt"]},
+            ],
+            "chosen": [
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "rejected": [
+                {"role": "assistant", "content": candidate["rejected"]},
+            ],
+            "metadata": {
+                "category": "general_instruction_following",
+                "failure_mode": "code_includes_explanation",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_dpo_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} code-explanation DPO rows")
+
+
 def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
     templates = (
         "Answer with only the number: What is {left} + {right}?",
@@ -606,6 +661,54 @@ def _function_completion_candidates() -> Iterable[dict[str, Any]]:
             "holdout_key": {
                 "type": "function_completion",
                 "function_name": task["function_name"],
+            },
+        }
+
+
+def _code_explanation_candidates() -> Iterable[dict[str, Any]]:
+    tasks = (
+        {
+            "function_name": "double",
+            "code": "def double(x):\n    return x * 2",
+            "answer": "It returns the input value multiplied by two.",
+            "operation": "double_number",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "is_even",
+            "code": "def is_even(n):\n    return n % 2 == 0",
+            "answer": "It returns True when the input number is even.",
+            "operation": "check_even_number",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "total",
+            "code": "def total(values):\n    return sum(values)",
+            "answer": "It returns the sum of all values in the input list.",
+            "operation": "sum_values",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "last_item",
+            "code": "def last_item(items):\n    return items[-1]",
+            "answer": "It returns the final item from the input list.",
+            "operation": "return_last_item",
+            "difficulty": 1,
+        },
+    )
+
+    for task in tasks:
+        prompt = f"Explain what this Python function does:\n\n{task['code']}"
+        yield {
+            **task,
+            "prompt": prompt,
+            "rejected": f"This function does the following:\n\n{task['code']}",
+            "template_family": "plain_code_explanation",
+            "eval_family": "code_explanation_no_code",
+            "holdout_key": {
+                "type": "code_explanation",
+                "function_name": task["function_name"],
+                "operation": task["operation"],
             },
         }
 
