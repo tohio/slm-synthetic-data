@@ -11,6 +11,7 @@ from slm_synth.taxonomy.holdouts import HoldoutRegistry, load_default_holdout_re
 DPO_SEED_FAMILIES = frozenset(
     {
         "answer_only_arithmetic",
+        "capital_city_qa",
         "code_generation_function",
         "code_explanation_no_code",
         "function_completion_body_only",
@@ -38,6 +39,12 @@ def build_seed_rows(
     registry = holdout_registry or load_default_holdout_registry()
     if normalized_family == "answer_only_arithmetic":
         return build_answer_only_arithmetic_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "capital_city_qa":
+        return build_capital_city_qa_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -128,6 +135,54 @@ def build_answer_only_arithmetic_rows(
         row_number += 1
 
     raise ValueError(f"could not build {count} answer-only arithmetic DPO rows")
+
+
+def build_capital_city_qa_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build capital-city DPO pairs without using held-out items."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _capital_city_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"dpo_capital_city_qa_{row_number:06d}",
+            "prompt": [
+                {"role": "user", "content": candidate["prompt"]},
+            ],
+            "chosen": [
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "rejected": [
+                {"role": "assistant", "content": candidate["rejected"]},
+            ],
+            "metadata": {
+                "category": "concise_factual_qa",
+                "failure_mode": "wrong_factual_answer",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_dpo_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} capital-city DPO rows")
 
 
 def build_repeat_exact_n_times_rows(
@@ -443,6 +498,45 @@ def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
                         "operands": [left, right],
                     },
                 }
+
+
+def _capital_city_candidates() -> Iterable[dict[str, Any]]:
+    facts = (
+        ("Italy", "Rome", "Madrid"),
+        ("Spain", "Madrid", "Berlin"),
+        ("Germany", "Berlin", "Ottawa"),
+        ("Canada", "Ottawa", "Cairo"),
+        ("Brazil", "Brasilia", "Nairobi"),
+        ("Egypt", "Cairo", "Canberra"),
+        ("Kenya", "Nairobi", "Rome"),
+        ("India", "New Delhi", "Seoul"),
+        ("Australia", "Canberra", "Mexico City"),
+        ("South Korea", "Seoul", "Buenos Aires"),
+        ("Mexico", "Mexico City", "Ottawa"),
+        ("Argentina", "Buenos Aires", "Brasilia"),
+    )
+    templates = (
+        "What is the capital of {country}?",
+        "Name the capital city of {country}.",
+        "Which city is the capital of {country}?",
+    )
+
+    for country, capital, wrong_capital in facts:
+        for template in templates:
+            prompt = template.format(country=country)
+            yield {
+                "prompt": prompt,
+                "answer": capital,
+                "rejected": wrong_capital,
+                "difficulty": 1,
+                "template_family": "capital_city_direct",
+                "eval_family": "capital_city_qa",
+                "holdout_key": {
+                    "type": "capital_city",
+                    "country": country,
+                    "answer": capital,
+                },
+            }
 
 
 def _repeat_candidates() -> Iterable[dict[str, Any]]:

@@ -2,6 +2,7 @@ import pytest
 
 from slm_synth.dpo.seeds import (
     build_answer_only_arithmetic_rows,
+    build_capital_city_qa_rows,
     build_code_explanation_no_code_rows,
     build_code_generation_function_rows,
     build_function_completion_body_only_rows,
@@ -20,6 +21,16 @@ class RejectFirstAdditionRegistry:
     def reject_if_holdout(self, *, prompt, holdout_key=None):
         self.seen.append((prompt, holdout_key))
         if holdout_key == {"type": "arithmetic", "operation": "add", "operands": [3, 4]}:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
+class RejectFirstCapitalCityRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {"type": "capital_city", "country": "Italy", "answer": "Rome"}:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
@@ -119,6 +130,12 @@ def test_build_seed_rows_dispatches_supported_family():
     assert rows[0]["id"] == "dpo_answer_only_arithmetic_000007"
 
 
+def test_build_seed_rows_dispatches_capital_city_family():
+    rows = build_seed_rows(family="capital_city_qa", count=1, start_index=7)
+
+    assert rows[0]["id"] == "dpo_capital_city_qa_000007"
+
+
 def test_build_seed_rows_dispatches_repeat_family():
     rows = build_seed_rows(family="repeat_exact_n_times", count=1, start_index=7)
 
@@ -196,6 +213,63 @@ def test_build_answer_only_arithmetic_rows_allows_sibling_not_eval_holdout():
 
     assert "2 + 2" not in rows[0]["prompt"][0]["content"]
     assert rows[0]["chosen"][0]["content"] == "7"
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_build_capital_city_qa_rows_creates_valid_dpo_rows():
+    rows = build_capital_city_qa_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "dpo_capital_city_qa_000001",
+        "dpo_capital_city_qa_000002",
+    ]
+    assert rows[0]["prompt"][0]["content"] == "What is the capital of Italy?"
+    assert rows[0]["chosen"][0]["content"] == "Rome"
+    assert rows[0]["rejected"][0]["content"] == "Madrid"
+    assert rows[0]["metadata"]["category"] == "concise_factual_qa"
+    assert rows[0]["metadata"]["failure_mode"] == "wrong_factual_answer"
+    assert rows[0]["metadata"]["template_family"] == "capital_city_direct"
+    assert rows[0]["metadata"]["eval_family"] == "capital_city_qa"
+
+
+def test_build_capital_city_qa_rows_skips_holdout_keys():
+    registry = RejectFirstCapitalCityRegistry()
+
+    rows = build_capital_city_qa_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {"type": "capital_city", "country": "Italy", "answer": "Rome"}
+    assert rows[0]["prompt"][0]["content"] != "What is the capital of Italy?"
+    assert rows[0]["id"] == "dpo_capital_city_qa_000001"
+
+
+def test_build_capital_city_qa_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "capital_city_qa": [
+                {
+                    "id": "factual_capital_france",
+                    "prompt": "What is the capital of France?",
+                    "answer": "Paris",
+                    "holdout_key": {"type": "capital_city", "country": "France", "answer": "Paris"},
+                },
+                {
+                    "id": "stop_behavior_short_answer",
+                    "prompt": "What is the capital of Japan?",
+                    "answer": "Tokyo",
+                    "holdout_key": {"type": "capital_city", "country": "Japan", "answer": "Tokyo"},
+                },
+            ]
+        }
+    )
+
+    rows = build_capital_city_qa_rows(count=1, holdout_registry=registry)
+
+    assert "France" not in rows[0]["prompt"][0]["content"]
+    assert "Japan" not in rows[0]["prompt"][0]["content"]
+    assert rows[0]["chosen"][0]["content"] == "Rome"
     assert rows[0]["chosen"] != rows[0]["rejected"]
 
 

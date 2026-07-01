@@ -7,6 +7,7 @@ from slm_synth.dpo.schema import validate_dpo_row, validate_message_list
 from slm_synth.dpo.seeds import (
     DPO_SEED_FAMILIES,
     build_answer_only_arithmetic_rows,
+    build_capital_city_qa_rows,
     build_code_explanation_no_code_rows,
     build_code_generation_function_rows,
     build_function_completion_body_only_rows,
@@ -20,6 +21,7 @@ __all__ = [
     "DPO_SEED_FAMILIES",
     "DPOSeedRunResult",
     "build_answer_only_arithmetic_rows",
+    "build_capital_city_qa_rows",
     "build_code_explanation_no_code_rows",
     "build_code_generation_function_rows",
     "build_function_completion_body_only_rows",
