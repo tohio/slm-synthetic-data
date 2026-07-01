@@ -3,6 +3,7 @@ import pytest
 from slm_synth.dpo.seeds import (
     build_answer_only_arithmetic_rows,
     build_list_exact_n_items_rows,
+    build_private_or_unverifiable_company_fact_rows,
     build_repeat_exact_n_times_rows,
     build_seed_rows,
 )
@@ -39,6 +40,21 @@ class RejectFirstListRegistry:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
+class RejectFirstPrivateCompanyRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {
+            "type": "unverifiable_company_fact",
+            "company": "Cohere",
+            "fact": "private_revenue",
+            "time_window": "last_week",
+        }:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
 def test_build_answer_only_arithmetic_rows_creates_valid_dpo_rows():
     rows = build_answer_only_arithmetic_rows(count=2)
 
@@ -72,6 +88,12 @@ def test_build_seed_rows_dispatches_list_family():
     rows = build_seed_rows(family="list_exact_n_items", count=1, start_index=7)
 
     assert rows[0]["id"] == "dpo_list_exact_n_items_000007"
+
+
+def test_build_seed_rows_dispatches_private_company_family():
+    rows = build_seed_rows(family="private_or_unverifiable_company_fact", count=1, start_index=7)
+
+    assert rows[0]["id"] == "dpo_private_or_unverifiable_company_fact_000007"
 
 
 def test_build_seed_rows_rejects_unknown_family():
@@ -215,4 +237,64 @@ def test_build_list_exact_n_items_rows_allows_sibling_not_eval_holdout():
 
     assert "colors" not in rows[0]["prompt"][0]["content"]
     assert rows[0]["chosen"][0]["content"] == "dog, cat"
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_build_private_or_unverifiable_company_fact_rows_creates_valid_dpo_rows():
+    rows = build_private_or_unverifiable_company_fact_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "dpo_private_or_unverifiable_company_fact_000001",
+        "dpo_private_or_unverifiable_company_fact_000002",
+    ]
+    assert rows[0]["prompt"][0]["content"] == "What was Cohere's private revenue last week?"
+    assert rows[0]["chosen"][0]["content"] == "I do not have access to that private or non-public information."
+    assert rows[0]["rejected"][0]["content"] == "Cohere's private revenue last week was $18 million."
+    assert rows[0]["metadata"]["category"] == "private_info_restraint"
+    assert rows[0]["metadata"]["failure_mode"] == "unknown_fact_fabrication"
+    assert rows[0]["metadata"]["template_family"] == "private_company_fact"
+    assert rows[0]["metadata"]["eval_family"] == "private_or_unverifiable_company_fact"
+
+
+def test_build_private_or_unverifiable_company_fact_rows_skips_holdout_keys():
+    registry = RejectFirstPrivateCompanyRegistry()
+
+    rows = build_private_or_unverifiable_company_fact_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {
+        "type": "unverifiable_company_fact",
+        "company": "Cohere",
+        "fact": "private_revenue",
+        "time_window": "last_week",
+    }
+    assert rows[0]["prompt"][0]["content"] != "What was Cohere's private revenue last week?"
+    assert rows[0]["id"] == "dpo_private_or_unverifiable_company_fact_000001"
+
+
+def test_build_private_or_unverifiable_company_fact_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "private_or_unverifiable_company_fact": [
+                {
+                    "id": "factual_restraint_private_revenue",
+                    "prompt": "What was Anthropic's private revenue last month?",
+                    "answer": None,
+                    "holdout_key": {
+                        "type": "unverifiable_company_fact",
+                        "company": "Anthropic",
+                        "fact": "private_revenue",
+                        "time_window": "last_month",
+                    },
+                }
+            ]
+        }
+    )
+
+    rows = build_private_or_unverifiable_company_fact_rows(count=1, holdout_registry=registry)
+
+    assert "Anthropic" not in rows[0]["prompt"][0]["content"]
+    assert rows[0]["chosen"][0]["content"] == "I do not have access to that private or non-public information."
     assert rows[0]["chosen"] != rows[0]["rejected"]

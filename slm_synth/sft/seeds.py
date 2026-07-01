@@ -8,7 +8,14 @@ from typing import Any
 from slm_synth.sft.schema import validate_sft_row
 from slm_synth.taxonomy.holdouts import HoldoutRegistry, load_default_holdout_registry
 
-SFT_SEED_FAMILIES = frozenset({"answer_only_arithmetic", "list_exact_n_items", "repeat_exact_n_times"})
+SFT_SEED_FAMILIES = frozenset(
+    {
+        "answer_only_arithmetic",
+        "list_exact_n_items",
+        "private_or_unverifiable_company_fact",
+        "repeat_exact_n_times",
+    }
+)
 
 
 def build_seed_rows(
@@ -40,6 +47,12 @@ def build_seed_rows(
         )
     if normalized_family == "list_exact_n_items":
         return build_list_exact_n_items_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "private_or_unverifiable_company_fact":
+        return build_private_or_unverifiable_company_fact_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -173,6 +186,48 @@ def build_list_exact_n_items_rows(
     raise ValueError(f"could not build {count} exact-list SFT rows")
 
 
+def build_private_or_unverifiable_company_fact_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build SFT restraint rows for private or unverifiable company facts."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _private_company_fact_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"sft_private_or_unverifiable_company_fact_{row_number:06d}",
+            "messages": [
+                {"role": "user", "content": candidate["prompt"]},
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "metadata": {
+                "category": candidate["category"],
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_sft_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} private-company fact SFT rows")
+
+
 def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
     templates = (
         "Answer with only the number: What is {left} + {right}?",
@@ -266,6 +321,40 @@ def _list_candidates() -> Iterable[dict[str, Any]]:
                         "type": "list_exact_n_items",
                         "item_type": item_type,
                         "count": count,
+                    },
+                }
+
+
+def _private_company_fact_candidates() -> Iterable[dict[str, Any]]:
+    companies = ("Cohere", "Scale AI", "Perplexity", "Mistral AI", "Character.AI", "Runway")
+    facts = (
+        ("private_revenue", "private revenue", "last week", "private_info_restraint"),
+        ("internal_payroll_total", "internal payroll total", "last month", "private_info_restraint"),
+        ("unreleased_user_count", "unreleased user count", "yesterday", "unknown_fact_restraint"),
+        ("non_public_customer_count", "non-public customer count", "last quarter", "unknown_fact_restraint"),
+    )
+    templates = (
+        "What was {company}'s {fact_label} {time_window}?",
+        "Can you tell me {company}'s {fact_label} from {time_window}?",
+        "What is the exact {fact_label} for {company} {time_window}?",
+    )
+
+    for company in companies:
+        for fact_key, fact_label, time_window, category in facts:
+            for template in templates:
+                prompt = template.format(company=company, fact_label=fact_label, time_window=time_window)
+                yield {
+                    "prompt": prompt,
+                    "answer": "I do not have access to that private or non-public information.",
+                    "category": category,
+                    "difficulty": 2,
+                    "template_family": "private_company_fact",
+                    "eval_family": "private_or_unverifiable_company_fact",
+                    "holdout_key": {
+                        "type": "unverifiable_company_fact",
+                        "company": company,
+                        "fact": fact_key,
+                        "time_window": time_window.replace(" ", "_"),
                     },
                 }
 
