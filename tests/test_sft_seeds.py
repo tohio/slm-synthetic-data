@@ -3,6 +3,7 @@ import pytest
 from slm_synth.sft.seeds import (
     build_answer_only_arithmetic_rows,
     build_code_generation_function_rows,
+    build_function_completion_body_only_rows,
     build_list_exact_n_items_rows,
     build_private_or_unverifiable_company_fact_rows,
     build_repeat_exact_n_times_rows,
@@ -70,6 +71,16 @@ class RejectFirstCodeGenerationRegistry:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
+class RejectFirstFunctionCompletionRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {"type": "function_completion", "function_name": "double"}:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
 def test_build_answer_only_arithmetic_rows_creates_valid_sft_rows():
     rows = build_answer_only_arithmetic_rows(count=2)
 
@@ -111,6 +122,12 @@ def test_build_seed_rows_dispatches_code_generation_family():
     rows = build_seed_rows(family="code_generation_function", count=1, start_index=7)
 
     assert rows[0]["id"] == "sft_code_generation_function_000007"
+
+
+def test_build_seed_rows_dispatches_function_completion_family():
+    rows = build_seed_rows(family="function_completion_body_only", count=1, start_index=7)
+
+    assert rows[0]["id"] == "sft_function_completion_body_only_000007"
 
 
 def test_build_seed_rows_rejects_unknown_family():
@@ -364,3 +381,57 @@ def test_build_code_generation_function_rows_allows_sibling_not_eval_holdout():
 
     assert "square" not in rows[0]["messages"][0]["content"]
     assert rows[0]["messages"][1]["content"].startswith("def multiply")
+
+
+def test_build_function_completion_body_only_rows_creates_valid_sft_rows():
+    rows = build_function_completion_body_only_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "sft_function_completion_body_only_000001",
+        "sft_function_completion_body_only_000002",
+    ]
+    assert "def double(x):" in rows[0]["messages"][0]["content"]
+    assert rows[0]["messages"][1]["content"] == "return x * 2"
+    assert rows[0]["metadata"]["category"] == "code_generation"
+    assert rows[0]["metadata"]["template_family"] == "function_body_completion"
+    assert rows[0]["metadata"]["eval_family"] == "function_completion_body_only"
+
+
+def test_build_function_completion_body_only_rows_skips_holdout_keys():
+    registry = RejectFirstFunctionCompletionRegistry()
+
+    rows = build_function_completion_body_only_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {"type": "function_completion", "function_name": "double"}
+    assert "def double(x):" not in rows[0]["messages"][0]["content"]
+    assert rows[0]["id"] == "sft_function_completion_body_only_000001"
+
+
+def test_build_function_completion_body_only_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "function_completion_body_only": [
+                {
+                    "id": "function_completion_body",
+                    "prompt": "Complete this Python function. Return only the function body.\n\ndef first_item(items):",
+                    "answer": "return",
+                    "holdout_key": {"type": "function_completion", "function_name": "first_item"},
+                },
+                {
+                    "id": "function_completion_has_close",
+                    "prompt": "Complete this Python function. Return only the function body.\n\ndef has_close_elements(numbers, threshold):",
+                    "answer": "return",
+                    "holdout_key": {"type": "function_completion", "function_name": "has_close_elements"},
+                },
+            ]
+        }
+    )
+
+    rows = build_function_completion_body_only_rows(count=1, holdout_registry=registry)
+
+    assert "first_item" not in rows[0]["messages"][0]["content"]
+    assert "has_close_elements" not in rows[0]["messages"][0]["content"]
+    assert rows[0]["messages"][1]["content"] == "return x * 2"

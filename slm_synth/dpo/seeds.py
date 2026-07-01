@@ -12,6 +12,7 @@ DPO_SEED_FAMILIES = frozenset(
     {
         "answer_only_arithmetic",
         "code_generation_function",
+        "function_completion_body_only",
         "list_exact_n_items",
         "private_or_unverifiable_company_fact",
         "repeat_exact_n_times",
@@ -54,6 +55,12 @@ def build_seed_rows(
         )
     if normalized_family == "code_generation_function":
         return build_code_generation_function_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
+    if normalized_family == "function_completion_body_only":
+        return build_function_completion_body_only_rows(
             count=count,
             start_index=start_index,
             holdout_registry=registry,
@@ -308,6 +315,54 @@ def build_code_generation_function_rows(
     raise ValueError(f"could not build {count} code-generation DPO rows")
 
 
+def build_function_completion_body_only_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build DPO pairs for function-body-only completion tasks."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _function_completion_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"dpo_function_completion_body_only_{row_number:06d}",
+            "prompt": [
+                {"role": "user", "content": candidate["prompt"]},
+            ],
+            "chosen": [
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "rejected": [
+                {"role": "assistant", "content": candidate["rejected"]},
+            ],
+            "metadata": {
+                "category": "code_generation",
+                "failure_mode": "code_includes_explanation",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_dpo_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} function-completion DPO rows")
+
+
 def _arithmetic_candidates() -> Iterable[dict[str, Any]]:
     templates = (
         "Answer with only the number: What is {left} + {right}?",
@@ -496,6 +551,61 @@ def _code_generation_candidates() -> Iterable[dict[str, Any]]:
                 "type": "code_generation",
                 "function_name": task["function_name"],
                 "function_task": task["task_key"],
+            },
+        }
+
+
+def _function_completion_candidates() -> Iterable[dict[str, Any]]:
+    tasks = (
+        {
+            "function_name": "double",
+            "signature": "def double(x):",
+            "docstring": '"""Return x doubled."""',
+            "answer": "return x * 2",
+            "task_key": "double_number",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "is_empty",
+            "signature": "def is_empty(items):",
+            "docstring": '"""Return True if the list has no items."""',
+            "answer": "return len(items) == 0",
+            "task_key": "list_is_empty",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "total",
+            "signature": "def total(values):",
+            "docstring": '"""Return the sum of the values."""',
+            "answer": "return sum(values)",
+            "task_key": "sum_values",
+            "difficulty": 1,
+        },
+        {
+            "function_name": "starts_with_a",
+            "signature": "def starts_with_a(text):",
+            "docstring": '"""Return True if text starts with the letter a."""',
+            "answer": "return text.startswith(\"a\")",
+            "task_key": "starts_with_a",
+            "difficulty": 1,
+        },
+    )
+
+    for task in tasks:
+        prompt = (
+            "Complete this Python function. Return only the function body.\n\n"
+            f"{task['signature']}\n"
+            f"    {task['docstring']}"
+        )
+        yield {
+            **task,
+            "prompt": prompt,
+            "rejected": f"This function should return the requested value.\n\n{task['answer']}",
+            "template_family": "function_body_completion",
+            "eval_family": "function_completion_body_only",
+            "holdout_key": {
+                "type": "function_completion",
+                "function_name": task["function_name"],
             },
         }
 
