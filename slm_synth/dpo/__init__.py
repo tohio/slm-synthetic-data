@@ -6,6 +6,7 @@ from slm_synth.dpo.runs import DPOSeedRunResult, materialize_seed_dataset
 from slm_synth.dpo.schema import validate_dpo_row, validate_message_list
 from slm_synth.dpo.seeds import (
     DPO_SEED_FAMILIES,
+    build_ai_concept_explanation_rows,
     build_answer_only_arithmetic_rows,
     build_capital_city_qa_rows,
     build_clear_sky_color_qa_rows,
@@ -21,6 +22,7 @@ from slm_synth.dpo.seeds import (
 __all__ = [
     "DPO_SEED_FAMILIES",
     "DPOSeedRunResult",
+    "build_ai_concept_explanation_rows",
     "build_answer_only_arithmetic_rows",
     "build_capital_city_qa_rows",
     "build_clear_sky_color_qa_rows",

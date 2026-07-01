@@ -10,6 +10,7 @@ from slm_synth.taxonomy.holdouts import HoldoutRegistry, load_default_holdout_re
 
 SFT_SEED_FAMILIES = frozenset(
     {
+        "ai_concept_explanation",
         "answer_only_arithmetic",
         "capital_city_qa",
         "clear_sky_color_qa",
@@ -38,6 +39,12 @@ def build_seed_rows(
         raise ValueError("start_index must be a positive integer")
 
     registry = holdout_registry or load_default_holdout_registry()
+    if normalized_family == "ai_concept_explanation":
+        return build_ai_concept_explanation_rows(
+            count=count,
+            start_index=start_index,
+            holdout_registry=registry,
+        )
     if normalized_family == "answer_only_arithmetic":
         return build_answer_only_arithmetic_rows(
             count=count,
@@ -95,6 +102,48 @@ def build_seed_rows(
     raise AssertionError(f"unhandled SFT seed family: {normalized_family}")
 
 
+def build_ai_concept_explanation_rows(
+    *,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Build concise AI concept explanation SFT rows without using held-out items."""
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if not isinstance(start_index, int) or start_index < 1:
+        raise ValueError("start_index must be a positive integer")
+
+    registry = holdout_registry or load_default_holdout_registry()
+    rows: list[dict[str, Any]] = []
+    row_number = start_index
+    for candidate in _ai_concept_candidates():
+        try:
+            registry.reject_if_holdout(prompt=candidate["prompt"], holdout_key=candidate["holdout_key"])
+        except ValueError:
+            continue
+
+        row = {
+            "id": f"sft_ai_concept_explanation_{row_number:06d}",
+            "messages": [
+                {"role": "user", "content": candidate["prompt"]},
+                {"role": "assistant", "content": candidate["answer"]},
+            ],
+            "metadata": {
+                "category": "general_instruction_following",
+                "difficulty": candidate["difficulty"],
+                "template_family": candidate["template_family"],
+                "eval_family": candidate["eval_family"],
+            },
+        }
+        rows.append(validate_sft_row(row))
+        if len(rows) >= count:
+            return rows
+        row_number += 1
+
+    raise ValueError(f"could not build {count} AI concept SFT rows")
+
+
 def build_answer_only_arithmetic_rows(
     *,
     count: int,
@@ -135,6 +184,52 @@ def build_answer_only_arithmetic_rows(
         row_number += 1
 
     raise ValueError(f"could not build {count} answer-only arithmetic SFT rows")
+
+
+def _ai_concept_candidates() -> Iterable[dict[str, Any]]:
+    concepts = (
+        {
+            "concept": "attention_mechanism",
+            "prompt": "In machine learning, what is an attention mechanism?",
+            "answer": "It helps a model focus on the most relevant parts of the input when producing an output.",
+            "difficulty": 1,
+        },
+        {
+            "concept": "embedding_vector",
+            "prompt": "What is an embedding vector in machine learning?",
+            "answer": "It is a numeric representation of data, such as a word or item, that a model can process.",
+            "difficulty": 1,
+        },
+        {
+            "concept": "training_loss",
+            "prompt": "In AI training, what does loss measure?",
+            "answer": "Loss measures how far the model's predictions are from the desired answers.",
+            "difficulty": 1,
+        },
+        {
+            "concept": "classification_model",
+            "prompt": "What does a classification model do?",
+            "answer": "It assigns an input to one of a set of categories or labels.",
+            "difficulty": 1,
+        },
+        {
+            "concept": "language_model",
+            "prompt": "What is a language model?",
+            "answer": "It is a model trained to predict or generate text based on patterns in language.",
+            "difficulty": 1,
+        },
+    )
+
+    for concept in concepts:
+        yield {
+            **concept,
+            "template_family": "short_ai_concept_definition",
+            "eval_family": "ai_concept_explanation",
+            "holdout_key": {
+                "type": "ai_concept",
+                "concept": concept["concept"],
+            },
+        }
 
 
 def build_capital_city_qa_rows(

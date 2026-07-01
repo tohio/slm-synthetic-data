@@ -6,6 +6,7 @@ from slm_synth.sft.runs import SFTSeedRunResult, materialize_seed_dataset
 from slm_synth.sft.schema import validate_message, validate_sft_row
 from slm_synth.sft.seeds import (
     SFT_SEED_FAMILIES,
+    build_ai_concept_explanation_rows,
     build_answer_only_arithmetic_rows,
     build_capital_city_qa_rows,
     build_clear_sky_color_qa_rows,
@@ -21,6 +22,7 @@ from slm_synth.sft.seeds import (
 __all__ = [
     "SFT_SEED_FAMILIES",
     "SFTSeedRunResult",
+    "build_ai_concept_explanation_rows",
     "build_manifest_payload",
     "build_answer_only_arithmetic_rows",
     "build_capital_city_qa_rows",

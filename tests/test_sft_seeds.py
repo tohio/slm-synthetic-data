@@ -1,6 +1,7 @@
 import pytest
 
 from slm_synth.sft.seeds import (
+    build_ai_concept_explanation_rows,
     build_answer_only_arithmetic_rows,
     build_capital_city_qa_rows,
     build_clear_sky_color_qa_rows,
@@ -13,6 +14,16 @@ from slm_synth.sft.seeds import (
     build_seed_rows,
 )
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
+
+
+class RejectFirstAIConceptRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {"type": "ai_concept", "concept": "attention_mechanism"}:
+            raise ValueError("candidate holdout_key matches eval holdout key")
 
 
 class RejectFirstAdditionRegistry:
@@ -135,6 +146,12 @@ def test_build_answer_only_arithmetic_rows_creates_valid_sft_rows():
     assert all(row["metadata"]["eval_family"] == "basic_arithmetic_qa" for row in rows)
 
 
+def test_build_seed_rows_dispatches_ai_concept_family():
+    rows = build_seed_rows(family="ai_concept_explanation", count=1, start_index=7)
+
+    assert rows[0]["id"] == "sft_ai_concept_explanation_000007"
+
+
 def test_build_seed_rows_dispatches_supported_family():
     rows = build_seed_rows(family="answer_only_arithmetic", count=1, start_index=7)
 
@@ -230,6 +247,62 @@ def test_build_answer_only_arithmetic_rows_allows_sibling_not_eval_holdout():
 
     assert "2 + 2" not in rows[0]["messages"][0]["content"]
     assert rows[0]["messages"][1]["content"] == "7"
+
+
+def test_build_ai_concept_explanation_rows_creates_valid_sft_rows():
+    rows = build_ai_concept_explanation_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "sft_ai_concept_explanation_000001",
+        "sft_ai_concept_explanation_000002",
+    ]
+    assert rows[0]["messages"][0]["content"] == "In machine learning, what is an attention mechanism?"
+    assert rows[0]["messages"][1]["content"] == (
+        "It helps a model focus on the most relevant parts of the input when producing an output."
+    )
+    assert rows[0]["metadata"]["category"] == "general_instruction_following"
+    assert rows[0]["metadata"]["template_family"] == "short_ai_concept_definition"
+    assert rows[0]["metadata"]["eval_family"] == "ai_concept_explanation"
+
+
+def test_build_ai_concept_explanation_rows_skips_holdout_keys():
+    registry = RejectFirstAIConceptRegistry()
+
+    rows = build_ai_concept_explanation_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {"type": "ai_concept", "concept": "attention_mechanism"}
+    assert rows[0]["messages"][0]["content"] != "In machine learning, what is an attention mechanism?"
+    assert rows[0]["id"] == "sft_ai_concept_explanation_000001"
+
+
+def test_build_ai_concept_explanation_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "ai_concept_explanation": [
+                {
+                    "id": "ai_transformer",
+                    "prompt": "In AI, what is a transformer model?",
+                    "answer": "attention",
+                    "holdout_key": {"type": "ai_concept", "concept": "transformer_model"},
+                },
+                {
+                    "id": "ai_neural_network",
+                    "prompt": "What is a neural network?",
+                    "answer": "model",
+                    "holdout_key": {"type": "ai_concept", "concept": "neural_network"},
+                },
+            ]
+        }
+    )
+
+    rows = build_ai_concept_explanation_rows(count=1, holdout_registry=registry)
+
+    assert "transformer" not in rows[0]["messages"][0]["content"]
+    assert "neural network" not in rows[0]["messages"][0]["content"]
+    assert rows[0]["messages"][1]["content"].startswith("It helps a model focus")
 
 
 def test_build_capital_city_qa_rows_creates_valid_sft_rows():
