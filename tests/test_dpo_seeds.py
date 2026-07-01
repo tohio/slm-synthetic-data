@@ -7,6 +7,7 @@ from slm_synth.dpo.seeds import (
     build_clear_sky_color_qa_rows,
     build_code_explanation_no_code_rows,
     build_code_generation_function_rows,
+    build_direct_division_rows,
     build_direct_subtraction_rows,
     build_function_completion_body_only_rows,
     build_list_exact_n_items_rows,
@@ -68,6 +69,16 @@ class RejectFirstSubtractionRegistry:
     def reject_if_holdout(self, *, prompt, holdout_key=None):
         self.seen.append((prompt, holdout_key))
         if holdout_key == {"type": "arithmetic", "operation": "subtract", "operands": [13, 2]}:
+            raise ValueError("candidate holdout_key matches eval holdout key")
+
+
+class RejectFirstDivisionRegistry:
+    def __init__(self):
+        self.seen = []
+
+    def reject_if_holdout(self, *, prompt, holdout_key=None):
+        self.seen.append((prompt, holdout_key))
+        if holdout_key == {"type": "arithmetic", "operation": "divide", "operands": [6, 2]}:
             raise ValueError("candidate holdout_key matches eval holdout key")
 
 
@@ -189,6 +200,12 @@ def test_build_seed_rows_dispatches_direct_subtraction_family():
     rows = build_seed_rows(family="direct_subtraction", count=1, start_index=7)
 
     assert rows[0]["id"] == "dpo_direct_subtraction_000007"
+
+
+def test_build_seed_rows_dispatches_direct_division_family():
+    rows = build_seed_rows(family="direct_division", count=1, start_index=7)
+
+    assert rows[0]["id"] == "dpo_direct_division_000007"
 
 
 def test_build_seed_rows_dispatches_repeat_family():
@@ -494,6 +511,56 @@ def test_build_direct_subtraction_rows_allows_sibling_not_eval_holdout():
 
     assert "12 - 5" not in rows[0]["prompt"][0]["content"]
     assert rows[0]["chosen"][0]["content"] == "11"
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_build_direct_division_rows_creates_valid_dpo_rows():
+    rows = build_direct_division_rows(count=2)
+
+    assert [row["id"] for row in rows] == [
+        "dpo_direct_division_000001",
+        "dpo_direct_division_000002",
+    ]
+    assert rows[0]["prompt"][0]["content"] == "What is 6 / 2?"
+    assert rows[0]["chosen"][0]["content"] == "3"
+    assert rows[0]["rejected"][0]["content"] == "4"
+    assert rows[0]["metadata"]["category"] == "direct_arithmetic"
+    assert rows[0]["metadata"]["failure_mode"] == "wrong_numeric_answer"
+    assert rows[0]["metadata"]["template_family"] == "direct_division"
+    assert rows[0]["metadata"]["eval_family"] == "direct_division"
+
+
+def test_build_direct_division_rows_skips_holdout_keys():
+    registry = RejectFirstDivisionRegistry()
+
+    rows = build_direct_division_rows(
+        count=1,
+        holdout_registry=registry,  # type: ignore[arg-type]
+    )
+
+    assert registry.seen[0][1] == {"type": "arithmetic", "operation": "divide", "operands": [6, 2]}
+    assert rows[0]["prompt"][0]["content"] != "What is 6 / 2?"
+    assert rows[0]["id"] == "dpo_direct_division_000001"
+
+
+def test_build_direct_division_rows_allows_sibling_not_eval_holdout():
+    registry = HoldoutRegistry.from_mapping(
+        {
+            "direct_division": [
+                {
+                    "id": "arithmetic_divide_direct",
+                    "prompt": "What is 20 / 5?",
+                    "answer": "4",
+                    "holdout_key": {"type": "arithmetic", "operation": "divide", "operands": [20, 5]},
+                }
+            ]
+        }
+    )
+
+    rows = build_direct_division_rows(count=1, holdout_registry=registry)
+
+    assert "20 / 5" not in rows[0]["prompt"][0]["content"]
+    assert rows[0]["chosen"][0]["content"] == "3"
     assert rows[0]["chosen"] != rows[0]["rejected"]
 
 
