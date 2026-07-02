@@ -65,6 +65,44 @@ def test_dpo_materialize_seed_dataset_cli_calls_runner(tmp_path, monkeypatch, ca
     assert str(Path(output_dir) / "answer_only_arithmetic.jsonl") in captured.out
 
 
+def test_dpo_build_specs_cli_calls_builder(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    def fake_build_and_write_specs(**kwargs):
+        calls.append(kwargs)
+        return 3
+
+    monkeypatch.setattr("slm_synth.dpo.cli.build_and_write_specs", fake_build_and_write_specs)
+
+    assert (
+        main(
+            [
+                "build-specs",
+                "--family",
+                "basic_arithmetic_qa",
+                "--count",
+                "3",
+                "--output",
+                str(tmp_path / "dpo.specs.jsonl"),
+                "--start-index",
+                "7",
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [
+        {
+            "family": "basic_arithmetic_qa",
+            "count": 3,
+            "output_path": str(tmp_path / "dpo.specs.jsonl"),
+            "start_index": 7,
+        }
+    ]
+    captured = capsys.readouterr()
+    assert "wrote 3 DPO task spec" in captured.out
+
+
 def test_dpo_materialize_seed_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
     output_dir = tmp_path / "datasets"
     manifest_dir = tmp_path / "manifests"

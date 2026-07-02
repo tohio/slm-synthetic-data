@@ -9,6 +9,7 @@ from slm_synth.sft.generation import generate_llm_batch_from_files, materialize_
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import materialize_seed_dataset, materialize_seed_run
 from slm_synth.sft.seeds import SFT_SEED_FAMILIES
+from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_and_write_specs
 
 
 def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
@@ -27,6 +28,17 @@ def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
         f"{result.row_count} SFT row(s) for {result.family} to {result.dataset_path}; "
         f"manifest: {result.manifest_path}"
     )
+    return 0
+
+
+def cmd_build_specs(args: argparse.Namespace) -> int:
+    count = build_and_write_specs(
+        family=args.family,
+        count=args.count,
+        output_path=args.output,
+        start_index=args.start_index,
+    )
+    print(f"wrote {count} SFT task spec(s) for {args.family} to {args.output}")
     return 0
 
 
@@ -124,6 +136,13 @@ def build_parser() -> argparse.ArgumentParser:
     materialize_parser.add_argument("--dataset-filename", default=None)
     materialize_parser.add_argument("--manifest-filename", default=None)
     materialize_parser.set_defaults(func=cmd_materialize_seed_dataset)
+
+    build_specs_parser = subparsers.add_parser("build-specs")
+    build_specs_parser.add_argument("--family", required=True, choices=sorted(SFT_SPEC_FAMILIES))
+    build_specs_parser.add_argument("--count", required=True, type=int)
+    build_specs_parser.add_argument("--output", required=True, help="Output SFT task spec JSONL path.")
+    build_specs_parser.add_argument("--start-index", type=int, default=1)
+    build_specs_parser.set_defaults(func=cmd_build_specs)
 
     seed_run_parser = subparsers.add_parser("materialize-seed-run")
     seed_run_parser.add_argument(

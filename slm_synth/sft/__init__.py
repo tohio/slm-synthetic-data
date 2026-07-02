@@ -46,10 +46,17 @@ from slm_synth.sft.seeds import (
     build_repeat_exact_n_times_rows,
     build_seed_rows,
 )
+from slm_synth.sft.spec_builders import (
+    SFT_SPEC_FAMILIES,
+    build_and_write_specs,
+    build_specs,
+    write_specs_jsonl,
+)
 from slm_synth.sft.specs import teacher_visible_sft_spec, validate_sft_spec
 
 __all__ = [
     "SFT_BATCH_RESPONSE_SCHEMA",
+    "SFT_SPEC_FAMILIES",
     "SFTLLMBatchResult",
     "SFT_SEED_FAMILIES",
     "SFTSeedFamilyRunResult",
@@ -70,6 +77,8 @@ __all__ = [
     "build_private_or_unverifiable_company_fact_rows",
     "build_repeat_exact_n_times_rows",
     "build_seed_rows",
+    "build_and_write_specs",
+    "build_specs",
     "build_sft_teacher_request_items",
     "build_sft_teacher_request_object",
     "build_openrouter_backend",
@@ -91,6 +100,7 @@ __all__ = [
     "validate_sft_row",
     "validate_sft_spec",
     "write_jsonl",
+    "write_specs_jsonl",
     "write_coverage_report",
     "write_manifest",
     "write_run_manifest",

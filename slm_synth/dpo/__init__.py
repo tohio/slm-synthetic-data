@@ -46,10 +46,17 @@ from slm_synth.dpo.seeds import (
     build_repeat_exact_n_times_rows,
     build_seed_rows,
 )
+from slm_synth.dpo.spec_builders import (
+    DPO_SPEC_FAMILIES,
+    build_and_write_specs,
+    build_specs,
+    write_specs_jsonl,
+)
 from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 
 __all__ = [
     "DPO_BATCH_RESPONSE_SCHEMA",
+    "DPO_SPEC_FAMILIES",
     "DPOLLMBatchResult",
     "DPO_SEED_FAMILIES",
     "DPOSeedFamilyRunResult",
@@ -70,6 +77,8 @@ __all__ = [
     "build_private_or_unverifiable_company_fact_rows",
     "build_repeat_exact_n_times_rows",
     "build_seed_rows",
+    "build_and_write_specs",
+    "build_specs",
     "build_openrouter_backend",
     "build_dpo_teacher_request_items",
     "build_dpo_teacher_request_object",
@@ -91,6 +100,7 @@ __all__ = [
     "validate_dpo_spec",
     "validate_message_list",
     "write_jsonl",
+    "write_specs_jsonl",
     "write_coverage_report",
     "write_manifest",
     "write_run_manifest",
