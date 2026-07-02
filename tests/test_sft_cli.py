@@ -298,6 +298,79 @@ def test_sft_generate_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
     assert "generated 2 LLM-generated SFT row" in captured.out
 
 
+def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    def fake_generate_llm_run(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            row_count = 4
+            families = ("basic_arithmetic_qa", "repeat_exact_n_times")
+            generation_run = "sft-live-run-001"
+            manifest_path = tmp_path / "manifests" / "sft-live-run-001.manifest.json"
+
+        return Result()
+
+    monkeypatch.setattr("slm_synth.sft.cli.generate_llm_run", fake_generate_llm_run)
+
+    assert (
+        main(
+            [
+                "generate-llm-run",
+                "--families",
+                "basic_arithmetic_qa",
+                "repeat_exact_n_times",
+                "--count-per-family",
+                "2",
+                "--batch-size",
+                "1",
+                "--output-dir",
+                str(tmp_path / "datasets"),
+                "--manifest-dir",
+                str(tmp_path / "manifests"),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--generation-run",
+                "sft-live-run-001",
+                "--max-tokens",
+                "1024",
+                "--start-index",
+                "5",
+                "--run-manifest-filename",
+                "custom.manifest.json",
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [
+        {
+            "families": ["basic_arithmetic_qa", "repeat_exact_n_times"],
+            "count_per_family": 2,
+            "batch_size": 1,
+            "output_dir": str(tmp_path / "datasets"),
+            "manifest_dir": str(tmp_path / "manifests"),
+            "teacher_model": "openai/gpt-4.1-mini",
+            "teacher_provider": "openrouter",
+            "generation_run": "sft-live-run-001",
+            "max_tokens": 1024,
+            "start_index": 5,
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "request_timeout": None,
+            "max_request_retries": 3,
+            "max_retryable_request_attempts": 20,
+            "retry_max_elapsed_seconds": 1800.0,
+            "adaptive_maximum_in_flight": 1,
+            "adaptive_initial_in_flight": 1,
+            "run_manifest_filename": "custom.manifest.json",
+        }
+    ]
+    captured = capsys.readouterr()
+    assert "generated 4 LLM-generated SFT row" in captured.out
+
+
 def test_sft_report_coverage_cli_prints_json(tmp_path, capsys):
     dataset_path = tmp_path / "answer_only_arithmetic.jsonl"
     write_jsonl(build_seed_rows(family="answer_only_arithmetic", count=1), dataset_path)

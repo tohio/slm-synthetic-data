@@ -22,10 +22,13 @@ from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import build_manifest_payload, write_manifest, write_run_manifest
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import (
+    SFTLLMRunResult,
     SFTSeedFamilyRunResult,
     SFTSeedRunResult,
+    generate_llm_run,
     materialize_seed_dataset,
     materialize_seed_run,
+    resolve_spec_families,
     resolve_seed_families,
 )
 from slm_synth.sft.schema import validate_message, validate_sft_row
@@ -56,6 +59,7 @@ from slm_synth.sft.specs import teacher_visible_sft_spec, validate_sft_spec
 
 __all__ = [
     "SFT_BATCH_RESPONSE_SCHEMA",
+    "SFTLLMRunResult",
     "SFT_SPEC_FAMILIES",
     "SFTLLMBatchResult",
     "SFT_SEED_FAMILIES",
@@ -84,6 +88,7 @@ __all__ = [
     "build_openrouter_backend",
     "generate_llm_batch",
     "generate_llm_batch_from_files",
+    "generate_llm_run",
     "generate_teacher_batch_response",
     "materialize_seed_dataset",
     "materialize_seed_run",
@@ -93,6 +98,7 @@ __all__ = [
     "read_specs_jsonl",
     "read_teacher_response_json",
     "render_sft_batch_prompt",
+    "resolve_spec_families",
     "resolve_seed_families",
     "teacher_visible_sft_spec",
     "validate_message",

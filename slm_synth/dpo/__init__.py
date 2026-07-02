@@ -22,10 +22,13 @@ from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import build_manifest_payload, write_manifest, write_run_manifest
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.dpo.runs import (
+    DPOLLMRunResult,
     DPOSeedFamilyRunResult,
     DPOSeedRunResult,
+    generate_llm_run,
     materialize_seed_dataset,
     materialize_seed_run,
+    resolve_spec_families,
     resolve_seed_families,
 )
 from slm_synth.dpo.schema import validate_dpo_row, validate_message_list
@@ -56,6 +59,7 @@ from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 
 __all__ = [
     "DPO_BATCH_RESPONSE_SCHEMA",
+    "DPOLLMRunResult",
     "DPO_SPEC_FAMILIES",
     "DPOLLMBatchResult",
     "DPO_SEED_FAMILIES",
@@ -84,6 +88,7 @@ __all__ = [
     "build_dpo_teacher_request_object",
     "generate_llm_batch",
     "generate_llm_batch_from_files",
+    "generate_llm_run",
     "generate_teacher_batch_response",
     "materialize_seed_dataset",
     "materialize_seed_run",
@@ -93,6 +98,7 @@ __all__ = [
     "read_specs_jsonl",
     "read_teacher_response_json",
     "render_dpo_batch_prompt",
+    "resolve_spec_families",
     "resolve_seed_families",
     "teacher_visible_dpo_spec",
     "validate_dpo_batch_response",
