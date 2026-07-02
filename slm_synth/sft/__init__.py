@@ -7,6 +7,13 @@ from slm_synth.sft.batches import (
     render_sft_batch_prompt,
     validate_sft_batch_response,
 )
+from slm_synth.sft.generation import (
+    SFTLLMBatchResult,
+    materialize_llm_batch,
+    materialize_llm_batch_from_files,
+    read_specs_jsonl,
+    read_teacher_response_json,
+)
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import build_manifest_payload, write_manifest, write_run_manifest
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
@@ -39,6 +46,7 @@ from slm_synth.sft.specs import teacher_visible_sft_spec, validate_sft_spec
 
 __all__ = [
     "SFT_BATCH_RESPONSE_SCHEMA",
+    "SFTLLMBatchResult",
     "SFT_SEED_FAMILIES",
     "SFTSeedFamilyRunResult",
     "SFTSeedRunResult",
@@ -62,7 +70,11 @@ __all__ = [
     "build_sft_teacher_request_object",
     "materialize_seed_dataset",
     "materialize_seed_run",
+    "materialize_llm_batch",
+    "materialize_llm_batch_from_files",
     "read_jsonl",
+    "read_specs_jsonl",
+    "read_teacher_response_json",
     "render_sft_batch_prompt",
     "resolve_seed_families",
     "teacher_visible_sft_spec",

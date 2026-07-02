@@ -130,6 +130,59 @@ def test_sft_materialize_seed_run_cli_calls_runner(tmp_path, monkeypatch, capsys
     assert "- answer_only_arithmetic: 2 row" in captured.out
 
 
+def test_sft_materialize_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    def fake_materialize_llm_batch_from_files(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            dataset_path = tmp_path / "sft.jsonl"
+            manifest_path = tmp_path / "sft.manifest.json"
+            row_count = 2
+
+        return Result()
+
+    monkeypatch.setattr("slm_synth.sft.cli.materialize_llm_batch_from_files", fake_materialize_llm_batch_from_files)
+
+    assert (
+        main(
+            [
+                "materialize-llm-batch",
+                "--specs",
+                str(tmp_path / "specs.jsonl"),
+                "--teacher-response",
+                str(tmp_path / "teacher_response.json"),
+                "--output",
+                str(tmp_path / "sft.jsonl"),
+                "--manifest",
+                str(tmp_path / "sft.manifest.json"),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--teacher-provider",
+                "openrouter",
+                "--generation-run",
+                "sft-llm-smoke-001",
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [
+        {
+            "specs_path": str(tmp_path / "specs.jsonl"),
+            "teacher_response_path": str(tmp_path / "teacher_response.json"),
+            "output_path": str(tmp_path / "sft.jsonl"),
+            "manifest_path": str(tmp_path / "sft.manifest.json"),
+            "teacher_model": "openai/gpt-4.1-mini",
+            "teacher_provider": "openrouter",
+            "generation_run": "sft-llm-smoke-001",
+        }
+    ]
+    captured = capsys.readouterr()
+    assert "materialized 2 LLM-generated SFT row" in captured.out
+
+
 def test_sft_report_coverage_cli_prints_json(tmp_path, capsys):
     dataset_path = tmp_path / "answer_only_arithmetic.jsonl"
     write_jsonl(build_seed_rows(family="answer_only_arithmetic", count=1), dataset_path)

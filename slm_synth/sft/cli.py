@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from slm_synth.sft.generation import materialize_llm_batch_from_files
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import materialize_seed_dataset, materialize_seed_run
 from slm_synth.sft.seeds import SFT_SEED_FAMILIES
@@ -36,6 +37,24 @@ def cmd_report_coverage(args: argparse.Namespace) -> int:
         print(f"wrote SFT coverage report to {output_path}")
     else:
         print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_materialize_llm_batch(args: argparse.Namespace) -> int:
+    result = materialize_llm_batch_from_files(
+        specs_path=args.specs,
+        teacher_response_path=args.teacher_response,
+        output_path=args.output,
+        manifest_path=args.manifest,
+        teacher_model=args.teacher_model,
+        teacher_provider=args.teacher_provider,
+        generation_run=args.generation_run,
+    )
+    print(
+        "materialized "
+        f"{result.row_count} LLM-generated SFT row(s) to {result.dataset_path}; "
+        f"manifest: {result.manifest_path}"
+    )
     return 0
 
 
@@ -95,6 +114,16 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--start-index", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
     seed_run_parser.set_defaults(func=cmd_materialize_seed_run)
+
+    llm_batch_parser = subparsers.add_parser("materialize-llm-batch")
+    llm_batch_parser.add_argument("--specs", required=True, help="SFT task spec JSONL path.")
+    llm_batch_parser.add_argument("--teacher-response", required=True, help="Saved teacher batch response JSON path.")
+    llm_batch_parser.add_argument("--output", required=True, help="Output SFT JSONL path.")
+    llm_batch_parser.add_argument("--manifest", required=True, help="Output local manifest JSON path.")
+    llm_batch_parser.add_argument("--teacher-model", required=True)
+    llm_batch_parser.add_argument("--teacher-provider", default="openrouter")
+    llm_batch_parser.add_argument("--generation-run", required=True)
+    llm_batch_parser.set_defaults(func=cmd_materialize_llm_batch)
 
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument(

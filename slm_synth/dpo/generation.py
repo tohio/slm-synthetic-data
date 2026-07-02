@@ -1,0 +1,173 @@
+"""Non-network materialization for LLM-generated DPO batches."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from slm_synth.dpo.batches import validate_dpo_batch_response
+from slm_synth.dpo.io import write_jsonl
+from slm_synth.dpo.manifest import write_manifest
+from slm_synth.dpo.specs import validate_dpo_spec
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
+
+SUPPORTED_TEACHER_PROVIDERS = frozenset({"openrouter"})
+
+
+@dataclass(frozen=True)
+class DPOLLMBatchResult:
+    """Result of materializing one saved LLM DPO batch."""
+
+    dataset_path: Path
+    manifest_path: Path
+    row_count: int
+    generation_run: str
+    teacher_model: str
+    teacher_provider: str
+
+
+def read_specs_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    """Read and validate DPO task specs from JSONL."""
+    input_path = Path(path)
+    specs: list[dict[str, Any]] = []
+    for line_number, line in enumerate(input_path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid DPO spec JSONL in {input_path} at line {line_number}: {exc}") from exc
+        specs.append(validate_dpo_spec(value))
+    return specs
+
+
+def read_teacher_response_json(path: str | Path) -> dict[str, Any]:
+    """Read a saved teacher batch response JSON object."""
+    input_path = Path(path)
+    try:
+        value = json.loads(input_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid DPO teacher response JSON in {input_path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise TypeError("DPO teacher response JSON must be an object")
+    return value
+
+
+def materialize_llm_batch(
+    *,
+    specs: Iterable[Mapping[str, Any]],
+    teacher_response: Mapping[str, Any],
+    output_path: str | Path,
+    manifest_path: str | Path,
+    teacher_model: str,
+    generation_run: str,
+    teacher_provider: str = "openrouter",
+    metadata: Mapping[str, Any] | None = None,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> DPOLLMBatchResult:
+    """Validate a saved LLM DPO response and write JSONL plus local manifest."""
+    provider = _validate_teacher_provider(teacher_provider)
+    model = _require_non_empty_string(teacher_model, "teacher_model")
+    run = _require_non_empty_string(generation_run, "generation_run")
+    validated_specs = [validate_dpo_spec(spec) for spec in specs]
+    if not validated_specs:
+        raise ValueError("at least one DPO spec is required")
+
+    expected_ids = [spec["id"] for spec in validated_specs]
+    if len(expected_ids) != len(set(expected_ids)):
+        raise ValueError("DPO specs contain duplicate id(s)")
+
+    rows = validate_dpo_batch_response(
+        teacher_response,
+        expected_ids=expected_ids,
+        expected_count=len(validated_specs),
+    )
+    _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
+
+    dataset_path = Path(output_path)
+    row_count = write_jsonl(rows, dataset_path)
+    local_manifest_path = write_manifest(
+        manifest_path=manifest_path,
+        dataset_path=dataset_path,
+        rows=rows,
+        generation_run=run,
+        metadata={
+            "generation_mode": "llm_batch",
+            "teacher_model": model,
+            "teacher_provider": provider,
+            "spec_count": len(validated_specs),
+            **dict(metadata or {}),
+        },
+    )
+
+    return DPOLLMBatchResult(
+        dataset_path=dataset_path,
+        manifest_path=local_manifest_path,
+        row_count=row_count,
+        generation_run=run,
+        teacher_model=model,
+        teacher_provider=provider,
+    )
+
+
+def materialize_llm_batch_from_files(
+    *,
+    specs_path: str | Path,
+    teacher_response_path: str | Path,
+    output_path: str | Path,
+    manifest_path: str | Path,
+    teacher_model: str,
+    generation_run: str,
+    teacher_provider: str = "openrouter",
+    metadata: Mapping[str, Any] | None = None,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> DPOLLMBatchResult:
+    """Read DPO specs and saved teacher JSON, then materialize the batch."""
+    return materialize_llm_batch(
+        specs=read_specs_jsonl(specs_path),
+        teacher_response=read_teacher_response_json(teacher_response_path),
+        output_path=output_path,
+        manifest_path=manifest_path,
+        teacher_model=teacher_model,
+        teacher_provider=teacher_provider,
+        generation_run=generation_run,
+        metadata=metadata,
+        holdout_registry=holdout_registry,
+    )
+
+
+def _reject_holdout_matches(
+    *,
+    rows: list[dict[str, Any]],
+    specs: list[dict[str, Any]],
+    holdout_registry: HoldoutRegistry | None,
+) -> None:
+    if holdout_registry is None:
+        return
+    specs_by_id = {spec["id"]: spec for spec in specs}
+    for row in rows:
+        spec = specs_by_id[row["id"]]
+        holdout_key = spec.get("holdout_key")
+        for message in row["prompt"]:
+            if message["role"] == "user":
+                holdout_registry.reject_if_holdout(
+                    prompt=message["content"],
+                    holdout_key=holdout_key,
+                )
+
+
+def _validate_teacher_provider(value: Any) -> str:
+    provider = _require_non_empty_string(value, "teacher_provider").lower()
+    if provider not in SUPPORTED_TEACHER_PROVIDERS:
+        supported = ", ".join(sorted(SUPPORTED_TEACHER_PROVIDERS))
+        raise ValueError(f"Unsupported teacher_provider '{value}'. Supported providers: {supported}")
+    return provider
+
+
+def _require_non_empty_string(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return value.strip()
