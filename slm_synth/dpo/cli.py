@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from slm_synth.dpo.generation import materialize_llm_batch_from_files
+from slm_synth.dpo.generation import generate_llm_batch_from_files, materialize_llm_batch_from_files
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.dpo.runs import materialize_seed_dataset, materialize_seed_run
 from slm_synth.dpo.seeds import DPO_SEED_FAMILIES
@@ -52,6 +52,32 @@ def cmd_materialize_llm_batch(args: argparse.Namespace) -> int:
     )
     print(
         "materialized "
+        f"{result.row_count} LLM-generated DPO row(s) to {result.dataset_path}; "
+        f"manifest: {result.manifest_path}"
+    )
+    return 0
+
+
+def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
+    result = generate_llm_batch_from_files(
+        specs_path=args.specs,
+        output_path=args.output,
+        manifest_path=args.manifest,
+        teacher_model=args.teacher_model,
+        teacher_provider=args.teacher_provider,
+        generation_run=args.generation_run,
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        request_timeout=args.request_timeout,
+        max_request_retries=args.max_request_retries,
+        max_retryable_request_attempts=args.max_retryable_request_attempts,
+        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+    )
+    print(
+        "generated "
         f"{result.row_count} LLM-generated DPO row(s) to {result.dataset_path}; "
         f"manifest: {result.manifest_path}"
     )
@@ -124,6 +150,24 @@ def build_parser() -> argparse.ArgumentParser:
     llm_batch_parser.add_argument("--teacher-provider", default="openrouter")
     llm_batch_parser.add_argument("--generation-run", required=True)
     llm_batch_parser.set_defaults(func=cmd_materialize_llm_batch)
+
+    generate_parser = subparsers.add_parser("generate-llm-batch")
+    generate_parser.add_argument("--specs", required=True, help="DPO task spec JSONL path.")
+    generate_parser.add_argument("--output", required=True, help="Output DPO JSONL path.")
+    generate_parser.add_argument("--manifest", required=True, help="Output local manifest JSON path.")
+    generate_parser.add_argument("--teacher-model", required=True)
+    generate_parser.add_argument("--teacher-provider", default="openrouter")
+    generate_parser.add_argument("--generation-run", required=True)
+    generate_parser.add_argument("--max-tokens", required=True, type=int)
+    generate_parser.add_argument("--temperature", type=float, default=0.2)
+    generate_parser.add_argument("--top-p", type=float, default=0.95)
+    generate_parser.add_argument("--request-timeout", type=float, default=None)
+    generate_parser.add_argument("--max-request-retries", type=int, default=3)
+    generate_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
+    generate_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
+    generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
+    generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=1)
+    generate_parser.set_defaults(func=cmd_generate_llm_batch)
 
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument(

@@ -9,6 +9,10 @@ from slm_synth.sft.batches import (
 )
 from slm_synth.sft.generation import (
     SFTLLMBatchResult,
+    build_openrouter_backend,
+    generate_llm_batch,
+    generate_llm_batch_from_files,
+    generate_teacher_batch_response,
     materialize_llm_batch,
     materialize_llm_batch_from_files,
     read_specs_jsonl,
@@ -68,6 +72,10 @@ __all__ = [
     "build_seed_rows",
     "build_sft_teacher_request_items",
     "build_sft_teacher_request_object",
+    "build_openrouter_backend",
+    "generate_llm_batch",
+    "generate_llm_batch_from_files",
+    "generate_teacher_batch_response",
     "materialize_seed_dataset",
     "materialize_seed_run",
     "materialize_llm_batch",

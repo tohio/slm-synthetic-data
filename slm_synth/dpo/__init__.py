@@ -9,6 +9,10 @@ from slm_synth.dpo.batches import (
 )
 from slm_synth.dpo.generation import (
     DPOLLMBatchResult,
+    build_openrouter_backend,
+    generate_llm_batch,
+    generate_llm_batch_from_files,
+    generate_teacher_batch_response,
     materialize_llm_batch,
     materialize_llm_batch_from_files,
     read_specs_jsonl,
@@ -66,8 +70,12 @@ __all__ = [
     "build_private_or_unverifiable_company_fact_rows",
     "build_repeat_exact_n_times_rows",
     "build_seed_rows",
+    "build_openrouter_backend",
     "build_dpo_teacher_request_items",
     "build_dpo_teacher_request_object",
+    "generate_llm_batch",
+    "generate_llm_batch_from_files",
+    "generate_teacher_batch_response",
     "materialize_seed_dataset",
     "materialize_seed_run",
     "materialize_llm_batch",

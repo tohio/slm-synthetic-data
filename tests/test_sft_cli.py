@@ -183,6 +183,83 @@ def test_sft_materialize_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsy
     assert "materialized 2 LLM-generated SFT row" in captured.out
 
 
+def test_sft_generate_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    def fake_generate_llm_batch_from_files(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            dataset_path = tmp_path / "sft.jsonl"
+            manifest_path = tmp_path / "sft.manifest.json"
+            row_count = 2
+
+        return Result()
+
+    monkeypatch.setattr("slm_synth.sft.cli.generate_llm_batch_from_files", fake_generate_llm_batch_from_files)
+
+    assert (
+        main(
+            [
+                "generate-llm-batch",
+                "--specs",
+                str(tmp_path / "specs.jsonl"),
+                "--output",
+                str(tmp_path / "sft.jsonl"),
+                "--manifest",
+                str(tmp_path / "sft.manifest.json"),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--teacher-provider",
+                "openrouter",
+                "--generation-run",
+                "sft-live-smoke-001",
+                "--max-tokens",
+                "1024",
+                "--temperature",
+                "0.1",
+                "--top-p",
+                "0.9",
+                "--request-timeout",
+                "30",
+                "--max-request-retries",
+                "2",
+                "--max-retryable-request-attempts",
+                "5",
+                "--retry-max-elapsed-seconds",
+                "120",
+                "--adaptive-maximum-in-flight",
+                "3",
+                "--adaptive-initial-in-flight",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [
+        {
+            "specs_path": str(tmp_path / "specs.jsonl"),
+            "output_path": str(tmp_path / "sft.jsonl"),
+            "manifest_path": str(tmp_path / "sft.manifest.json"),
+            "teacher_model": "openai/gpt-4.1-mini",
+            "teacher_provider": "openrouter",
+            "generation_run": "sft-live-smoke-001",
+            "max_tokens": 1024,
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "request_timeout": 30.0,
+            "max_request_retries": 2,
+            "max_retryable_request_attempts": 5,
+            "retry_max_elapsed_seconds": 120.0,
+            "adaptive_maximum_in_flight": 3,
+            "adaptive_initial_in_flight": 1,
+        }
+    ]
+    captured = capsys.readouterr()
+    assert "generated 2 LLM-generated SFT row" in captured.out
+
+
 def test_sft_report_coverage_cli_prints_json(tmp_path, capsys):
     dataset_path = tmp_path / "answer_only_arithmetic.jsonl"
     write_jsonl(build_seed_rows(family="answer_only_arithmetic", count=1), dataset_path)
