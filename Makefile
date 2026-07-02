@@ -20,6 +20,8 @@ SIGNAL ?=
 SIGNAL_ARG := $(if $(SIGNAL),--signal $(SIGNAL),)
 PRETRAIN_MANIFEST ?=
 PRETRAIN_MANIFEST_ARG := $(if $(PRETRAIN_MANIFEST),--output $(PRETRAIN_MANIFEST),)
+PRETRAIN_COVERAGE_REPORT ?=
+PRETRAIN_COVERAGE_REPORT_ARG := $(if $(PRETRAIN_COVERAGE_REPORT),--output $(PRETRAIN_COVERAGE_REPORT),)
 PRETRAIN_GENERATION_RUN ?=
 PRETRAIN_GENERATION_RUN_ARG := $(if $(PRETRAIN_GENERATION_RUN),--generation-run $(PRETRAIN_GENERATION_RUN),)
 DISTILL_SIGNAL ?= arithmetic
@@ -41,6 +43,7 @@ DISTILL_DATASET_CARD ?= data/distillation/README.md
 DISTILL_DATASET_NAME ?= SLM Synthetic Distillation
 DISTILL_LICENSE ?=
 DISTILL_RUN_MANIFEST ?= $(DISTILL_MANIFEST_DIR)/$(DISTILL_GENERATION_RUN).manifest.json
+DISTILL_COVERAGE_REPORT ?= data/distillation/coverage.json
 DISTILL_SIGNALS_ARG := $(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),)
 DISTILL_TOKEN_TARGET_ARG := $(if $(DISTILL_TOKEN_TARGET),--token-target $(DISTILL_TOKEN_TARGET),)
 DISTILL_LICENSE_ARG := $(if $(DISTILL_LICENSE),--license $(DISTILL_LICENSE),)
@@ -67,7 +70,7 @@ DPO_START_INDEX ?= 1
 DPO_RUN_MANIFEST_FILENAME ?=
 DPO_RUN_MANIFEST_ARG := $(if $(DPO_RUN_MANIFEST_FILENAME),--run-manifest-filename $(DPO_RUN_MANIFEST_FILENAME),)
 
-.PHONY: help configure production-config preflight-artifacts generate validate dedup pretrain-generate-manifest report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card sft-materialize-seed sft-materialize-seed-run sft-report-coverage dpo-materialize-seed dpo-materialize-seed-run dpo-report-coverage test clean
+.PHONY: help configure production-config preflight-artifacts generate validate dedup pretrain-generate-manifest pretrain-report-coverage report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card distill-report-coverage sft-materialize-seed sft-materialize-seed-run sft-report-coverage dpo-materialize-seed dpo-materialize-seed-run dpo-report-coverage test clean
 
 help:
 > @echo ""
@@ -86,6 +89,7 @@ help:
 > @echo "  validate               Validate raw JSONL records"
 > @echo "  dedup                  Exact-deduplicate validated records"
 > @echo "  pretrain-generate-manifest Generate a pretrain run-level manifest"
+> @echo "  pretrain-report-coverage Generate a pretrain coverage report"
 > @echo "  report-artifacts       Report grounded artifact duplicates/family coverage"
 > @echo "  report-duplicates      Report exact duplicates in rendered records"
 > @echo "  report-lengths         Estimate record length for avg_tokens_per_sample calibration"
@@ -100,6 +104,7 @@ help:
 > @echo "  distill-generate-batch       Generate one signal batch through OpenRouter"
 > @echo "  distill-generate-seed-run    Generate seed batches across one or more signals"
 > @echo "  distill-build-dataset-card   Build a dataset card from a run manifest"
+> @echo "  distill-report-coverage      Write distillation coverage report JSON"
 > @echo ""
 > @echo "SFT/DPO:"
 > @echo "  sft-materialize-seed         Build deterministic SFT seed JSONL + manifest"
@@ -113,10 +118,12 @@ help:
 > @echo "  make configure TOKENS=250000 BATCH=64 CONCURRENCY=8 MAX_TOKENS=16384 RUN=batch_qual_250k_b64_c8"
 > @echo "  make generate"
 > @echo "  make pretrain-generate-manifest"
+> @echo "  make pretrain-report-coverage"
 > @echo "  make report-artifacts"
 > @echo "  make production-config CONCURRENCY=4"
 > @echo "  make distill-plan DISTILL_TARGET=smoke"
 > @echo "  make distill-generate-seed-run DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini DISTILL_TARGET=smoke"
+> @echo "  make distill-report-coverage"
 > @echo "  make sft-materialize-seed SFT_FAMILY=repeat_exact_n_times SFT_COUNT=25"
 > @echo "  make sft-materialize-seed-run SFT_FAMILIES='answer_only_arithmetic repeat_exact_n_times' SFT_COUNT_PER_FAMILY=25"
 > @echo "  make sft-report-coverage"
@@ -161,6 +168,12 @@ pretrain-generate-manifest:
 > $(PYTHON) -m slm_synth.pretrain.manifest \
 >   --config $(CONFIG_FILE) \
 >   $(PRETRAIN_MANIFEST_ARG) \
+>   $(PRETRAIN_GENERATION_RUN_ARG)
+
+pretrain-report-coverage:
+> $(PYTHON) -m slm_synth.pretrain.manifest \
+>   --config $(CONFIG_FILE) \
+>   $(PRETRAIN_COVERAGE_REPORT_ARG) \
 >   $(PRETRAIN_GENERATION_RUN_ARG)
 
 report-artifacts:
@@ -235,6 +248,11 @@ distill-build-dataset-card:
 >   --output $(DISTILL_DATASET_CARD) \
 >   --dataset-name "$(DISTILL_DATASET_NAME)" \
 >   $(DISTILL_LICENSE_ARG)
+
+distill-report-coverage:
+> $(PYTHON) -m slm_synth.distillation.cli report-coverage \
+>   --run-manifest $(DISTILL_RUN_MANIFEST) \
+>   --output $(DISTILL_COVERAGE_REPORT)
 
 sft-materialize-seed:
 > $(PYTHON) -m slm_synth.sft.cli materialize-seed-dataset \

@@ -372,3 +372,66 @@ def test_build_dataset_card_cli_writes_markdown(tmp_path, capsys):
     assert "- Teacher model: `openai/gpt-4.1-mini`" in text
     assert "| cloud | 1 | `data/distillation/datasets/cloud.jsonl` |" in text
     assert "wrote dataset card" in capsys.readouterr().out
+
+
+def test_report_coverage_cli_prints_json(tmp_path, capsys):
+    run_manifest = tmp_path / "smoke-001.manifest.json"
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generation_run": "smoke-001",
+                "teacher_model": "openai/gpt-4.1-mini",
+                "teacher_provider": "openrouter",
+                "token_target": "100K",
+                "datasets": [
+                    {
+                        "signal": "cloud",
+                        "dataset_path": "data/distillation/datasets/cloud.jsonl",
+                        "manifest_path": "data/distillation/manifests/cloud.smoke-001.manifest.json",
+                        "row_count": 1,
+                    }
+                ],
+                "total_rows": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["report-coverage", "--run-manifest", str(run_manifest)]) == 0
+
+    output = capsys.readouterr().out
+    assert '"dataset_type": "distillation"' in output
+    assert '"row_count": 1' in output
+    assert '"cloud": 1' in output
+
+
+def test_report_coverage_cli_writes_json(tmp_path, capsys):
+    run_manifest = tmp_path / "smoke-001.manifest.json"
+    output = tmp_path / "coverage.json"
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generation_run": "smoke-001",
+                "teacher_model": "openai/gpt-4.1-mini",
+                "teacher_provider": "openrouter",
+                "token_target": "100K",
+                "datasets": [
+                    {
+                        "signal": "cloud",
+                        "dataset_path": "data/distillation/datasets/cloud.jsonl",
+                        "manifest_path": "data/distillation/manifests/cloud.smoke-001.manifest.json",
+                        "row_count": 1,
+                    }
+                ],
+                "total_rows": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["report-coverage", "--run-manifest", str(run_manifest), "--output", str(output)]) == 0
+
+    assert json.loads(output.read_text(encoding="utf-8"))["signals"] == {"cloud": 1}
+    assert "wrote distillation coverage report" in capsys.readouterr().out

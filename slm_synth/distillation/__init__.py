@@ -11,14 +11,17 @@ from slm_synth.distillation.schema import (
 )
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
 from slm_synth.distillation.io import write_jsonl, write_manifest, write_signal_dataset
+from slm_synth.distillation.report import build_coverage_report, write_coverage_report
 from slm_synth.distillation.validate import merge_teacher_outputs
 
 __all__ = [
     "DISTILLATION_SIGNALS",
     "FORBIDDEN_PUBLIC_ROW_FIELDS",
+    "build_coverage_report",
     "merge_teacher_outputs",
     "write_jsonl",
     "write_manifest",
+    "write_coverage_report",
     "write_signal_dataset",
     "validate_public_row",
     "validate_signal",

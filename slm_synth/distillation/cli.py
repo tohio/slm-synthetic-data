@@ -14,6 +14,7 @@ from slm_synth.distillation.card import write_dataset_card
 from slm_synth.distillation.prompts import validate_prompt_record
 from slm_synth.distillation.generation import generate_and_materialize_signal_batch
 from slm_synth.distillation.orchestration import generate_seed_multi_signal_run
+from slm_synth.distillation.report import build_coverage_report, write_coverage_report
 from slm_synth.distillation.runs import materialize_teacher_batch
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
@@ -198,6 +199,16 @@ def cmd_build_dataset_card(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report_coverage(args: argparse.Namespace) -> int:
+    report = build_coverage_report(args.run_manifest)
+    if args.output:
+        output_path = write_coverage_report(report=report, path=args.output)
+        print(f"wrote distillation coverage report to {output_path}")
+    else:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.distillation.cli",
@@ -293,6 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
     card_parser.add_argument("--license", default=None)
     card_parser.add_argument("--language", default="en")
     card_parser.set_defaults(func=cmd_build_dataset_card)
+
+    coverage_parser = subparsers.add_parser("report-coverage")
+    coverage_parser.add_argument("--run-manifest", required=True)
+    coverage_parser.add_argument("--output", default=None)
+    coverage_parser.set_defaults(func=cmd_report_coverage)
 
     return parser
 
