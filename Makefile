@@ -50,6 +50,7 @@ SFT_COUNT ?= 100
 SFT_COUNT_PER_FAMILY ?= $(SFT_COUNT)
 SFT_OUTPUT_DIR ?= data/sft/datasets
 SFT_MANIFEST_DIR ?= data/sft/manifests
+SFT_COVERAGE_REPORT ?= data/sft/coverage.json
 SFT_GENERATION_RUN ?= sft-smoke-001
 SFT_START_INDEX ?= 1
 SFT_RUN_MANIFEST_FILENAME ?=
@@ -60,12 +61,13 @@ DPO_COUNT ?= 100
 DPO_COUNT_PER_FAMILY ?= $(DPO_COUNT)
 DPO_OUTPUT_DIR ?= data/dpo/datasets
 DPO_MANIFEST_DIR ?= data/dpo/manifests
+DPO_COVERAGE_REPORT ?= data/dpo/coverage.json
 DPO_GENERATION_RUN ?= dpo-smoke-001
 DPO_START_INDEX ?= 1
 DPO_RUN_MANIFEST_FILENAME ?=
 DPO_RUN_MANIFEST_ARG := $(if $(DPO_RUN_MANIFEST_FILENAME),--run-manifest-filename $(DPO_RUN_MANIFEST_FILENAME),)
 
-.PHONY: help configure production-config preflight-artifacts generate validate dedup pretrain-generate-manifest report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card sft-materialize-seed sft-materialize-seed-run dpo-materialize-seed dpo-materialize-seed-run test clean
+.PHONY: help configure production-config preflight-artifacts generate validate dedup pretrain-generate-manifest report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card sft-materialize-seed sft-materialize-seed-run sft-report-coverage dpo-materialize-seed dpo-materialize-seed-run dpo-report-coverage test clean
 
 help:
 > @echo ""
@@ -102,8 +104,10 @@ help:
 > @echo "SFT/DPO:"
 > @echo "  sft-materialize-seed         Build deterministic SFT seed JSONL + manifest"
 > @echo "  sft-materialize-seed-run     Build deterministic SFT seed datasets across families"
+> @echo "  sft-report-coverage          Write SFT coverage report JSON"
 > @echo "  dpo-materialize-seed         Build deterministic DPO seed JSONL + manifest"
 > @echo "  dpo-materialize-seed-run     Build deterministic DPO seed datasets across families"
+> @echo "  dpo-report-coverage          Write DPO coverage report JSON"
 > @echo ""
 > @echo "Examples:"
 > @echo "  make configure TOKENS=250000 BATCH=64 CONCURRENCY=8 MAX_TOKENS=16384 RUN=batch_qual_250k_b64_c8"
@@ -115,8 +119,10 @@ help:
 > @echo "  make distill-generate-seed-run DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini DISTILL_TARGET=smoke"
 > @echo "  make sft-materialize-seed SFT_FAMILY=repeat_exact_n_times SFT_COUNT=25"
 > @echo "  make sft-materialize-seed-run SFT_FAMILIES='answer_only_arithmetic repeat_exact_n_times' SFT_COUNT_PER_FAMILY=25"
+> @echo "  make sft-report-coverage"
 > @echo "  make dpo-materialize-seed DPO_FAMILY=repeat_exact_n_times DPO_COUNT=25"
 > @echo "  make dpo-materialize-seed-run DPO_FAMILIES='answer_only_arithmetic repeat_exact_n_times' DPO_COUNT_PER_FAMILY=25"
+> @echo "  make dpo-report-coverage"
 > @echo ""
 
 configure:
@@ -249,6 +255,11 @@ sft-materialize-seed-run:
 >   --start-index $(SFT_START_INDEX) \
 >   $(SFT_RUN_MANIFEST_ARG)
 
+sft-report-coverage:
+> $(PYTHON) -m slm_synth.sft.cli report-coverage \
+>   --input $(SFT_OUTPUT_DIR) \
+>   --output $(SFT_COVERAGE_REPORT)
+
 dpo-materialize-seed:
 > $(PYTHON) -m slm_synth.dpo.cli materialize-seed-dataset \
 >   --family $(DPO_FAMILY) \
@@ -267,6 +278,11 @@ dpo-materialize-seed-run:
 >   --generation-run $(DPO_GENERATION_RUN) \
 >   --start-index $(DPO_START_INDEX) \
 >   $(DPO_RUN_MANIFEST_ARG)
+
+dpo-report-coverage:
+> $(PYTHON) -m slm_synth.dpo.cli report-coverage \
+>   --input $(DPO_OUTPUT_DIR) \
+>   --output $(DPO_COVERAGE_REPORT)
 
 test:
 > pytest -q
