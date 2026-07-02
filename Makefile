@@ -18,6 +18,10 @@ STAGE ?= deduped
 DATA_DIR ?= data/runs
 SIGNAL ?=
 SIGNAL_ARG := $(if $(SIGNAL),--signal $(SIGNAL),)
+PRETRAIN_MANIFEST ?=
+PRETRAIN_MANIFEST_ARG := $(if $(PRETRAIN_MANIFEST),--output $(PRETRAIN_MANIFEST),)
+PRETRAIN_GENERATION_RUN ?=
+PRETRAIN_GENERATION_RUN_ARG := $(if $(PRETRAIN_GENERATION_RUN),--generation-run $(PRETRAIN_GENERATION_RUN),)
 DISTILL_SIGNAL ?= arithmetic
 DISTILL_SIGNALS ?=
 DISTILL_COUNT ?= 2
@@ -61,7 +65,7 @@ DPO_START_INDEX ?= 1
 DPO_RUN_MANIFEST_FILENAME ?=
 DPO_RUN_MANIFEST_ARG := $(if $(DPO_RUN_MANIFEST_FILENAME),--run-manifest-filename $(DPO_RUN_MANIFEST_FILENAME),)
 
-.PHONY: help configure production-config preflight-artifacts generate validate dedup report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card sft-materialize-seed sft-materialize-seed-run dpo-materialize-seed dpo-materialize-seed-run test clean
+.PHONY: help configure production-config preflight-artifacts generate validate dedup pretrain-generate-manifest report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card sft-materialize-seed sft-materialize-seed-run dpo-materialize-seed dpo-materialize-seed-run test clean
 
 help:
 > @echo ""
@@ -79,6 +83,7 @@ help:
 > @echo "  generate               Generate grounded rendered records through OpenRouter/DeepSeek"
 > @echo "  validate               Validate raw JSONL records"
 > @echo "  dedup                  Exact-deduplicate validated records"
+> @echo "  pretrain-generate-manifest Generate a pretrain run-level manifest"
 > @echo "  report-artifacts       Report grounded artifact duplicates/family coverage"
 > @echo "  report-duplicates      Report exact duplicates in rendered records"
 > @echo "  report-lengths         Estimate record length for avg_tokens_per_sample calibration"
@@ -103,6 +108,7 @@ help:
 > @echo "Examples:"
 > @echo "  make configure TOKENS=250000 BATCH=64 CONCURRENCY=8 MAX_TOKENS=16384 RUN=batch_qual_250k_b64_c8"
 > @echo "  make generate"
+> @echo "  make pretrain-generate-manifest"
 > @echo "  make report-artifacts"
 > @echo "  make production-config CONCURRENCY=4"
 > @echo "  make distill-plan DISTILL_TARGET=smoke"
@@ -144,6 +150,12 @@ validate:
 
 dedup:
 > $(PYTHON) -m slm_synth.dedup --config $(CONFIG_FILE) $(SIGNAL_ARG)
+
+pretrain-generate-manifest:
+> $(PYTHON) -m slm_synth.pretrain.manifest \
+>   --config $(CONFIG_FILE) \
+>   $(PRETRAIN_MANIFEST_ARG) \
+>   $(PRETRAIN_GENERATION_RUN_ARG)
 
 report-artifacts:
 > $(PYTHON) -m slm_synth.report_artifacts --config $(CONFIG_FILE) $(SIGNAL_ARG)
