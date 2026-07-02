@@ -2,6 +2,7 @@
 
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import build_manifest_payload, write_manifest
+from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import SFTSeedRunResult, materialize_seed_dataset
 from slm_synth.sft.schema import validate_message, validate_sft_row
 from slm_synth.sft.seeds import (
@@ -29,6 +30,7 @@ __all__ = [
     "build_manifest_payload",
     "build_answer_only_arithmetic_rows",
     "build_capital_city_qa_rows",
+    "build_coverage_report",
     "build_clear_sky_color_qa_rows",
     "build_code_explanation_no_code_rows",
     "build_code_expression_result_rows",
@@ -45,5 +47,6 @@ __all__ = [
     "validate_message",
     "validate_sft_row",
     "write_jsonl",
+    "write_coverage_report",
     "write_manifest",
 ]

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 
+from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import materialize_seed_dataset
 from slm_synth.sft.seeds import SFT_SEED_FAMILIES
 
@@ -27,6 +29,16 @@ def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report_coverage(args: argparse.Namespace) -> int:
+    report = build_coverage_report(args.input)
+    if args.output:
+        output_path = write_coverage_report(report=report, path=args.output)
+        print(f"wrote SFT coverage report to {output_path}")
+    else:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.sft.cli",
@@ -44,6 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
     materialize_parser.add_argument("--dataset-filename", default=None)
     materialize_parser.add_argument("--manifest-filename", default=None)
     materialize_parser.set_defaults(func=cmd_materialize_seed_dataset)
+
+    coverage_parser = subparsers.add_parser("report-coverage")
+    coverage_parser.add_argument(
+        "--input",
+        required=True,
+        nargs="+",
+        help="One or more SFT JSONL files or directories containing JSONL files.",
+    )
+    coverage_parser.add_argument("--output", default=None, help="Optional JSON report output path.")
+    coverage_parser.set_defaults(func=cmd_report_coverage)
 
     return parser
 

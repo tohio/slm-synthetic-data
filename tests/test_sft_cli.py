@@ -1,6 +1,8 @@
 from pathlib import Path
 
+from slm_synth.sft.io import write_jsonl
 from slm_synth.sft.cli import main
+from slm_synth.sft.seeds import build_seed_rows
 
 
 def test_sft_materialize_seed_dataset_cli_calls_runner(tmp_path, monkeypatch, capsys):
@@ -61,3 +63,27 @@ def test_sft_materialize_seed_dataset_cli_calls_runner(tmp_path, monkeypatch, ca
     captured = capsys.readouterr()
     assert "materialized 2 SFT row" in captured.out
     assert str(Path(output_dir) / "answer_only_arithmetic.jsonl") in captured.out
+
+
+def test_sft_report_coverage_cli_prints_json(tmp_path, capsys):
+    dataset_path = tmp_path / "answer_only_arithmetic.jsonl"
+    write_jsonl(build_seed_rows(family="answer_only_arithmetic", count=1), dataset_path)
+
+    assert main(["report-coverage", "--input", str(dataset_path)]) == 0
+
+    captured = capsys.readouterr()
+    assert '"dataset_type": "sft"' in captured.out
+    assert '"row_count": 1' in captured.out
+    assert '"answer_only_compliance": 1' in captured.out
+
+
+def test_sft_report_coverage_cli_writes_json(tmp_path, capsys):
+    dataset_path = tmp_path / "answer_only_arithmetic.jsonl"
+    report_path = tmp_path / "coverage.json"
+    write_jsonl(build_seed_rows(family="answer_only_arithmetic", count=1), dataset_path)
+
+    assert main(["report-coverage", "--input", str(dataset_path), "--output", str(report_path)]) == 0
+
+    captured = capsys.readouterr()
+    assert "wrote SFT coverage report" in captured.out
+    assert report_path.exists()
