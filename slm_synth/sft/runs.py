@@ -8,7 +8,7 @@ from typing import Any
 
 from slm_synth.sft.io import write_jsonl
 from slm_synth.sft.manifest import write_manifest
-from slm_synth.sft.seeds import build_seed_rows
+from slm_synth.sft.seeds import SFT_SEED_FAMILIES, build_seed_rows
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
@@ -20,6 +20,16 @@ class SFTSeedRunResult:
     manifest_path: Path
     row_count: int
     family: str
+    generation_run: str
+
+
+@dataclass(frozen=True)
+class SFTSeedFamilyRunResult:
+    """Result of materializing multiple SFT seed families."""
+
+    results: tuple[SFTSeedRunResult, ...]
+    row_count: int
+    families: tuple[str, ...]
     generation_run: str
 
 
@@ -86,3 +96,69 @@ def materialize_seed_dataset(
         family=family,
         generation_run=generation_run,
     )
+
+
+def materialize_seed_run(
+    *,
+    families: list[str] | tuple[str, ...] | None,
+    count_per_family: int,
+    output_dir: str | Path,
+    manifest_dir: str | Path,
+    generation_run: str,
+    start_index: int = 1,
+    metadata: dict[str, Any] | None = None,
+    holdout_registry: HoldoutRegistry | None = None,
+) -> SFTSeedFamilyRunResult:
+    """Materialize one SFT seed dataset per requested family."""
+    resolved_families = resolve_seed_families(families)
+    if not isinstance(count_per_family, int) or count_per_family < 1:
+        raise ValueError("count_per_family must be a positive integer")
+
+    results = tuple(
+        materialize_seed_dataset(
+            family=family,
+            count=count_per_family,
+            output_dir=output_dir,
+            manifest_dir=manifest_dir,
+            generation_run=generation_run,
+            start_index=start_index,
+            metadata={
+                "seed_run_family_count": len(resolved_families),
+                **dict(metadata or {}),
+            },
+            holdout_registry=holdout_registry,
+        )
+        for family in resolved_families
+    )
+
+    return SFTSeedFamilyRunResult(
+        results=results,
+        row_count=sum(result.row_count for result in results),
+        families=resolved_families,
+        generation_run=generation_run,
+    )
+
+
+def resolve_seed_families(families: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    """Resolve requested SFT seed families, where None or ['all'] means all families."""
+    if families is None or tuple(families) == ("all",):
+        return tuple(sorted(SFT_SEED_FAMILIES))
+    if "all" in families:
+        raise ValueError("'all' cannot be combined with explicit SFT seed families")
+
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for family in families:
+        if not isinstance(family, str) or not family.strip():
+            raise ValueError("SFT seed family must be a non-empty string")
+        normalized = family.strip().lower()
+        if normalized not in SFT_SEED_FAMILIES:
+            supported = ", ".join(sorted(SFT_SEED_FAMILIES))
+            raise ValueError(f"Unsupported SFT seed family '{family}'. Supported families: {supported}")
+        if normalized in seen:
+            raise ValueError(f"Duplicate SFT seed family: {normalized}")
+        seen.add(normalized)
+        resolved.append(normalized)
+    if not resolved:
+        raise ValueError("at least one SFT seed family is required")
+    return tuple(resolved)

@@ -6,7 +6,7 @@ import argparse
 import json
 
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
-from slm_synth.dpo.runs import materialize_seed_dataset
+from slm_synth.dpo.runs import materialize_seed_dataset, materialize_seed_run
 from slm_synth.dpo.seeds import DPO_SEED_FAMILIES
 
 
@@ -39,6 +39,28 @@ def cmd_report_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_materialize_seed_run(args: argparse.Namespace) -> int:
+    result = materialize_seed_run(
+        families=args.families,
+        count_per_family=args.count_per_family,
+        output_dir=args.output_dir,
+        manifest_dir=args.manifest_dir,
+        generation_run=args.generation_run,
+        start_index=args.start_index,
+    )
+    print(
+        "materialized "
+        f"{result.row_count} DPO row(s) across {len(result.families)} family/families "
+        f"for run {result.generation_run}"
+    )
+    for family_result in result.results:
+        print(
+            f"- {family_result.family}: {family_result.row_count} row(s), "
+            f"dataset: {family_result.dataset_path}, manifest: {family_result.manifest_path}"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.dpo.cli",
@@ -56,6 +78,21 @@ def build_parser() -> argparse.ArgumentParser:
     materialize_parser.add_argument("--dataset-filename", default=None)
     materialize_parser.add_argument("--manifest-filename", default=None)
     materialize_parser.set_defaults(func=cmd_materialize_seed_dataset)
+
+    seed_run_parser = subparsers.add_parser("materialize-seed-run")
+    seed_run_parser.add_argument(
+        "--families",
+        nargs="+",
+        default=["all"],
+        choices=["all", *sorted(DPO_SEED_FAMILIES)],
+        help="DPO seed families to materialize, or 'all'.",
+    )
+    seed_run_parser.add_argument("--count-per-family", required=True, type=int)
+    seed_run_parser.add_argument("--output-dir", required=True)
+    seed_run_parser.add_argument("--manifest-dir", required=True)
+    seed_run_parser.add_argument("--generation-run", required=True)
+    seed_run_parser.add_argument("--start-index", type=int, default=1)
+    seed_run_parser.set_defaults(func=cmd_materialize_seed_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument(

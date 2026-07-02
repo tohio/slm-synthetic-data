@@ -3,7 +3,13 @@
 from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import build_manifest_payload, write_manifest
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
-from slm_synth.dpo.runs import DPOSeedRunResult, materialize_seed_dataset
+from slm_synth.dpo.runs import (
+    DPOSeedFamilyRunResult,
+    DPOSeedRunResult,
+    materialize_seed_dataset,
+    materialize_seed_run,
+    resolve_seed_families,
+)
 from slm_synth.dpo.schema import validate_dpo_row, validate_message_list
 from slm_synth.dpo.seeds import (
     DPO_SEED_FAMILIES,
@@ -25,6 +31,7 @@ from slm_synth.dpo.seeds import (
 
 __all__ = [
     "DPO_SEED_FAMILIES",
+    "DPOSeedFamilyRunResult",
     "DPOSeedRunResult",
     "build_ai_concept_explanation_rows",
     "build_answer_only_arithmetic_rows",
@@ -43,7 +50,9 @@ __all__ = [
     "build_repeat_exact_n_times_rows",
     "build_seed_rows",
     "materialize_seed_dataset",
+    "materialize_seed_run",
     "read_jsonl",
+    "resolve_seed_families",
     "validate_dpo_row",
     "validate_message_list",
     "write_jsonl",

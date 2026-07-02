@@ -4,7 +4,10 @@ from slm_synth.dpo.runs import (
     default_dataset_path,
     default_manifest_path,
     materialize_seed_dataset,
+    materialize_seed_run,
+    resolve_seed_families,
 )
+from slm_synth.dpo.seeds import DPO_SEED_FAMILIES
 
 
 def test_default_paths():
@@ -75,3 +78,49 @@ def test_materialize_seed_dataset_supports_custom_filenames(tmp_path):
 
     row = json.loads(result.dataset_path.read_text(encoding="utf-8"))
     assert row["id"] == "dpo_answer_only_arithmetic_000005"
+
+
+def test_resolve_seed_families_defaults_to_all_dpo_families():
+    assert resolve_seed_families(None) == tuple(sorted(DPO_SEED_FAMILIES))
+    assert resolve_seed_families(["all"]) == tuple(sorted(DPO_SEED_FAMILIES))
+
+
+def test_resolve_seed_families_rejects_all_with_explicit_dpo_families():
+    try:
+        resolve_seed_families(["all", "answer_only_arithmetic"])
+    except ValueError as exc:
+        assert "'all' cannot be combined" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_resolve_seed_families_rejects_duplicate_dpo_families():
+    try:
+        resolve_seed_families(["answer_only_arithmetic", "answer_only_arithmetic"])
+    except ValueError as exc:
+        assert "Duplicate DPO seed family" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_materialize_seed_run_writes_one_dpo_dataset_per_family(tmp_path):
+    result = materialize_seed_run(
+        families=["answer_only_arithmetic", "repeat_exact_n_times"],
+        count_per_family=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        generation_run="dpo-smoke-001",
+        start_index=3,
+    )
+
+    assert result.families == ("answer_only_arithmetic", "repeat_exact_n_times")
+    assert result.generation_run == "dpo-smoke-001"
+    assert result.row_count == 4
+    assert [item.family for item in result.results] == ["answer_only_arithmetic", "repeat_exact_n_times"]
+    assert (tmp_path / "datasets" / "answer_only_arithmetic.jsonl").exists()
+    assert (tmp_path / "datasets" / "repeat_exact_n_times.jsonl").exists()
+    assert (tmp_path / "manifests" / "answer_only_arithmetic.dpo-smoke-001.manifest.json").exists()
+    assert (tmp_path / "manifests" / "repeat_exact_n_times.dpo-smoke-001.manifest.json").exists()
+
+    row = json.loads((tmp_path / "datasets" / "answer_only_arithmetic.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert row["id"] == "dpo_answer_only_arithmetic_000003"

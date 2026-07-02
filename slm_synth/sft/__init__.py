@@ -3,7 +3,13 @@
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import build_manifest_payload, write_manifest
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
-from slm_synth.sft.runs import SFTSeedRunResult, materialize_seed_dataset
+from slm_synth.sft.runs import (
+    SFTSeedFamilyRunResult,
+    SFTSeedRunResult,
+    materialize_seed_dataset,
+    materialize_seed_run,
+    resolve_seed_families,
+)
 from slm_synth.sft.schema import validate_message, validate_sft_row
 from slm_synth.sft.seeds import (
     SFT_SEED_FAMILIES,
@@ -25,6 +31,7 @@ from slm_synth.sft.seeds import (
 
 __all__ = [
     "SFT_SEED_FAMILIES",
+    "SFTSeedFamilyRunResult",
     "SFTSeedRunResult",
     "build_ai_concept_explanation_rows",
     "build_manifest_payload",
@@ -43,7 +50,9 @@ __all__ = [
     "build_repeat_exact_n_times_rows",
     "build_seed_rows",
     "materialize_seed_dataset",
+    "materialize_seed_run",
     "read_jsonl",
+    "resolve_seed_families",
     "validate_message",
     "validate_sft_row",
     "write_jsonl",
