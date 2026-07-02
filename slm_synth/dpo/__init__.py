@@ -1,5 +1,12 @@
 """DPO synthetic row validation."""
 
+from slm_synth.dpo.batches import (
+    DPO_BATCH_RESPONSE_SCHEMA,
+    build_dpo_teacher_request_items,
+    build_dpo_teacher_request_object,
+    render_dpo_batch_prompt,
+    validate_dpo_batch_response,
+)
 from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import build_manifest_payload, write_manifest, write_run_manifest
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
@@ -28,8 +35,10 @@ from slm_synth.dpo.seeds import (
     build_repeat_exact_n_times_rows,
     build_seed_rows,
 )
+from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 
 __all__ = [
+    "DPO_BATCH_RESPONSE_SCHEMA",
     "DPO_SEED_FAMILIES",
     "DPOSeedFamilyRunResult",
     "DPOSeedRunResult",
@@ -49,11 +58,17 @@ __all__ = [
     "build_private_or_unverifiable_company_fact_rows",
     "build_repeat_exact_n_times_rows",
     "build_seed_rows",
+    "build_dpo_teacher_request_items",
+    "build_dpo_teacher_request_object",
     "materialize_seed_dataset",
     "materialize_seed_run",
     "read_jsonl",
+    "render_dpo_batch_prompt",
     "resolve_seed_families",
+    "teacher_visible_dpo_spec",
+    "validate_dpo_batch_response",
     "validate_dpo_row",
+    "validate_dpo_spec",
     "validate_message_list",
     "write_jsonl",
     "write_coverage_report",
