@@ -48,6 +48,7 @@ DISTILL_SIGNALS_ARG := $(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),)
 DISTILL_TOKEN_TARGET_ARG := $(if $(DISTILL_TOKEN_TARGET),--token-target $(DISTILL_TOKEN_TARGET),)
 DISTILL_LICENSE_ARG := $(if $(DISTILL_LICENSE),--license $(DISTILL_LICENSE),)
 SFT_FAMILY ?= answer_only_arithmetic
+SFT_SPEC_FAMILY ?= basic_arithmetic_qa
 SFT_FAMILIES ?= all
 SFT_COUNT ?= 100
 SFT_COUNT_PER_FAMILY ?= $(SFT_COUNT)
@@ -56,9 +57,17 @@ SFT_MANIFEST_DIR ?= data/sft/manifests
 SFT_COVERAGE_REPORT ?= data/sft/coverage.json
 SFT_GENERATION_RUN ?= sft-smoke-001
 SFT_START_INDEX ?= 1
+SFT_SPECS ?= /tmp/sft.specs.jsonl
+SFT_TEACHER_RESPONSE ?= /tmp/sft.teacher_response.json
+SFT_OUTPUT ?= $(SFT_OUTPUT_DIR)/$(SFT_SPEC_FAMILY).jsonl
+SFT_MANIFEST ?= $(SFT_MANIFEST_DIR)/$(SFT_SPEC_FAMILY).$(SFT_GENERATION_RUN).manifest.json
+SFT_TEACHER_MODEL ?=
+SFT_MAX_TOKENS ?= 4096
+SFT_BATCH_SIZE ?= 5
 SFT_RUN_MANIFEST_FILENAME ?=
 SFT_RUN_MANIFEST_ARG := $(if $(SFT_RUN_MANIFEST_FILENAME),--run-manifest-filename $(SFT_RUN_MANIFEST_FILENAME),)
 DPO_FAMILY ?= answer_only_arithmetic
+DPO_SPEC_FAMILY ?= basic_arithmetic_qa
 DPO_FAMILIES ?= all
 DPO_COUNT ?= 100
 DPO_COUNT_PER_FAMILY ?= $(DPO_COUNT)
@@ -67,10 +76,17 @@ DPO_MANIFEST_DIR ?= data/dpo/manifests
 DPO_COVERAGE_REPORT ?= data/dpo/coverage.json
 DPO_GENERATION_RUN ?= dpo-smoke-001
 DPO_START_INDEX ?= 1
+DPO_SPECS ?= /tmp/dpo.specs.jsonl
+DPO_TEACHER_RESPONSE ?= /tmp/dpo.teacher_response.json
+DPO_OUTPUT ?= $(DPO_OUTPUT_DIR)/$(DPO_SPEC_FAMILY).jsonl
+DPO_MANIFEST ?= $(DPO_MANIFEST_DIR)/$(DPO_SPEC_FAMILY).$(DPO_GENERATION_RUN).manifest.json
+DPO_TEACHER_MODEL ?=
+DPO_MAX_TOKENS ?= 4096
+DPO_BATCH_SIZE ?= 5
 DPO_RUN_MANIFEST_FILENAME ?=
 DPO_RUN_MANIFEST_ARG := $(if $(DPO_RUN_MANIFEST_FILENAME),--run-manifest-filename $(DPO_RUN_MANIFEST_FILENAME),)
 
-.PHONY: help configure production-config preflight-artifacts generate validate dedup pretrain-generate-manifest pretrain-report-coverage report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card distill-report-coverage sft-materialize-seed sft-materialize-seed-run sft-report-coverage dpo-materialize-seed dpo-materialize-seed-run dpo-report-coverage test clean
+.PHONY: help configure production-config preflight-artifacts generate validate dedup pretrain-generate-manifest pretrain-report-coverage report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card distill-report-coverage sft-build-specs sft-materialize-llm-batch sft-generate-llm-batch sft-generate-llm-run sft-materialize-seed sft-materialize-seed-run sft-report-coverage dpo-build-specs dpo-materialize-llm-batch dpo-generate-llm-batch dpo-generate-llm-run dpo-materialize-seed dpo-materialize-seed-run dpo-report-coverage test clean
 
 help:
 > @echo ""
@@ -107,9 +123,17 @@ help:
 > @echo "  distill-report-coverage      Write distillation coverage report JSON"
 > @echo ""
 > @echo "SFT/DPO:"
+> @echo "  sft-build-specs             Build SFT LLM task spec JSONL"
+> @echo "  sft-materialize-llm-batch   Merge saved SFT teacher JSON into JSONL + manifest"
+> @echo "  sft-generate-llm-batch      Generate one SFT batch through OpenRouter"
+> @echo "  sft-generate-llm-run        Generate SFT datasets across families and batches"
 > @echo "  sft-materialize-seed         Build deterministic SFT seed JSONL + manifest"
 > @echo "  sft-materialize-seed-run     Build deterministic SFT seed datasets across families"
 > @echo "  sft-report-coverage          Write SFT coverage report JSON"
+> @echo "  dpo-build-specs             Build DPO LLM task spec JSONL"
+> @echo "  dpo-materialize-llm-batch   Merge saved DPO teacher JSON into JSONL + manifest"
+> @echo "  dpo-generate-llm-batch      Generate one DPO batch through OpenRouter"
+> @echo "  dpo-generate-llm-run        Generate DPO datasets across families and batches"
 > @echo "  dpo-materialize-seed         Build deterministic DPO seed JSONL + manifest"
 > @echo "  dpo-materialize-seed-run     Build deterministic DPO seed datasets across families"
 > @echo "  dpo-report-coverage          Write DPO coverage report JSON"
@@ -124,9 +148,13 @@ help:
 > @echo "  make distill-plan DISTILL_TARGET=smoke"
 > @echo "  make distill-generate-seed-run DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini DISTILL_TARGET=smoke"
 > @echo "  make distill-report-coverage"
+> @echo "  make sft-build-specs SFT_SPEC_FAMILY=basic_arithmetic_qa SFT_COUNT=25"
+> @echo "  make sft-generate-llm-run SFT_FAMILIES='basic_arithmetic_qa repeat_exact_n_times' SFT_COUNT_PER_FAMILY=25 SFT_BATCH_SIZE=5 SFT_TEACHER_MODEL=openai/gpt-4.1-mini"
 > @echo "  make sft-materialize-seed SFT_FAMILY=repeat_exact_n_times SFT_COUNT=25"
 > @echo "  make sft-materialize-seed-run SFT_FAMILIES='answer_only_arithmetic repeat_exact_n_times' SFT_COUNT_PER_FAMILY=25"
 > @echo "  make sft-report-coverage"
+> @echo "  make dpo-build-specs DPO_SPEC_FAMILY=basic_arithmetic_qa DPO_COUNT=25"
+> @echo "  make dpo-generate-llm-run DPO_FAMILIES='basic_arithmetic_qa repeat_exact_n_times' DPO_COUNT_PER_FAMILY=25 DPO_BATCH_SIZE=5 DPO_TEACHER_MODEL=openai/gpt-4.1-mini"
 > @echo "  make dpo-materialize-seed DPO_FAMILY=repeat_exact_n_times DPO_COUNT=25"
 > @echo "  make dpo-materialize-seed-run DPO_FAMILIES='answer_only_arithmetic repeat_exact_n_times' DPO_COUNT_PER_FAMILY=25"
 > @echo "  make dpo-report-coverage"
@@ -254,6 +282,44 @@ distill-report-coverage:
 >   --run-manifest $(DISTILL_RUN_MANIFEST) \
 >   --output $(DISTILL_COVERAGE_REPORT)
 
+sft-build-specs:
+> $(PYTHON) -m slm_synth.sft.cli build-specs \
+>   --family $(SFT_SPEC_FAMILY) \
+>   --count $(SFT_COUNT) \
+>   --output $(SFT_SPECS) \
+>   --start-index $(SFT_START_INDEX)
+
+sft-materialize-llm-batch:
+> $(PYTHON) -m slm_synth.sft.cli materialize-llm-batch \
+>   --specs $(SFT_SPECS) \
+>   --teacher-response $(SFT_TEACHER_RESPONSE) \
+>   --output $(SFT_OUTPUT) \
+>   --manifest $(SFT_MANIFEST) \
+>   --teacher-model $(SFT_TEACHER_MODEL) \
+>   --generation-run $(SFT_GENERATION_RUN)
+
+sft-generate-llm-batch:
+> $(PYTHON) -m slm_synth.sft.cli generate-llm-batch \
+>   --specs $(SFT_SPECS) \
+>   --output $(SFT_OUTPUT) \
+>   --manifest $(SFT_MANIFEST) \
+>   --teacher-model $(SFT_TEACHER_MODEL) \
+>   --generation-run $(SFT_GENERATION_RUN) \
+>   --max-tokens $(SFT_MAX_TOKENS)
+
+sft-generate-llm-run:
+> $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
+>   --families $(SFT_FAMILIES) \
+>   --count-per-family $(SFT_COUNT_PER_FAMILY) \
+>   --batch-size $(SFT_BATCH_SIZE) \
+>   --output-dir $(SFT_OUTPUT_DIR) \
+>   --manifest-dir $(SFT_MANIFEST_DIR) \
+>   --teacher-model $(SFT_TEACHER_MODEL) \
+>   --generation-run $(SFT_GENERATION_RUN) \
+>   --max-tokens $(SFT_MAX_TOKENS) \
+>   --start-index $(SFT_START_INDEX) \
+>   $(SFT_RUN_MANIFEST_ARG)
+
 sft-materialize-seed:
 > $(PYTHON) -m slm_synth.sft.cli materialize-seed-dataset \
 >   --family $(SFT_FAMILY) \
@@ -277,6 +343,44 @@ sft-report-coverage:
 > $(PYTHON) -m slm_synth.sft.cli report-coverage \
 >   --input $(SFT_OUTPUT_DIR) \
 >   --output $(SFT_COVERAGE_REPORT)
+
+dpo-build-specs:
+> $(PYTHON) -m slm_synth.dpo.cli build-specs \
+>   --family $(DPO_SPEC_FAMILY) \
+>   --count $(DPO_COUNT) \
+>   --output $(DPO_SPECS) \
+>   --start-index $(DPO_START_INDEX)
+
+dpo-materialize-llm-batch:
+> $(PYTHON) -m slm_synth.dpo.cli materialize-llm-batch \
+>   --specs $(DPO_SPECS) \
+>   --teacher-response $(DPO_TEACHER_RESPONSE) \
+>   --output $(DPO_OUTPUT) \
+>   --manifest $(DPO_MANIFEST) \
+>   --teacher-model $(DPO_TEACHER_MODEL) \
+>   --generation-run $(DPO_GENERATION_RUN)
+
+dpo-generate-llm-batch:
+> $(PYTHON) -m slm_synth.dpo.cli generate-llm-batch \
+>   --specs $(DPO_SPECS) \
+>   --output $(DPO_OUTPUT) \
+>   --manifest $(DPO_MANIFEST) \
+>   --teacher-model $(DPO_TEACHER_MODEL) \
+>   --generation-run $(DPO_GENERATION_RUN) \
+>   --max-tokens $(DPO_MAX_TOKENS)
+
+dpo-generate-llm-run:
+> $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
+>   --families $(DPO_FAMILIES) \
+>   --count-per-family $(DPO_COUNT_PER_FAMILY) \
+>   --batch-size $(DPO_BATCH_SIZE) \
+>   --output-dir $(DPO_OUTPUT_DIR) \
+>   --manifest-dir $(DPO_MANIFEST_DIR) \
+>   --teacher-model $(DPO_TEACHER_MODEL) \
+>   --generation-run $(DPO_GENERATION_RUN) \
+>   --max-tokens $(DPO_MAX_TOKENS) \
+>   --start-index $(DPO_START_INDEX) \
+>   $(DPO_RUN_MANIFEST_ARG)
 
 dpo-materialize-seed:
 > $(PYTHON) -m slm_synth.dpo.cli materialize-seed-dataset \
