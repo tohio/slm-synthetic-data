@@ -41,6 +41,7 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
         teacher_model="openai/gpt-4.1-mini",
         generation_run="dpo-live-run-001",
         max_tokens=1024,
+        max_workers=2,
         backend=backend,
     )
 
@@ -57,6 +58,7 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["total_rows"] == 3
     assert manifest["teacher_provider"] == "openrouter"
     assert manifest["metadata"]["batch_size"] == 2
+    assert manifest["metadata"]["max_workers"] == 2
     assert [item["row_count"] for item in manifest["datasets"]] == [2, 1]
     assert [item["batch_number"] for item in manifest["datasets"]] == [1, 2]
 
@@ -92,6 +94,22 @@ def test_generate_dpo_llm_run_rejects_bad_batch_size(tmp_path):
             families=["basic_arithmetic_qa"],
             count_per_family=1,
             batch_size=0,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="dpo-live-run-001",
+            max_tokens=1024,
+            backend=FakeDPOBackend(),
+        )
+
+
+def test_generate_dpo_llm_run_rejects_bad_max_workers(tmp_path):
+    with pytest.raises(ValueError, match="max_workers"):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=1,
+            batch_size=1,
+            max_workers=0,
             output_dir=tmp_path / "datasets",
             manifest_dir=tmp_path / "manifests",
             teacher_model="openai/gpt-4.1-mini",

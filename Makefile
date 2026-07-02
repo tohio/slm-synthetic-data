@@ -64,6 +64,7 @@ SFT_MANIFEST ?= $(SFT_MANIFEST_DIR)/$(SFT_SPEC_FAMILY).$(SFT_GENERATION_RUN).man
 SFT_TEACHER_MODEL ?=
 SFT_MAX_TOKENS ?= 4096
 SFT_BATCH_SIZE ?= 5
+SFT_MAX_WORKERS ?= 1
 SFT_RUN_MANIFEST_FILENAME ?=
 SFT_RUN_MANIFEST_ARG := $(if $(SFT_RUN_MANIFEST_FILENAME),--run-manifest-filename $(SFT_RUN_MANIFEST_FILENAME),)
 DPO_FAMILY ?= answer_only_arithmetic
@@ -83,6 +84,7 @@ DPO_MANIFEST ?= $(DPO_MANIFEST_DIR)/$(DPO_SPEC_FAMILY).$(DPO_GENERATION_RUN).man
 DPO_TEACHER_MODEL ?=
 DPO_MAX_TOKENS ?= 4096
 DPO_BATCH_SIZE ?= 5
+DPO_MAX_WORKERS ?= 1
 DPO_RUN_MANIFEST_FILENAME ?=
 DPO_RUN_MANIFEST_ARG := $(if $(DPO_RUN_MANIFEST_FILENAME),--run-manifest-filename $(DPO_RUN_MANIFEST_FILENAME),)
 
@@ -318,6 +320,7 @@ sft-generate-llm-run:
 >   --generation-run $(SFT_GENERATION_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
 >   --start-index $(SFT_START_INDEX) \
+>   --max-workers $(SFT_MAX_WORKERS) \
 >   $(SFT_RUN_MANIFEST_ARG)
 
 sft-materialize-seed:
@@ -380,6 +383,7 @@ dpo-generate-llm-run:
 >   --generation-run $(DPO_GENERATION_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
 >   --start-index $(DPO_START_INDEX) \
+>   --max-workers $(DPO_MAX_WORKERS) \
 >   $(DPO_RUN_MANIFEST_ARG)
 
 dpo-materialize-seed:

@@ -339,6 +339,8 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
                 "5",
                 "--run-manifest-filename",
                 "custom.manifest.json",
+                "--max-workers",
+                "2",
             ]
         )
         == 0
@@ -364,6 +366,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "retry_max_elapsed_seconds": 1800.0,
             "adaptive_maximum_in_flight": 1,
             "adaptive_initial_in_flight": 1,
+            "max_workers": 2,
             "run_manifest_filename": "custom.manifest.json",
         }
     ]

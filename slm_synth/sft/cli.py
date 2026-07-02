@@ -116,6 +116,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        max_workers=args.max_workers,
         run_manifest_filename=args.run_manifest_filename,
     )
     print(
@@ -243,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
     generate_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
     generate_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=1)
+    generate_run_parser.add_argument("--max-workers", type=int, default=1)
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
     generate_run_parser.set_defaults(func=cmd_generate_llm_run)
 

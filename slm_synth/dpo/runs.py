@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -222,6 +223,7 @@ def generate_llm_run(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 1,
+    max_workers: int = 1,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
@@ -232,52 +234,70 @@ def generate_llm_run(
     _validate_positive_int(count_per_family, "count_per_family")
     _validate_positive_int(batch_size, "batch_size")
     _validate_positive_int(start_index, "start_index")
+    _validate_positive_int(max_workers, "max_workers")
 
-    results: list[Any] = []
-    datasets: list[dict[str, Any]] = []
+    jobs: list[dict[str, Any]] = []
     for family in resolved_families:
         specs = build_specs(family=family, count=count_per_family, start_index=start_index)
         for batch_number, batch_specs in enumerate(_chunks(specs, batch_size), start=1):
             batch_start_index = start_index + (batch_number - 1) * batch_size
-            dataset_path = Path(output_dir) / f"{family}.batch{batch_number:06d}.jsonl"
-            batch_manifest_path = Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json"
-            result = generate_llm_batch(
-                specs=batch_specs,
-                output_path=dataset_path,
-                manifest_path=batch_manifest_path,
-                teacher_model=teacher_model,
-                teacher_provider=teacher_provider,
-                generation_run=generation_run,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                request_timeout=request_timeout,
-                max_request_retries=max_request_retries,
-                max_retryable_request_attempts=max_retryable_request_attempts,
-                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-                adaptive_initial_in_flight=adaptive_initial_in_flight,
-                metadata={
-                    "family": family,
-                    "batch_number": batch_number,
-                    "batch_start_index": batch_start_index,
-                    "batch_size": len(batch_specs),
-                    **dict(metadata or {}),
-                },
-                holdout_registry=holdout_registry,
-                backend=backend,
-            )
-            results.append(result)
-            datasets.append(
+            jobs.append(
                 {
                     "family": family,
                     "batch_number": batch_number,
                     "batch_start_index": batch_start_index,
-                    "dataset_path": result.dataset_path,
-                    "manifest_path": result.manifest_path,
-                    "row_count": result.row_count,
+                    "specs": batch_specs,
+                    "dataset_path": Path(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
+                    "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
                 }
             )
+
+    def run_job(job: dict[str, Any]) -> Any:
+        return generate_llm_batch(
+            specs=job["specs"],
+            output_path=job["dataset_path"],
+            manifest_path=job["manifest_path"],
+            teacher_model=teacher_model,
+            teacher_provider=teacher_provider,
+            generation_run=generation_run,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            metadata={
+                "family": job["family"],
+                "batch_number": job["batch_number"],
+                "batch_start_index": job["batch_start_index"],
+                "batch_size": len(job["specs"]),
+                **dict(metadata or {}),
+            },
+            holdout_registry=holdout_registry,
+            backend=backend,
+        )
+
+    if max_workers == 1:
+        results = [run_job(job) for job in jobs]
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = list(executor.map(run_job, jobs))
+
+    datasets: list[dict[str, Any]] = []
+    for job, result in zip(jobs, results):
+        datasets.append(
+            {
+                "family": job["family"],
+                "batch_number": job["batch_number"],
+                "batch_start_index": job["batch_start_index"],
+                "dataset_path": result.dataset_path,
+                "manifest_path": result.manifest_path,
+                "row_count": result.row_count,
+            }
+        )
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     _write_llm_run_manifest(
@@ -291,6 +311,7 @@ def generate_llm_run(
             "generation_mode": "live_llm_run",
             "count_per_family": count_per_family,
             "batch_size": batch_size,
+            "max_workers": max_workers,
             "start_index": start_index,
             **dict(metadata or {}),
         },
