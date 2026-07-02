@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.dpo.io import write_jsonl
-from slm_synth.dpo.manifest import write_manifest
+from slm_synth.dpo.manifest import write_manifest, write_run_manifest
 from slm_synth.dpo.seeds import DPO_SEED_FAMILIES, build_seed_rows
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
@@ -31,6 +31,7 @@ class DPOSeedFamilyRunResult:
     row_count: int
     families: tuple[str, ...]
     generation_run: str
+    manifest_path: Path
 
 
 def default_dataset_path(*, output_dir: str | Path, family: str) -> Path:
@@ -106,6 +107,7 @@ def materialize_seed_run(
     manifest_dir: str | Path,
     generation_run: str,
     start_index: int = 1,
+    run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
 ) -> DPOSeedFamilyRunResult:
@@ -130,12 +132,33 @@ def materialize_seed_run(
         )
         for family in resolved_families
     )
+    run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
+    write_run_manifest(
+        manifest_path=run_manifest_path,
+        generation_run=generation_run,
+        datasets=[
+            {
+                "family": result.family,
+                "dataset_path": result.dataset_path,
+                "manifest_path": result.manifest_path,
+                "row_count": result.row_count,
+            }
+            for result in results
+        ],
+        metadata={
+            "family_count": len(resolved_families),
+            "count_per_family": count_per_family,
+            "start_index": start_index,
+            **dict(metadata or {}),
+        },
+    )
 
     return DPOSeedFamilyRunResult(
         results=results,
         row_count=sum(result.row_count for result in results),
         families=resolved_families,
         generation_run=generation_run,
+        manifest_path=run_manifest_path,
     )
 
 

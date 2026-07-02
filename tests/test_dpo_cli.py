@@ -83,6 +83,7 @@ def test_dpo_materialize_seed_run_cli_calls_runner(tmp_path, monkeypatch, capsys
             row_count = 2
             families = ("answer_only_arithmetic",)
             generation_run = "dpo-smoke-001"
+            manifest_path = manifest_dir / "dpo-smoke-001.manifest.json"
             results = (FamilyResult(),)
 
         return Result()
@@ -105,6 +106,8 @@ def test_dpo_materialize_seed_run_cli_calls_runner(tmp_path, monkeypatch, capsys
                 "dpo-smoke-001",
                 "--start-index",
                 "5",
+                "--run-manifest-filename",
+                "dpo-smoke-001.manifest.json",
             ]
         )
         == 0
@@ -118,10 +121,12 @@ def test_dpo_materialize_seed_run_cli_calls_runner(tmp_path, monkeypatch, capsys
             "manifest_dir": str(manifest_dir),
             "generation_run": "dpo-smoke-001",
             "start_index": 5,
+            "run_manifest_filename": "dpo-smoke-001.manifest.json",
         }
     ]
     captured = capsys.readouterr()
     assert "materialized 2 DPO row" in captured.out
+    assert "run manifest:" in captured.out
     assert "- answer_only_arithmetic: 2 row" in captured.out
 
 

@@ -48,6 +48,8 @@ SFT_OUTPUT_DIR ?= data/sft/datasets
 SFT_MANIFEST_DIR ?= data/sft/manifests
 SFT_GENERATION_RUN ?= sft-smoke-001
 SFT_START_INDEX ?= 1
+SFT_RUN_MANIFEST_FILENAME ?=
+SFT_RUN_MANIFEST_ARG := $(if $(SFT_RUN_MANIFEST_FILENAME),--run-manifest-filename $(SFT_RUN_MANIFEST_FILENAME),)
 DPO_FAMILY ?= answer_only_arithmetic
 DPO_FAMILIES ?= all
 DPO_COUNT ?= 100
@@ -56,6 +58,8 @@ DPO_OUTPUT_DIR ?= data/dpo/datasets
 DPO_MANIFEST_DIR ?= data/dpo/manifests
 DPO_GENERATION_RUN ?= dpo-smoke-001
 DPO_START_INDEX ?= 1
+DPO_RUN_MANIFEST_FILENAME ?=
+DPO_RUN_MANIFEST_ARG := $(if $(DPO_RUN_MANIFEST_FILENAME),--run-manifest-filename $(DPO_RUN_MANIFEST_FILENAME),)
 
 .PHONY: help configure production-config preflight-artifacts generate validate dedup report-duplicates report-artifacts report-lengths push all distill-plan distill-build-prompts distill-render-teacher-prompt distill-materialize-batch distill-generate-batch distill-generate-seed-run distill-build-dataset-card sft-materialize-seed sft-materialize-seed-run dpo-materialize-seed dpo-materialize-seed-run test clean
 
@@ -230,7 +234,8 @@ sft-materialize-seed-run:
 >   --output-dir $(SFT_OUTPUT_DIR) \
 >   --manifest-dir $(SFT_MANIFEST_DIR) \
 >   --generation-run $(SFT_GENERATION_RUN) \
->   --start-index $(SFT_START_INDEX)
+>   --start-index $(SFT_START_INDEX) \
+>   $(SFT_RUN_MANIFEST_ARG)
 
 dpo-materialize-seed:
 > $(PYTHON) -m slm_synth.dpo.cli materialize-seed-dataset \
@@ -248,7 +253,8 @@ dpo-materialize-seed-run:
 >   --output-dir $(DPO_OUTPUT_DIR) \
 >   --manifest-dir $(DPO_MANIFEST_DIR) \
 >   --generation-run $(DPO_GENERATION_RUN) \
->   --start-index $(DPO_START_INDEX)
+>   --start-index $(DPO_START_INDEX) \
+>   $(DPO_RUN_MANIFEST_ARG)
 
 test:
 > pytest -q

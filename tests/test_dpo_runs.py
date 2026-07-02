@@ -116,6 +116,7 @@ def test_materialize_seed_run_writes_one_dpo_dataset_per_family(tmp_path):
     assert result.families == ("answer_only_arithmetic", "repeat_exact_n_times")
     assert result.generation_run == "dpo-smoke-001"
     assert result.row_count == 4
+    assert result.manifest_path == tmp_path / "manifests" / "dpo-smoke-001.manifest.json"
     assert [item.family for item in result.results] == ["answer_only_arithmetic", "repeat_exact_n_times"]
     assert (tmp_path / "datasets" / "answer_only_arithmetic.jsonl").exists()
     assert (tmp_path / "datasets" / "repeat_exact_n_times.jsonl").exists()
@@ -124,3 +125,27 @@ def test_materialize_seed_run_writes_one_dpo_dataset_per_family(tmp_path):
 
     row = json.loads((tmp_path / "datasets" / "answer_only_arithmetic.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert row["id"] == "dpo_answer_only_arithmetic_000003"
+
+    run_manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert run_manifest["dataset_type"] == "dpo"
+    assert run_manifest["families"] == ["answer_only_arithmetic", "repeat_exact_n_times"]
+    assert run_manifest["total_rows"] == 4
+    assert run_manifest["metadata"] == {
+        "family_count": 2,
+        "count_per_family": 2,
+        "start_index": 3,
+    }
+
+
+def test_materialize_seed_run_supports_custom_dpo_run_manifest_filename(tmp_path):
+    result = materialize_seed_run(
+        families=["answer_only_arithmetic"],
+        count_per_family=1,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        generation_run="dpo-smoke-001",
+        run_manifest_filename="custom.dpo.run.json",
+    )
+
+    assert result.manifest_path == tmp_path / "manifests" / "custom.dpo.run.json"
+    assert result.manifest_path.exists()

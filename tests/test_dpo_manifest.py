@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.dpo.manifest import build_manifest_payload, write_manifest
+from slm_synth.dpo.manifest import build_manifest_payload, write_manifest, write_run_manifest
 
 
 def _row(row_id, *, category, failure_mode, difficulty, template_family, eval_family):
@@ -89,6 +89,61 @@ def test_write_manifest_writes_dpo_manifest(tmp_path):
     assert payload["dataset_type"] == "dpo"
     assert payload["row_count"] == 1
     assert payload["failure_modes"] == {"extra_explanation": 1}
+
+
+def test_write_run_manifest_summarizes_dpo_family_outputs(tmp_path):
+    manifest_path = write_run_manifest(
+        manifest_path=tmp_path / "manifests" / "dpo-smoke-001.manifest.json",
+        generation_run="dpo-smoke-001",
+        datasets=[
+            {
+                "family": "answer_only_arithmetic",
+                "dataset_path": tmp_path / "datasets" / "answer_only_arithmetic.jsonl",
+                "manifest_path": tmp_path / "manifests" / "answer_only_arithmetic.dpo-smoke-001.manifest.json",
+                "row_count": 2,
+            },
+            {
+                "family": "repeat_exact_n_times",
+                "dataset_path": tmp_path / "datasets" / "repeat_exact_n_times.jsonl",
+                "manifest_path": tmp_path / "manifests" / "repeat_exact_n_times.dpo-smoke-001.manifest.json",
+                "row_count": 3,
+            },
+        ],
+        metadata={"family_count": 2},
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["dataset_type"] == "dpo"
+    assert manifest["generation_run"] == "dpo-smoke-001"
+    assert manifest["families"] == ["answer_only_arithmetic", "repeat_exact_n_times"]
+    assert manifest["total_rows"] == 5
+    assert manifest["metadata"] == {"family_count": 2}
+    assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "answer_only_arithmetic.jsonl")
+    assert manifest["datasets"][0]["manifest_path"] == str(
+        tmp_path / "manifests" / "answer_only_arithmetic.dpo-smoke-001.manifest.json"
+    )
+
+
+def test_write_run_manifest_rejects_duplicate_dpo_families(tmp_path):
+    with pytest.raises(ValueError, match="duplicate family"):
+        write_run_manifest(
+            manifest_path=tmp_path / "manifest.json",
+            generation_run="dpo-smoke-001",
+            datasets=[
+                {
+                    "family": "answer_only_arithmetic",
+                    "dataset_path": tmp_path / "a.jsonl",
+                    "manifest_path": tmp_path / "a.manifest.json",
+                    "row_count": 1,
+                },
+                {
+                    "family": "answer_only_arithmetic",
+                    "dataset_path": tmp_path / "b.jsonl",
+                    "manifest_path": tmp_path / "b.manifest.json",
+                    "row_count": 1,
+                },
+            ],
+        )
 
 
 def test_build_manifest_payload_rejects_invalid_rows(tmp_path):

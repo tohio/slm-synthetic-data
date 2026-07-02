@@ -1,7 +1,7 @@
 """SFT synthetic row validation."""
 
 from slm_synth.sft.io import read_jsonl, write_jsonl
-from slm_synth.sft.manifest import build_manifest_payload, write_manifest
+from slm_synth.sft.manifest import build_manifest_payload, write_manifest, write_run_manifest
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import (
     SFTSeedFamilyRunResult,
@@ -58,4 +58,5 @@ __all__ = [
     "write_jsonl",
     "write_coverage_report",
     "write_manifest",
+    "write_run_manifest",
 ]

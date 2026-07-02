@@ -47,11 +47,12 @@ def cmd_materialize_seed_run(args: argparse.Namespace) -> int:
         manifest_dir=args.manifest_dir,
         generation_run=args.generation_run,
         start_index=args.start_index,
+        run_manifest_filename=args.run_manifest_filename,
     )
     print(
         "materialized "
         f"{result.row_count} SFT row(s) across {len(result.families)} family/families "
-        f"for run {result.generation_run}"
+        f"for run {result.generation_run}; run manifest: {result.manifest_path}"
     )
     for family_result in result.results:
         print(
@@ -92,6 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--manifest-dir", required=True)
     seed_run_parser.add_argument("--generation-run", required=True)
     seed_run_parser.add_argument("--start-index", type=int, default=1)
+    seed_run_parser.add_argument("--run-manifest-filename", default=None)
     seed_run_parser.set_defaults(func=cmd_materialize_seed_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")

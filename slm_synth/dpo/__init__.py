@@ -1,7 +1,7 @@
 """DPO synthetic row validation."""
 
 from slm_synth.dpo.io import read_jsonl, write_jsonl
-from slm_synth.dpo.manifest import build_manifest_payload, write_manifest
+from slm_synth.dpo.manifest import build_manifest_payload, write_manifest, write_run_manifest
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.dpo.runs import (
     DPOSeedFamilyRunResult,
@@ -58,4 +58,5 @@ __all__ = [
     "write_jsonl",
     "write_coverage_report",
     "write_manifest",
+    "write_run_manifest",
 ]
