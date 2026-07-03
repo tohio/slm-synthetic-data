@@ -16,8 +16,6 @@ OpenRouter is the only supported production provider. Shared provider, retry, co
 ## Setup
 
 ```bash
-git clone https://github.com/tohio/slm-synthetic-data.git
-cd slm-synthetic-data
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -31,18 +29,26 @@ OPENROUTER_API_KEY=...
 HF_TOKEN=...       # only needed for Hugging Face publishing
 ```
 
-## Choose A Generation Target
+## Test The Repo
 
-Pick the dataset you want to produce, then run the matching section below.
+Run this before generating target data:
 
-| Target | Use This Section | Main Output |
-|---|---|---|
-| Pretraining signals | [Generate Pretraining Data](#generate-pretraining-data) | `data/runs/<run>/deduped` |
-| Teacher response data | [Generate Response Distillation Data](#generate-response-distillation-data) | `data/distillation/datasets` |
-| Supervised chat data | [Generate SFT Data](#generate-sft-data) | `data/sft/datasets` |
-| Preference data | [Generate DPO Data](#generate-dpo-data) | `data/dpo/datasets` |
+```bash
+python -m compileall -q slm_synth tests
+pytest -q
+```
 
-For a new run, start with the small command first, inspect the output, then run the target command with the row or token count you want.
+Focused validation:
+
+```bash
+pytest -q \
+  tests/test_sft_*.py \
+  tests/test_dpo_*.py \
+  tests/test_distillation_*.py \
+  tests/test_taxonomy.py \
+  tests/test_eval_holdouts.py \
+  tests/test_pretrain_manifest.py
+```
 
 ## Generate Pretraining Data
 
@@ -210,11 +216,14 @@ make dpo-report-coverage
 
 For a conservative CPU node, keep `DPO_MAX_WORKERS=1`. Increase to `2` only after a clean smoke run.
 
-## Generate Multiple Dataset Types
+## Recommended Full Validation And Generation Order
 
-Use this order when you want a small end-to-end data generation pass across the repo:
+Use this order when validating the whole repo before a target generation run:
 
 ```bash
+python -m compileall -q slm_synth tests
+pytest -q
+
 make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_smoke
 make preflight-artifacts
 make generate
@@ -246,7 +255,7 @@ make dpo-generate-llm-run \
   DPO_MAX_TOKENS=2048
 ```
 
-After those outputs look correct, run the target commands for the dataset families you need.
+After those pass, run the target commands for the dataset families you need.
 
 ## Output Locations
 
@@ -270,29 +279,6 @@ Taxonomy fields:
 | `template_family` | Generation/template surface |
 | `failure_mode` | DPO-only rejected-answer behavior |
 | `holdout_key` | Exact local structured holdout guard |
-
-## Optional Test Commands
-
-Tests are for repo maintenance and pre-scale confidence checks. They are not required as the first user step.
-
-Run the full suite:
-
-```bash
-python -m compileall -q slm_synth tests
-pytest -q
-```
-
-Focused validation:
-
-```bash
-pytest -q \
-  tests/test_sft_*.py \
-  tests/test_dpo_*.py \
-  tests/test_distillation_*.py \
-  tests/test_taxonomy.py \
-  tests/test_eval_holdouts.py \
-  tests/test_pretrain_manifest.py
-```
 
 ## Command Reference
 
