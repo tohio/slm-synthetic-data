@@ -205,6 +205,7 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
         "slm_synth.distillation.cli.generate_seed_multi_signal_run",
         fake_generate_seed_multi_signal_run,
     )
+    monkeypatch.setattr("slm_synth.distillation.cli.print_distillation_run_summary", lambda manifest_path: None)
 
     assert (
         main(
@@ -299,6 +300,7 @@ def test_generate_seed_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
         "slm_synth.distillation.cli.generate_seed_multi_signal_run",
         fake_generate_seed_multi_signal_run,
     )
+    monkeypatch.setattr("slm_synth.distillation.cli.print_distillation_run_summary", lambda manifest_path: None)
 
     assert (
         main(

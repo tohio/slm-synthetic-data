@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from slm_synth.run_summary import print_sft_run_summary
 from slm_synth.sft.generation import generate_llm_batch_from_files, materialize_llm_batch_from_files
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import generate_llm_run, materialize_seed_dataset, materialize_seed_run
@@ -124,6 +125,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         f"{result.row_count} LLM-generated SFT row(s) across {len(result.families)} family/families "
         f"for run {result.generation_run}; run manifest: {result.manifest_path}"
     )
+    print_sft_run_summary(result.manifest_path)
     return 0
 
 

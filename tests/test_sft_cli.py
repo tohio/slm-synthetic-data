@@ -313,6 +313,7 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
         return Result()
 
     monkeypatch.setattr("slm_synth.sft.cli.generate_llm_run", fake_generate_llm_run)
+    monkeypatch.setattr("slm_synth.sft.cli.print_sft_run_summary", lambda manifest_path: None)
 
     assert (
         main(

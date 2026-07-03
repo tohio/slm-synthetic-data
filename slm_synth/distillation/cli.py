@@ -18,6 +18,7 @@ from slm_synth.distillation.report import build_coverage_report, write_coverage_
 from slm_synth.distillation.runs import materialize_teacher_batch
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
+from slm_synth.run_summary import print_distillation_run_summary
 
 
 def _read_json(path: str | Path) -> Any:
@@ -186,6 +187,7 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         f"{result.row_count} row(s) across {len(result.results)} signal(s): {signals_text}; "
         f"run manifest: {result.manifest_path}"
     )
+    print_distillation_run_summary(result.manifest_path)
     return 0
 
 
