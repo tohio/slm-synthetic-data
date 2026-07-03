@@ -44,7 +44,15 @@ class PromptIdBackend:
                     }
                     for item_id in ids
                 ]
-            }
+            },
+            "telemetry": {
+                "usage": {"prompt_tokens": len(ids), "completion_tokens": len(ids), "total_tokens": len(ids) * 2},
+                "retryable_provider_retries": len(ids),
+                "retry_sleep_seconds": float(len(ids)),
+                "adaptive_peak_in_flight_limit": len(ids) * 8,
+                "adaptive_min_in_flight_limit": 8,
+                "elapsed_seconds": float(len(ids)),
+            },
         }
 
 
@@ -204,6 +212,10 @@ def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
     assert manifest["metadata"]["batch_count"] == 2
     assert manifest["metadata"]["batch_size"] == 2
     assert manifest["metadata"]["concurrency"] == 2
+    assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 2
+    assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 6
+    assert manifest["metadata"]["llm_telemetry"]["retryable_provider_retries"] == 3
+    assert manifest["metadata"]["llm_telemetry"]["adaptive_peak_in_flight_limit"] == 16
 
 
 def test_generate_seed_multi_signal_run_reduces_batch_size_after_failure(tmp_path):

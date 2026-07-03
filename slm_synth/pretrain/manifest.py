@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from slm_synth.pretrain.grounded import GroundedBatchStore
 from slm_synth.pretrain.record_quality import SIGNAL_FROM_FILE
 
 PRETRAIN_STAGES = ("raw", "validated", "deduped", "rejected")
@@ -43,7 +44,10 @@ def build_run_manifest(
         "output_dir": str(resolved_output_dir),
         "stages": stage_payloads,
         "signals": _summarize_signals(stage_payloads),
-        "metadata": dict(metadata or {}),
+        "metadata": {
+            **_build_pretrain_metadata(resolved_output_dir),
+            **dict(metadata or {}),
+        },
     }
 
 
@@ -164,6 +168,111 @@ def _summarize_signals(stage_payloads: Mapping[str, Mapping[str, Any]]) -> dict[
             if isinstance(signal, str) and isinstance(rows, int):
                 signals.setdefault(signal, {})[f"{stage}_rows"] = rows
     return {signal: signals[signal] for signal in sorted(signals)}
+
+
+def _build_pretrain_metadata(output_dir: Path) -> dict[str, Any]:
+    telemetry = _summarize_grounded_telemetry(output_dir)
+    if not telemetry:
+        return {}
+    return {"telemetry": telemetry}
+
+
+def _summarize_grounded_telemetry(output_dir: Path) -> dict[str, Any]:
+    grounded_dir = output_dir / "manifests" / "grounded"
+    if not grounded_dir.exists():
+        return {}
+
+    signals: dict[str, dict[str, Any]] = {}
+    for signal_dir in sorted(path for path in grounded_dir.iterdir() if path.is_dir()):
+        signal = signal_dir.name
+        metrics = GroundedBatchStore(output_dir, signal).telemetry_summary()
+        if int(metrics.get("batches", 0) or 0) or int(metrics.get("dropped_batches", 0) or 0):
+            signals[signal] = dict(metrics)
+
+    if not signals:
+        return {}
+
+    return {
+        "signals": signals,
+        "totals": _aggregate_grounded_telemetry(signals.values()),
+    }
+
+
+def _aggregate_grounded_telemetry(metrics_by_signal: Any) -> dict[str, Any]:
+    totals = {
+        "batches": 0,
+        "dropped_batches": 0,
+        "dropped_rows": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost": 0.0,
+        "elapsed_seconds": 0.0,
+        "retry_count": 0,
+        "retryable_provider_retries": 0,
+        "retry_sleep_seconds": 0.0,
+        "adaptive_window_increases": 0,
+        "adaptive_window_decreases": 0,
+        "adaptive_admission_wait_seconds": 0.0,
+        "adaptive_peak_in_flight_limit": 0,
+        "adaptive_min_in_flight_limit": 0,
+        "max_adaptive_cooldown_seconds": 0.0,
+        "adaptive_batch_size_observed_minimum": 0,
+        "adaptive_batch_size_observed_peak": 0,
+        "adaptive_batch_size_increases": 0,
+        "adaptive_batch_size_decreases": 0,
+        "adaptive_batch_size_failures": 0,
+    }
+    min_in_flight: int | None = None
+    min_batch_size: int | None = None
+
+    for metrics in metrics_by_signal:
+        totals["batches"] += int(metrics.get("batches", 0) or 0)
+        totals["dropped_batches"] += int(metrics.get("dropped_batches", 0) or 0)
+        totals["dropped_rows"] += int(metrics.get("dropped_rows", 0) or 0)
+        totals["prompt_tokens"] += int(metrics.get("prompt_tokens", 0) or 0)
+        totals["completion_tokens"] += int(metrics.get("completion_tokens", 0) or 0)
+        totals["total_tokens"] += int(metrics.get("total_tokens", 0) or 0)
+        totals["cost"] += float(metrics.get("cost", 0.0) or 0.0)
+        totals["elapsed_seconds"] += float(metrics.get("elapsed_seconds", 0.0) or 0.0)
+        totals["retry_count"] += int(metrics.get("retry_count", 0) or 0)
+        totals["retryable_provider_retries"] += int(metrics.get("retryable_provider_retries", 0) or 0)
+        totals["retry_sleep_seconds"] += float(metrics.get("retry_sleep_seconds", 0.0) or 0.0)
+        totals["adaptive_window_increases"] += int(metrics.get("adaptive_window_increases", 0) or 0)
+        totals["adaptive_window_decreases"] += int(metrics.get("adaptive_window_decreases", 0) or 0)
+        totals["adaptive_admission_wait_seconds"] += float(
+            metrics.get("adaptive_admission_wait_seconds", 0.0) or 0.0
+        )
+        totals["adaptive_peak_in_flight_limit"] = max(
+            totals["adaptive_peak_in_flight_limit"],
+            int(metrics.get("adaptive_peak_in_flight_limit", 0) or 0),
+        )
+        observed_min = int(metrics.get("adaptive_min_in_flight_limit", 0) or 0)
+        if observed_min:
+            min_in_flight = observed_min if min_in_flight is None else min(min_in_flight, observed_min)
+        totals["max_adaptive_cooldown_seconds"] = max(
+            totals["max_adaptive_cooldown_seconds"],
+            float(metrics.get("max_adaptive_cooldown_seconds", 0.0) or 0.0),
+        )
+        observed_batch_min = int(metrics.get("adaptive_batch_size_observed_minimum", 0) or 0)
+        if observed_batch_min:
+            min_batch_size = observed_batch_min if min_batch_size is None else min(min_batch_size, observed_batch_min)
+        totals["adaptive_batch_size_observed_peak"] = max(
+            totals["adaptive_batch_size_observed_peak"],
+            int(metrics.get("adaptive_batch_size_observed_peak", 0) or 0),
+        )
+        totals["adaptive_batch_size_increases"] += int(metrics.get("adaptive_batch_size_increases", 0) or 0)
+        totals["adaptive_batch_size_decreases"] += int(metrics.get("adaptive_batch_size_decreases", 0) or 0)
+        totals["adaptive_batch_size_failures"] += int(metrics.get("adaptive_batch_size_failures", 0) or 0)
+
+    totals["cost"] = round(totals["cost"], 8)
+    totals["elapsed_seconds"] = round(totals["elapsed_seconds"], 3)
+    totals["retry_sleep_seconds"] = round(totals["retry_sleep_seconds"], 3)
+    totals["adaptive_admission_wait_seconds"] = round(totals["adaptive_admission_wait_seconds"], 3)
+    totals["max_adaptive_cooldown_seconds"] = round(totals["max_adaptive_cooldown_seconds"], 3)
+    totals["adaptive_min_in_flight_limit"] = min_in_flight or 0
+    totals["adaptive_batch_size_observed_minimum"] = min_batch_size or 0
+    return totals
 
 
 def _count_jsonl_rows(path: Path) -> int:

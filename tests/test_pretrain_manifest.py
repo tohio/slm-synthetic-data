@@ -57,6 +57,60 @@ mix:
     assert manifest["signals"]["task_code"] == {"raw_rows": 1}
 
 
+def test_build_pretrain_run_manifest_includes_grounded_telemetry(tmp_path):
+    output_dir = tmp_path / "runs" / "pretrain-smoke"
+    config_path = tmp_path / "synthetic.yaml"
+    config_path.write_text(
+        f"""
+run_name: pretrain-smoke
+output_dir: "{output_dir}"
+target_total_tokens: 1000
+mix:
+  arithmetic:
+    share: 1.0
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_jsonl(output_dir / "raw" / "arithmetic.jsonl", [{"id": 1}])
+    batch_dir = output_dir / "manifests" / "grounded" / "arithmetic" / "batches"
+    batch_dir.mkdir(parents=True)
+    (batch_dir / "batch_000000000.json").write_text(
+        json.dumps(
+            {
+                "records": [{"id": 1}],
+                "telemetry": {
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "cost": 0.01},
+                    "retry_count": 1,
+                    "retryable_provider_retries": 2,
+                    "retry_sleep_seconds": 3.0,
+                    "adaptive_window_increases": 1,
+                    "adaptive_window_decreases": 0,
+                    "adaptive_admission_wait_seconds": 4.0,
+                    "adaptive_peak_in_flight_limit": 32,
+                    "adaptive_min_in_flight_limit": 8,
+                    "max_adaptive_cooldown_seconds": 0.5,
+                    "adaptive_batch_size_observed_minimum": 16,
+                    "adaptive_batch_size_observed_peak": 16,
+                    "adaptive_batch_size_increases": 0,
+                    "adaptive_batch_size_decreases": 0,
+                    "adaptive_batch_size_failures": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = build_run_manifest(config_path=config_path)
+
+    telemetry = manifest["metadata"]["telemetry"]
+    assert telemetry["signals"]["arithmetic"]["adaptive_peak_in_flight_limit"] == 32
+    assert telemetry["totals"]["total_tokens"] == 15
+    assert telemetry["totals"]["retryable_provider_retries"] == 2
+    assert telemetry["totals"]["adaptive_min_in_flight_limit"] == 8
+    assert telemetry["totals"]["adaptive_batch_size_observed_minimum"] == 16
+
+
 def test_default_pretrain_manifest_path():
     assert default_manifest_path(output_dir="data/runs/pretrain-smoke", generation_run="pretrain-smoke") == (
         Path("data/runs/pretrain-smoke") / "manifests" / "pretrain-smoke.manifest.json"

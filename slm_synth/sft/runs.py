@@ -17,6 +17,7 @@ from slm_synth.sft.manifest import write_manifest, write_run_manifest
 from slm_synth.sft.seeds import SFT_SEED_FAMILIES, build_seed_rows
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
+from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
 
 
 @dataclass(frozen=True)
@@ -365,6 +366,7 @@ def generate_llm_run(
             "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
             "adaptive_initial_in_flight": adaptive_initial_in_flight,
             **batch_controller.snapshot(),
+            "llm_telemetry": aggregate_llm_telemetry_from_manifests(result.manifest_path for result in results),
             "start_index": start_index,
             **dict(metadata or {}),
         },
