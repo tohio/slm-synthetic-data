@@ -21,7 +21,6 @@ cd slm-synthetic-data
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m pip install pytest
 ```
 
 Create `.env`:
