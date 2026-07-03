@@ -98,6 +98,16 @@ class GroundedBatchStore:
     def terminal_batch_ids(self) -> list[int]:
         return sorted(set(self.completed_batch_ids()) | set(self.failed_batch_ids()))
 
+    def terminal_ranges(self) -> list[tuple[int, int]]:
+        ranges: list[tuple[int, int]] = []
+        for batch_id in self.completed_batch_ids():
+            payload = self._load(self._path(batch_id))
+            ranges.append((batch_id, len(payload.get("records", []))))
+        for batch_id in self.failed_batch_ids():
+            payload = self._load(self._failed_path(batch_id))
+            ranges.append((batch_id, int(payload.get("planned_rows", 0) or 0)))
+        return sorted((start, size) for start, size in ranges if size > 0)
+
     def write_completed(
         self,
         *,
@@ -191,6 +201,11 @@ class GroundedBatchStore:
         adaptive_peak_in_flight_limit = 0
         adaptive_min_in_flight_limit: int | None = None
         max_adaptive_cooldown_seconds = 0.0
+        adaptive_batch_size_observed_minimum: int | None = None
+        adaptive_batch_size_observed_peak = 0
+        adaptive_batch_size_increases = 0
+        adaptive_batch_size_decreases = 0
+        adaptive_batch_size_failures = 0
 
         for path in self._completed_paths():
             telemetry = self._load(path).get("telemetry", {}) or {}
@@ -223,6 +238,21 @@ class GroundedBatchStore:
                 max_adaptive_cooldown_seconds,
                 float(telemetry.get("max_adaptive_cooldown_seconds", 0.0) or 0.0),
             )
+            observed_batch_min = telemetry.get("adaptive_batch_size_observed_minimum")
+            if observed_batch_min is not None:
+                observed_batch_min = int(observed_batch_min)
+                adaptive_batch_size_observed_minimum = (
+                    observed_batch_min
+                    if adaptive_batch_size_observed_minimum is None
+                    else min(adaptive_batch_size_observed_minimum, observed_batch_min)
+                )
+            adaptive_batch_size_observed_peak = max(
+                adaptive_batch_size_observed_peak,
+                int(telemetry.get("adaptive_batch_size_observed_peak", 0) or 0),
+            )
+            adaptive_batch_size_increases += int(telemetry.get("adaptive_batch_size_increases", 0) or 0)
+            adaptive_batch_size_decreases += int(telemetry.get("adaptive_batch_size_decreases", 0) or 0)
+            adaptive_batch_size_failures += int(telemetry.get("adaptive_batch_size_failures", 0) or 0)
 
         for batch_id in self.failed_batch_ids():
             payload = self._load(self._failed_path(batch_id))
@@ -257,6 +287,21 @@ class GroundedBatchStore:
                 max_adaptive_cooldown_seconds,
                 float(telemetry.get("max_adaptive_cooldown_seconds", 0.0) or 0.0),
             )
+            observed_batch_min = telemetry.get("adaptive_batch_size_observed_minimum")
+            if observed_batch_min is not None:
+                observed_batch_min = int(observed_batch_min)
+                adaptive_batch_size_observed_minimum = (
+                    observed_batch_min
+                    if adaptive_batch_size_observed_minimum is None
+                    else min(adaptive_batch_size_observed_minimum, observed_batch_min)
+                )
+            adaptive_batch_size_observed_peak = max(
+                adaptive_batch_size_observed_peak,
+                int(telemetry.get("adaptive_batch_size_observed_peak", 0) or 0),
+            )
+            adaptive_batch_size_increases += int(telemetry.get("adaptive_batch_size_increases", 0) or 0)
+            adaptive_batch_size_decreases += int(telemetry.get("adaptive_batch_size_decreases", 0) or 0)
+            adaptive_batch_size_failures += int(telemetry.get("adaptive_batch_size_failures", 0) or 0)
 
         return {
             "batches": batches,
@@ -276,6 +321,11 @@ class GroundedBatchStore:
             "adaptive_peak_in_flight_limit": adaptive_peak_in_flight_limit,
             "adaptive_min_in_flight_limit": adaptive_min_in_flight_limit or 0,
             "max_adaptive_cooldown_seconds": round(max_adaptive_cooldown_seconds, 3),
+            "adaptive_batch_size_observed_minimum": adaptive_batch_size_observed_minimum or 0,
+            "adaptive_batch_size_observed_peak": adaptive_batch_size_observed_peak,
+            "adaptive_batch_size_increases": adaptive_batch_size_increases,
+            "adaptive_batch_size_decreases": adaptive_batch_size_decreases,
+            "adaptive_batch_size_failures": adaptive_batch_size_failures,
         }
 
 
@@ -290,7 +340,8 @@ class GroundedSignalGenerator:
         self.batch_size = int(batch_size)
         self.factory = factory or FACTORY_MAP[signal]()
 
-    def response_schema(self) -> dict[str, Any]:
+    def response_schema(self, batch_size: int | None = None) -> dict[str, Any]:
+        batch_size = int(batch_size or self.batch_size)
         common = {"artifact_id": {"type": "string"}}
 
         if self.signal == "arithmetic":
@@ -329,8 +380,8 @@ class GroundedSignalGenerator:
                 "records": {
                     "type": "array",
                     "items": item,
-                    "minItems": self.batch_size,
-                    "maxItems": self.batch_size,
+                    "minItems": batch_size,
+                    "maxItems": batch_size,
                 }
             },
             "required": ["records"],
@@ -474,7 +525,18 @@ class GroundedSignalGenerator:
         return record
 
     def generate_batch(self, batch_id: int) -> tuple[list[GroundedArtifact], list[dict[str, Any]], dict[str, Any]]:
-        artifacts = self.factory.build_batch(batch_id, self.batch_size)
+        return self.generate_range(batch_id * self.batch_size, self.batch_size, batch_id=batch_id)
+
+    def generate_range(
+        self,
+        start_index: int,
+        batch_size: int,
+        *,
+        batch_id: int | None = None,
+    ) -> tuple[list[GroundedArtifact], list[dict[str, Any]], dict[str, Any]]:
+        batch_id = int(start_index if batch_id is None else batch_id)
+        batch_size = int(batch_size)
+        artifacts = [self.factory.build(index) for index in range(int(start_index), int(start_index) + batch_size)]
         assert_valid_artifacts(artifacts)
         prompt = self.build_prompt(artifacts)
 
@@ -482,8 +544,8 @@ class GroundedSignalGenerator:
             try:
                 result = self.llm.generate_structured_object_with_metadata(
                     prompt=prompt,
-                    schema=self.response_schema(),
-                    schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
+                    schema=self.response_schema(batch_size),
+                    schema_name=f"grounded_{self.signal}_batch_{batch_size}",
                 )
             except RetryableProviderExhaustedError as exc:
                 raise GroundedTransientProviderBatchError(
@@ -507,8 +569,8 @@ class GroundedSignalGenerator:
         else:
             response = self.llm.generate_structured_object(
                 prompt=prompt,
-                schema=self.response_schema(),
-                schema_name=f"grounded_{self.signal}_batch_{self.batch_size}",
+                schema=self.response_schema(batch_size),
+                schema_name=f"grounded_{self.signal}_batch_{batch_size}",
             )
             telemetry = {}
 
@@ -516,8 +578,8 @@ class GroundedSignalGenerator:
 
         try:
             rows = response.get("records") if isinstance(response, dict) else None
-            if not isinstance(rows, list) or len(rows) != self.batch_size:
-                raise ValueError(f"Expected {self.batch_size} grounded {self.signal} records")
+            if not isinstance(rows, list) or len(rows) != batch_size:
+                raise ValueError(f"Expected {batch_size} grounded {self.signal} records")
 
             expected = {artifact.artifact_id: artifact for artifact in artifacts}
             returned_ids = [row.get("artifact_id") for row in rows if isinstance(row, dict)]

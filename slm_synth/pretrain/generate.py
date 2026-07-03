@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import yaml
 from dotenv import load_dotenv
 
+from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.diversity import build_diversity_context
 from slm_synth.llm import LLMBackend
 from slm_synth.model_support import warn_if_unsupported_model
@@ -213,10 +214,52 @@ def _rounded_batch_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any], bat
     return token_target, target_rows, rounded_rows
 
 
-def _retry_grounded_batch_after_delay(generator: GroundedSignalGenerator, batch_id: int, delay_seconds: float):
+def _retry_grounded_batch_after_delay(
+    generator: GroundedSignalGenerator,
+    start_index: int,
+    batch_size: int,
+    delay_seconds: float,
+):
     if delay_seconds > 0:
         time.sleep(delay_seconds)
-    return generator.generate_batch(batch_id)
+    return generator.generate_range(start_index, batch_size, batch_id=start_index)
+
+
+def _pending_grounded_ranges(rounded_rows: int, terminal_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    covered: list[tuple[int, int]] = []
+    for start, size in terminal_ranges:
+        end = min(rounded_rows, start + size)
+        if start < rounded_rows and end > start:
+            covered.append((start, end))
+    covered.sort()
+
+    pending: list[tuple[int, int]] = []
+    cursor = 0
+    for start, end in covered:
+        if start > cursor:
+            pending.append((cursor, start - cursor))
+        cursor = max(cursor, end)
+    if cursor < rounded_rows:
+        pending.append((cursor, rounded_rows - cursor))
+    return pending
+
+
+def _take_adaptive_range(
+    pending_ranges: list[tuple[int, int]],
+    controller: AdaptiveBatchSizeController,
+) -> tuple[int, int] | None:
+    if not pending_ranges:
+        return None
+    start, remaining = pending_ranges.pop(0)
+    size = min(controller.current, remaining)
+    if remaining > size:
+        pending_ranges.insert(0, (start + size, remaining - size))
+    return start, size
+
+
+def _prepend_grounded_range(pending_ranges: list[tuple[int, int]], start: int, size: int) -> None:
+    if size > 0:
+        pending_ranges.insert(0, (start, size))
 
 
 def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
@@ -233,8 +276,11 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
             f"and {MAX_GROUNDED_BATCH_SIZE} for throughput qualification."
         )
 
+    min_batch_size = int(mix_cfg.get("min_batch_size", generation_cfg.get("min_batch_size", 1)))
+    if not MIN_GROUNDED_BATCH_SIZE <= min_batch_size <= batch_size:
+        raise ValueError("Grounded generation min_batch_size must be between 1 and batch_size")
+
     token_target, target_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
-    total_batches = rounded_rows // batch_size
     parallel_requests = int(
         mix_cfg.get(
             "parallel_requests",
@@ -251,19 +297,25 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     if renderer.provider != "openrouter":
         raise ValueError("Grounded generation requires backend.provider=openrouter")
     generator = GroundedSignalGenerator(name, renderer, batch_size=batch_size)
+    batch_controller = AdaptiveBatchSizeController(
+        maximum=batch_size,
+        minimum=min_batch_size,
+        increase_successes=int(retry_cfg.get("adaptive_batch_size_increase_successes", 4)),
+        decrease_factor=float(retry_cfg.get("adaptive_batch_size_decrease_factor", 0.5)),
+    )
     store = GroundedBatchStore(output_dir, name)
     reject_writer = JSONLWriter(output_dir / "rejected" / f"{name}.jsonl")
 
-    terminal = set(store.terminal_batch_ids())
-    pending_ids = [batch_id for batch_id in range(total_batches) if batch_id not in terminal]
+    pending_ranges = _pending_grounded_ranges(rounded_rows, store.terminal_ranges())
     existing_rows = store.materialize_raw()
     print(
         f"[generate] Starting grounded signal: {name} "
         f"(target_tokens_estimate={token_target}, target_rows={target_rows}, "
         f"rounded_rows={rounded_rows}, existing_rows={existing_rows}, "
-        f"batch_size={batch_size}, parallel_requests={parallel_requests}, model={renderer.model})"
+        f"batch_size={batch_size}, min_batch_size={min_batch_size}, "
+        f"parallel_requests={parallel_requests}, model={renderer.model})"
     )
-    if not pending_ids:
+    if not pending_ranges:
         metrics = store.telemetry_summary()
         print(
             f"[generate] Completed grounded signal: {name} rows={existing_rows}, target_rows={rounded_rows}, "
@@ -276,91 +328,128 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
             f"adaptive_peak_in_flight_limit={metrics['adaptive_peak_in_flight_limit']}, "
             f"adaptive_min_in_flight_limit={metrics['adaptive_min_in_flight_limit']}, "
             f"max_adaptive_cooldown_seconds={metrics['max_adaptive_cooldown_seconds']:.3f}, "
+            f"adaptive_batch_size_observed_minimum={metrics['adaptive_batch_size_observed_minimum']}, "
+            f"adaptive_batch_size_observed_peak={metrics['adaptive_batch_size_observed_peak']}, "
+            f"adaptive_batch_size_increases={metrics['adaptive_batch_size_increases']}, "
+            f"adaptive_batch_size_decreases={metrics['adaptive_batch_size_decreases']}, "
+            f"adaptive_batch_size_failures={metrics['adaptive_batch_size_failures']}, "
             f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
         )
         reject_writer.close()
         return
 
-    active: dict[Any, int] = {}
-    next_position = 0
-    failures: list[tuple[int, Exception]] = []
+    active: dict[Any, tuple[int, int]] = {}
+    failures: list[tuple[int, int, Exception]] = []
     retryable_requeues: dict[int, int] = {}
     stop_submitting = False
+
+    def submit_available(executor: ThreadPoolExecutor) -> None:
+        while not stop_submitting and pending_ranges and len(active) < parallel_requests:
+            next_range = _take_adaptive_range(pending_ranges, batch_controller)
+            if next_range is None:
+                return
+            start_index, request_batch_size = next_range
+            active[executor.submit(generator.generate_range, start_index, request_batch_size, batch_id=start_index)] = (
+                start_index,
+                request_batch_size,
+            )
+
     try:
         with ThreadPoolExecutor(max_workers=parallel_requests) as executor:
-            while next_position < len(pending_ids) and len(active) < parallel_requests:
-                batch_id = pending_ids[next_position]
-                active[executor.submit(generator.generate_batch, batch_id)] = batch_id
-                next_position += 1
+            submit_available(executor)
 
             while active:
                 done, _ = wait(set(active), return_when=FIRST_COMPLETED)
                 for future in done:
-                    batch_id = active.pop(future)
+                    start_index, request_batch_size = active.pop(future)
                     resubmitted = False
                     try:
                         artifacts, records, telemetry = future.result()
-                        store.write_completed(batch_id=batch_id, artifacts=artifacts, records=records, telemetry=telemetry)
+                        batch_controller.record_success()
+                        telemetry = {**(telemetry or {}), **batch_controller.snapshot()}
+                        store.write_completed(batch_id=start_index, artifacts=artifacts, records=records, telemetry=telemetry)
                         # Batch manifests are the durable checkpoint. Rebuild raw JSONL only at
                         # signal start/resume and completion, not once per completed batch.
                         existing_rows += len(records)
                         usage = telemetry.get("usage", {}) if telemetry else {}
                         cost = float(usage.get("cost", 0.0) or 0.0)
-                        print(f"[generate] {name}: batch={batch_id} rows={existing_rows}/{rounded_rows} cost={cost:.8f}")
+                        print(
+                            f"[generate] {name}: batch_start={start_index} batch_size={request_batch_size} "
+                            f"rows={existing_rows}/{rounded_rows} cost={cost:.8f}"
+                        )
                     except GroundedTransientProviderBatchError as exc:
-                        retryable_requeues[batch_id] = retryable_requeues.get(batch_id, 0) + 1
+                        batch_controller.record_failure()
+                        retryable_requeues[start_index] = retryable_requeues.get(start_index, 0) + 1
                         reject_writer.write({
-                            "signal": name, "architecture": "grounded", "batch_id": batch_id,
-                            "batch_size": batch_size, "status": "requeued_retryable_provider_failure",
-                            "requeue_count": retryable_requeues[batch_id], "error": str(exc),
-                            "telemetry": exc.telemetry,
+                            "signal": name, "architecture": "grounded", "batch_id": start_index,
+                            "batch_size": request_batch_size, "status": "requeued_retryable_provider_failure",
+                            "requeue_count": retryable_requeues[start_index], "error": str(exc),
+                            "telemetry": {**(exc.telemetry or {}), **batch_controller.snapshot()},
                         })
                         print(
-                            f"[generate] Requeue transient provider failure: signal={name} batch={batch_id} "
-                            f"requeue_count={retryable_requeues[batch_id]} "
+                            f"[generate] Requeue transient provider failure: signal={name} batch_start={start_index} "
+                            f"batch_size={request_batch_size} next_batch_size={batch_controller.current} "
+                            f"requeue_count={retryable_requeues[start_index]} "
                             f"delay={transient_requeue_delay_seconds:.2f}s reason={str(exc)!r}"
                         )
+                        retry_size = min(batch_controller.current, request_batch_size)
+                        if request_batch_size > retry_size:
+                            _prepend_grounded_range(pending_ranges, start_index + retry_size, request_batch_size - retry_size)
                         active[executor.submit(
                             _retry_grounded_batch_after_delay,
-                            generator, batch_id, transient_requeue_delay_seconds
-                        )] = batch_id
+                            generator, start_index, retry_size, transient_requeue_delay_seconds
+                        )] = (start_index, retry_size)
                         resubmitted = True
                     except GroundedRenderedBatchError as exc:
-                        store.write_failed(
-                            batch_id=batch_id,
-                            planned_rows=batch_size,
-                            artifacts=exc.artifacts,
-                            error=exc,
-                            telemetry=exc.telemetry,
-                            returned_artifact_ids=exc.returned_artifact_ids,
-                        )
-                        reject_writer.write({
-                            "signal": name, "architecture": "grounded", "batch_id": batch_id,
-                            "batch_size": batch_size, "status": "dropped_transient_rendered_failure",
-                            "error": str(exc),
-                        })
-                        print(
-                            f"[generate] Dropped transient rendered batch: signal={name} batch={batch_id} "
-                            f"planned_rows={batch_size} reason={str(exc)!r}"
-                        )
+                        batch_controller.record_failure()
+                        telemetry = {**(exc.telemetry or {}), **batch_controller.snapshot()}
+                        if request_batch_size > min_batch_size:
+                            _prepend_grounded_range(pending_ranges, start_index, request_batch_size)
+                            reject_writer.write({
+                                "signal": name, "architecture": "grounded", "batch_id": start_index,
+                                "batch_size": request_batch_size, "status": "adaptive_batch_size_reduced",
+                                "next_batch_size": batch_controller.current,
+                                "error": str(exc), "telemetry": telemetry,
+                            })
+                            print(
+                                f"[generate] Reduced adaptive batch size: signal={name} batch_start={start_index} "
+                                f"batch_size={request_batch_size} next_batch_size={batch_controller.current} "
+                                f"reason={str(exc)!r}"
+                            )
+                        else:
+                            store.write_failed(
+                                batch_id=start_index,
+                                planned_rows=request_batch_size,
+                                artifacts=exc.artifacts,
+                                error=exc,
+                                telemetry=telemetry,
+                                returned_artifact_ids=exc.returned_artifact_ids,
+                            )
+                            reject_writer.write({
+                                "signal": name, "architecture": "grounded", "batch_id": start_index,
+                                "batch_size": request_batch_size, "status": "dropped_transient_rendered_failure",
+                                "error": str(exc), "telemetry": telemetry,
+                            })
+                            print(
+                                f"[generate] Dropped transient rendered batch: signal={name} batch_start={start_index} "
+                                f"planned_rows={request_batch_size} reason={str(exc)!r}"
+                            )
                     except Exception as exc:
                         reject_writer.write({
-                            "signal": name, "architecture": "grounded", "batch_id": batch_id,
-                            "batch_size": batch_size, "status": "fatal_batch_failure", "error": str(exc),
+                            "signal": name, "architecture": "grounded", "batch_id": start_index,
+                            "batch_size": request_batch_size, "status": "fatal_batch_failure", "error": str(exc),
                         })
-                        failures.append((batch_id, exc))
+                        failures.append((start_index, request_batch_size, exc))
                         stop_submitting = True
-                    if not stop_submitting and not resubmitted and next_position < len(pending_ids):
-                        next_id = pending_ids[next_position]
-                        active[executor.submit(generator.generate_batch, next_id)] = next_id
-                        next_position += 1
+                    if not resubmitted:
+                        submit_available(executor)
     finally:
         reject_writer.close()
 
     if failures:
-        batch_id, exc = failures[0]
+        start_index, _request_batch_size, exc = failures[0]
         raise RuntimeError(
-            f"Grounded {name} batch {batch_id} failed; rerun to resume from completed batches."
+            f"Grounded {name} batch starting at {start_index} failed; rerun to resume from completed batches."
         ) from exc
     final_rows = store.materialize_raw()
     metrics = store.telemetry_summary()
@@ -376,6 +465,11 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         f"adaptive_peak_in_flight_limit={metrics['adaptive_peak_in_flight_limit']}, "
         f"adaptive_min_in_flight_limit={metrics['adaptive_min_in_flight_limit']}, "
         f"max_adaptive_cooldown_seconds={metrics['max_adaptive_cooldown_seconds']:.3f}, "
+        f"adaptive_batch_size_observed_minimum={metrics['adaptive_batch_size_observed_minimum']}, "
+        f"adaptive_batch_size_observed_peak={metrics['adaptive_batch_size_observed_peak']}, "
+        f"adaptive_batch_size_increases={metrics['adaptive_batch_size_increases']}, "
+        f"adaptive_batch_size_decreases={metrics['adaptive_batch_size_decreases']}, "
+        f"adaptive_batch_size_failures={metrics['adaptive_batch_size_failures']}, "
         f"cost={metrics['cost']:.8f}, request_tokens={metrics['total_tokens']}"
     )
 

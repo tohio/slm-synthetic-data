@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.sft.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
 from slm_synth.sft.io import write_jsonl
 from slm_synth.sft.manifest import write_manifest, write_run_manifest
@@ -222,7 +224,7 @@ def generate_llm_run(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_initial_in_flight: int = 1,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -235,23 +237,19 @@ def generate_llm_run(
     _validate_positive_int(batch_size, "batch_size")
     _validate_positive_int(start_index, "start_index")
     _validate_positive_int(concurrency, "concurrency")
-    adaptive_maximum_in_flight = concurrency
 
-    jobs: list[dict[str, Any]] = []
-    for family in resolved_families:
-        specs = build_specs(family=family, count=count_per_family, start_index=start_index)
-        for batch_number, batch_specs in enumerate(_chunks(specs, batch_size), start=1):
-            batch_start_index = start_index + (batch_number - 1) * batch_size
-            jobs.append(
-                {
-                    "family": family,
-                    "batch_number": batch_number,
-                    "batch_start_index": batch_start_index,
-                    "specs": batch_specs,
-                    "dataset_path": Path(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
-                    "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
-                }
-            )
+    active_backend = backend or build_openrouter_backend(
+        model=teacher_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+    )
 
     def run_job(job: dict[str, Any]) -> Any:
         return generate_llm_batch(
@@ -275,30 +273,67 @@ def generate_llm_run(
                 "batch_number": job["batch_number"],
                 "batch_start_index": job["batch_start_index"],
                 "batch_size": len(job["specs"]),
+                **job.get("adaptive_batch_size", {}),
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
             backend=active_backend,
         )
 
-    active_backend = backend or build_openrouter_backend(
-        model=teacher_model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        request_timeout=request_timeout,
-        max_request_retries=max_request_retries,
-        max_retryable_request_attempts=max_retryable_request_attempts,
-        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-        adaptive_initial_in_flight=adaptive_initial_in_flight,
-    )
+    jobs: list[dict[str, Any]] = []
+    batch_controller = AdaptiveBatchSizeController(maximum=batch_size, minimum=1)
+    for family in resolved_families:
+        specs = build_specs(family=family, count=count_per_family, start_index=start_index)
+        pending_ranges: deque[tuple[int, int]] = deque([(0, len(specs))])
+        active: dict[Any, dict[str, Any]] = {}
+        next_batch_number = 1
 
-    if concurrency == 1:
-        results = [run_job(job) for job in jobs]
-    else:
+        def make_job(batch_specs: list[dict[str, Any]], batch_number: int, offset: int) -> dict[str, Any]:
+            batch_start_index = start_index + offset
+            return {
+                "family": family,
+                "batch_number": batch_number,
+                "batch_start_index": batch_start_index,
+                "specs": batch_specs,
+                "dataset_path": Path(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
+                "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
+            }
+
+        def submit_available(executor: ThreadPoolExecutor) -> None:
+            nonlocal next_batch_number
+            while pending_ranges and len(active) < concurrency:
+                offset, remaining = pending_ranges.popleft()
+                size = min(batch_controller.current, remaining)
+                if remaining > size:
+                    pending_ranges.appendleft((offset + size, remaining - size))
+                job = make_job(specs[offset : offset + size], next_batch_number, offset)
+                next_batch_number += 1
+                active[executor.submit(run_job, job)] = job
+
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            results = list(executor.map(run_job, jobs))
+            submit_available(executor)
+            while active:
+                done, _ = wait(set(active), return_when=FIRST_COMPLETED)
+                for future in done:
+                    job = active.pop(future)
+                    try:
+                        result = future.result()
+                    except Exception:
+                        batch_controller.record_failure()
+                        if len(job["specs"]) <= batch_controller.minimum:
+                            raise
+                        offset = job["batch_start_index"] - start_index
+                        pending_ranges.appendleft((offset, len(job["specs"])))
+                        submit_available(executor)
+                        continue
+                    batch_controller.record_success()
+                    job["result"] = result
+                    job["adaptive_batch_size"] = batch_controller.snapshot()
+                    jobs.append(job)
+                    submit_available(executor)
+
+    jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
+    results = [job["result"] for job in jobs]
 
     datasets: list[dict[str, Any]] = []
     for job, result in zip(jobs, results):
@@ -326,8 +361,7 @@ def generate_llm_run(
             "count_per_family": count_per_family,
             "batch_size": batch_size,
             "concurrency": concurrency,
-            "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
-            "adaptive_initial_in_flight": adaptive_initial_in_flight,
+            **batch_controller.snapshot(),
             "start_index": start_index,
             **dict(metadata or {}),
         },
@@ -365,10 +399,6 @@ def resolve_spec_families(families: list[str] | tuple[str, ...] | None) -> tuple
     if not resolved:
         raise ValueError("at least one SFT spec family is required")
     return tuple(resolved)
-
-
-def _chunks(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
-    return [items[index : index + batch_size] for index in range(0, len(items), batch_size)]
 
 
 def _write_llm_run_manifest(

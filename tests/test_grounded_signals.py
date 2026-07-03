@@ -98,6 +98,22 @@ class GroundedMalformedFirstBatchLLM(GroundedMockLLM):
         }
 
 
+class GroundedFailsLargeBatchesLLM(GroundedMockLLM):
+    def __init__(self, maximum_successful_batch_size: int):
+        self.maximum_successful_batch_size = maximum_successful_batch_size
+        self.calls: list[int] = []
+
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        batch_size = int(schema_name.rsplit("_batch_", 1)[1])
+        self.calls.append(batch_size)
+        if batch_size > self.maximum_successful_batch_size:
+            raise StructuredRenderedResponseError("batch too large", telemetry={})
+        return {
+            "data": super().generate_structured_object(prompt=prompt, schema=schema, schema_name=schema_name),
+            "telemetry": {},
+        }
+
+
 @pytest.mark.parametrize("factory", [
     ArithmeticArtifactFactory,
     TaskCodeArtifactFactory,
@@ -331,7 +347,7 @@ def test_run_signal_requeues_exhausted_retryable_provider_failure_and_continues(
     assert "requeued_retryable_provider_failure" in rejection
 
 
-def test_run_signal_discards_transient_rendered_batch_failure_and_continues(monkeypatch, tmp_path):
+def test_run_signal_retries_transient_rendered_batch_failure_at_smaller_size(monkeypatch, tmp_path):
     cfg = {
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
@@ -344,23 +360,36 @@ def test_run_signal_discards_transient_rendered_batch_failure_and_continues(monk
     generate.run_signal("factual_restraint", cfg, tmp_path)
 
     raw_rows = (tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()
-    assert len(raw_rows) == 32
-    failed_path = tmp_path / "manifests" / "grounded" / "factual_restraint" / "failed_batches" / "batch_000000000.json"
-    failed = json.loads(failed_path.read_text())
-    assert failed["status"] == "dropped_transient_rendered_failure"
-    assert failed["planned_rows"] == 32
-    assert len(failed["artifact_ids"]) == 32
-    assert len(failed["artifacts"]) == 32
-    assert failed["returned_artifact_ids"][0] == failed["returned_artifact_ids"][1]
+    assert len(raw_rows) == 64
+    rejection = (tmp_path / "rejected" / "factual_restraint.jsonl").read_text()
+    assert "adaptive_batch_size_reduced" in rejection
 
     metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
-    assert metrics["batches"] == 1
-    assert metrics["dropped_batches"] == 1
-    assert metrics["dropped_rows"] == 32
+    assert metrics["batches"] == 4
+    assert metrics["dropped_batches"] == 0
+    assert metrics["dropped_rows"] == 0
 
     generate.run_signal("factual_restraint", cfg, tmp_path)
-    assert llm.calls == 2
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
+
+
+def test_run_signal_reduces_grounded_batch_size_after_rendered_failure(monkeypatch, tmp_path):
+    cfg = {
+        "target_total_tokens": 5000,
+        "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+        "generation": {"batch_size": 32, "parallel_requests": 1},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 32}},
+    }
+    llm = GroundedFailsLargeBatchesLLM(maximum_successful_batch_size=8)
+    monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
+
+    generate.run_signal("factual_restraint", cfg, tmp_path)
+
+    assert llm.calls[:3] == [32, 16, 8]
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+    metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
+    assert metrics["adaptive_batch_size_observed_minimum"] == 8
+    assert metrics["adaptive_batch_size_decreases"] == 2
 
 
 @pytest.mark.parametrize("signal", [
@@ -370,7 +399,7 @@ def test_run_signal_discards_transient_rendered_batch_failure_and_continues(monk
     "educational_qa_mcq_general",
     "factual_restraint",
 ])
-def test_run_signal_discards_exhausted_malformed_structured_response_for_every_grounded_signal(monkeypatch, tmp_path, signal):
+def test_run_signal_retries_exhausted_malformed_structured_response_for_every_grounded_signal(monkeypatch, tmp_path, signal):
     cfg = {
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
@@ -382,19 +411,15 @@ def test_run_signal_discards_exhausted_malformed_structured_response_for_every_g
 
     generate.run_signal(signal, cfg, tmp_path)
 
-    assert len((tmp_path / "raw" / f"{signal}.jsonl").read_text().splitlines()) == 32
-    failed_path = tmp_path / "manifests" / "grounded" / signal / "failed_batches" / "batch_000000000.json"
-    failed = json.loads(failed_path.read_text())
-    assert failed["status"] == "dropped_transient_rendered_failure"
-    assert failed["planned_rows"] == 32
-    assert failed["returned_artifact_ids"] is None
-    assert failed["error_type"] == "GroundedRenderedBatchError"
+    assert len((tmp_path / "raw" / f"{signal}.jsonl").read_text().splitlines()) == 64
+    rejection = (tmp_path / "rejected" / f"{signal}.jsonl").read_text()
+    assert "adaptive_batch_size_reduced" in rejection
 
     metrics = GroundedBatchStore(tmp_path, signal).telemetry_summary()
-    assert metrics["batches"] == 1
-    assert metrics["dropped_batches"] == 1
-    assert metrics["dropped_rows"] == 32
-    assert metrics["cost"] == 0.01
+    assert metrics["batches"] == 4
+    assert metrics["dropped_batches"] == 0
+    assert metrics["dropped_rows"] == 0
+    assert metrics["cost"] == 0.0
 
 
 def test_grounded_artifacts_have_no_placeholder_quality_failures():
@@ -543,4 +568,3 @@ def test_general_mcq_count_pattern_uses_deterministic_explanation():
     assert "three occurrences" not in record["explanation"].lower()
     assert "`values.count(" in record["explanation"]
     assert record["choices"][record["correct_index"]] in record["explanation"]
-

@@ -9,7 +9,14 @@ Synthetic dataset generation for the SLM training stack.
 | SFT | `make sft-smoke` | `make sft-generate` | `data/sft/runs/<run>/datasets` |
 | DPO | `make dpo-smoke` | `make dpo-generate` | `data/dpo/runs/<run>/datasets` |
 
-OpenRouter is the only supported live provider. Provider calls, retries, concurrency, and structured-output handling live in `slm_synth/llm.py`.
+OpenRouter is the only supported live provider. Provider calls, retries, concurrency, adaptive batch sizing, and structured-output handling live in `slm_synth/llm.py` and `slm_synth/adaptive_batch.py`.
+
+Generation commands use the same throughput rules:
+
+| Setting | Meaning |
+|---|---|
+| `*_CONCURRENCY` | Maximum simultaneous provider requests. Adaptive request admission may run below this cap when the provider throttles. |
+| `*_BATCH_SIZE` | Maximum rows, prompts, or specs per provider request. Adaptive batch sizing halves failing batches and slowly increases after successful batches. |
 
 ## Setup
 
@@ -131,7 +138,7 @@ Useful variables:
 |---|---:|---|
 | `DISTILL_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
 | `DISTILL_TARGET_SIZE` | `pilot` | Target preset |
-| `DISTILL_BATCH_SIZE` | `5` | Prompts per teacher request |
+| `DISTILL_BATCH_SIZE` | `5` | Maximum prompts per teacher request |
 | `DISTILL_CONCURRENCY` | `1` | Parallel teacher requests |
 | `DISTILL_RUN_ROOT` | `data/distillation/runs` | Run output root |
 | `DISTILL_INSPECT_RUN` | `$(DISTILL_REPORT_RUN)` | Run inspected by `distill-inspect` |
@@ -188,8 +195,8 @@ Useful variables:
 | `SFT_FAMILIES` | `all` | Target family list |
 | `SFT_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
 | `SFT_COUNT_PER_FAMILY` | `1000` | Target rows per family |
-| `SFT_BATCH_SIZE` | `5` | Specs per teacher request |
-| `SFT_CONCURRENCY` | `1` | Request concurrency across run batches |
+| `SFT_BATCH_SIZE` | `5` | Maximum specs per teacher request |
+| `SFT_CONCURRENCY` | `1` | Parallel teacher requests |
 | `SFT_RUN_ROOT` | `data/sft/runs` | Run output root |
 | `SFT_REPORT_RUN` | `$(SFT_RUN)` | Run used by `sft-report` |
 | `SFT_INSPECT_RUN` | `$(SFT_REPORT_RUN)` | Run inspected by `sft-inspect` |
@@ -245,8 +252,8 @@ Useful variables:
 | `DPO_FAMILIES` | `all` | Target family list |
 | `DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
 | `DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family |
-| `DPO_BATCH_SIZE` | `5` | Specs per teacher request |
-| `DPO_CONCURRENCY` | `1` | Request concurrency across run batches |
+| `DPO_BATCH_SIZE` | `5` | Maximum specs per teacher request |
+| `DPO_CONCURRENCY` | `1` | Parallel teacher requests |
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root |
 | `DPO_REPORT_RUN` | `$(DPO_RUN)` | Run used by `dpo-report` |
 | `DPO_INSPECT_RUN` | `$(DPO_REPORT_RUN)` | Run inspected by `dpo-inspect` |

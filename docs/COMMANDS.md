@@ -11,6 +11,13 @@ This repo exposes one Make surface for dataset generation:
 
 Run `make help` to print the same command surface from the Makefile.
 
+Generation commands use consistent throughput controls:
+
+| Setting | Meaning |
+|---|---|
+| `*_CONCURRENCY` | Maximum simultaneous provider requests. Adaptive request admission may run below this cap when the provider throttles. |
+| `*_BATCH_SIZE` | Maximum rows, prompts, or specs per provider request. Adaptive batch sizing halves failing batches and slowly increases after successful batches. |
+
 ## Shared Variables
 
 | Variable | Default | Purpose |
@@ -47,7 +54,7 @@ Useful variables:
 | `PRETRAIN_TARGET_RUN` | `pretrain-target-001` | Target run id. |
 | `PRETRAIN_TOKENS` | `100000` | Smoke token target. |
 | `PRETRAIN_TARGET_TOKENS` | `1000000` | Target token target. |
-| `PRETRAIN_BATCH_SIZE` | `32` | Rows per generation batch. |
+| `PRETRAIN_BATCH_SIZE` | `32` | Maximum rows per provider request. |
 | `PRETRAIN_CONCURRENCY` | `1` | Smoke request concurrency. |
 | `PRETRAIN_TARGET_CONCURRENCY` | `4` | Target request concurrency. |
 | `PRETRAIN_INSPECT_RUN` | `$(PRETRAIN_REPORT_RUN)` | Run inspected by `pretrain-inspect`. |
@@ -93,7 +100,7 @@ Useful variables:
 | `DISTILL_TARGET_RUN` | `distill-target-001` | Target run id. |
 | `DISTILL_TARGET_SIZE` | `pilot` | Target preset for `distill-generate`. |
 | `DISTILL_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal. |
-| `DISTILL_BATCH_SIZE` | `5` | Prompts per teacher request. |
+| `DISTILL_BATCH_SIZE` | `5` | Maximum prompts per teacher request. |
 | `DISTILL_CONCURRENCY` | `1` | Parallel teacher requests. |
 | `DISTILL_RUN_ROOT` | `data/distillation/runs` | Run output root. |
 | `DISTILL_REPORT_RUN` | `$(DISTILL_RUN)` | Run used by `distill-report`. |
@@ -139,8 +146,8 @@ Useful variables:
 | `SFT_FAMILIES` | `all` | Target family list. |
 | `SFT_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
 | `SFT_COUNT_PER_FAMILY` | `1000` | Target rows per family. |
-| `SFT_BATCH_SIZE` | `5` | Specs per teacher request. |
-| `SFT_CONCURRENCY` | `1` | Request concurrency across run batches. |
+| `SFT_BATCH_SIZE` | `5` | Maximum specs per teacher request. |
+| `SFT_CONCURRENCY` | `1` | Parallel teacher requests. |
 | `SFT_RUN_ROOT` | `data/sft/runs` | Run output root. |
 | `SFT_REPORT_RUN` | `$(SFT_RUN)` | Run used by `sft-report`. |
 | `SFT_INSPECT_RUN` | `$(SFT_REPORT_RUN)` | Run inspected by `sft-inspect`. |
@@ -184,8 +191,8 @@ Useful variables:
 | `DPO_FAMILIES` | `all` | Target family list. |
 | `DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
 | `DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family. |
-| `DPO_BATCH_SIZE` | `5` | Specs per teacher request. |
-| `DPO_CONCURRENCY` | `1` | Request concurrency across run batches. |
+| `DPO_BATCH_SIZE` | `5` | Maximum specs per teacher request. |
+| `DPO_CONCURRENCY` | `1` | Parallel teacher requests. |
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root. |
 | `DPO_REPORT_RUN` | `$(DPO_RUN)` | Run used by `dpo-report`. |
 | `DPO_INSPECT_RUN` | `$(DPO_REPORT_RUN)` | Run inspected by `dpo-inspect`. |

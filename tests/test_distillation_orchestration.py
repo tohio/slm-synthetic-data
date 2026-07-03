@@ -48,6 +48,29 @@ class PromptIdBackend:
         }
 
 
+class SplitOnLargePromptIdBackend(PromptIdBackend):
+    def __init__(self):
+        self.calls: list[int] = []
+
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        ids = re.findall(r'"id": "([^"]+)"', prompt)
+        self.calls.append(len(ids))
+        if len(ids) > 1:
+            raise ValueError("batch too large")
+        return {
+            "data": {
+                "items": [
+                    {
+                        "id": item_id,
+                        "reasoning": None,
+                        "response": f"Response for {item_id}.",
+                    }
+                    for item_id in ids
+                ]
+            }
+        }
+
+
 def test_normalize_signal_sequence_defaults_to_all_supported_signals_sorted():
     signals = normalize_signal_sequence()
 
@@ -181,3 +204,25 @@ def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
     assert manifest["metadata"]["batch_count"] == 2
     assert manifest["metadata"]["batch_size"] == 2
     assert manifest["metadata"]["concurrency"] == 2
+
+
+def test_generate_seed_multi_signal_run_reduces_batch_size_after_failure(tmp_path):
+    backend = SplitOnLargePromptIdBackend()
+
+    result = generate_seed_multi_signal_run(
+        signals=["arithmetic"],
+        count_per_signal=3,
+        batch_size=3,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="smoke-001",
+        max_tokens=512,
+        backend_factory=lambda signal: backend,
+    )
+
+    assert result.row_count == 3
+    assert backend.calls == [3, 1, 1, 1]
+    manifest = json.loads((tmp_path / "manifests" / "arithmetic.smoke-001.manifest.json").read_text())
+    assert manifest["metadata"]["adaptive_batch_size_observed_minimum"] == 1
+    assert manifest["metadata"]["adaptive_batch_size_decreases"] == 1

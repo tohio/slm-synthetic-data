@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.distillation.generation import (
     StructuredTeacherBackend,
     build_openrouter_backend,
@@ -113,7 +115,7 @@ def generate_seed_multi_signal_run(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_initial_in_flight: int = 1,
     batch_size: int | None = None,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
@@ -132,28 +134,13 @@ def generate_seed_multi_signal_run(
     )
     normalized_batch_size = _validate_batch_size(batch_size)
     _validate_positive_int(concurrency, "concurrency")
-    adaptive_maximum_in_flight = concurrency
 
     signal_items = list(signal_counts.items())
-    shared_backend = None
-    if backend_factory is None:
-        shared_backend = build_openrouter_backend(
-            model=teacher_model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            request_timeout=request_timeout,
-            max_request_retries=max_request_retries,
-            max_retryable_request_attempts=max_retryable_request_attempts,
-            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-            adaptive_initial_in_flight=adaptive_initial_in_flight,
-        )
 
     def run_signal(item: tuple[str, int]) -> DistillationRunResult:
         signal, count = item
         prompt_records = build_seed_prompt_records(signal=signal, count=count, start_index=start_index)
-        backend = backend_factory(signal) if backend_factory is not None else shared_backend
+        backend = backend_factory(signal) if backend_factory is not None else None
         batch_concurrency = concurrency if len(signal_items) == 1 else 1
         return _generate_and_materialize_signal_batches(
             signal=signal,
@@ -204,8 +191,6 @@ def generate_seed_multi_signal_run(
             "start_index": start_index,
             "batch_size": normalized_batch_size,
             "concurrency": concurrency,
-            "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
-            "adaptive_initial_in_flight": adaptive_initial_in_flight,
         },
     )
 
@@ -266,38 +251,32 @@ def _generate_and_materialize_signal_batches(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_initial_in_flight: int = 1,
     batch_size: int | None = None,
     concurrency: int = 1,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
-    batches = _chunks(prompt_records, batch_size)
-    if len(batches) == 1:
-        return generate_and_materialize_signal_batch(
-            signal=signal,
-            prompt_records=batches[0],
-            output_dir=output_dir,
-            manifest_dir=manifest_dir,
-            teacher_model=teacher_model,
-            generation_run=generation_run,
-            max_tokens=max_tokens,
-            token_target=token_target,
-            temperature=temperature,
-            top_p=top_p,
-            request_timeout=request_timeout,
-            max_request_retries=max_request_retries,
-            max_retryable_request_attempts=max_retryable_request_attempts,
-            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-            adaptive_initial_in_flight=adaptive_initial_in_flight,
-            backend=backend,
-        )
+    prompt_records = list(prompt_records)
+    maximum_batch_size = batch_size or len(prompt_records)
+    batch_controller = AdaptiveBatchSizeController(maximum=maximum_batch_size, minimum=1)
+    active_backend = backend or build_openrouter_backend(
+        model=teacher_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+    )
 
-    def run_batch(item: tuple[int, list[Mapping[str, Any]]]) -> DistillationRunResult:
-        batch_number, batch_records = item
+    def run_batch(job: dict[str, Any]) -> DistillationRunResult:
+        batch_number = job["batch_number"]
         return generate_and_materialize_signal_batch(
             signal=signal,
-            prompt_records=batch_records,
+            prompt_records=job["prompt_records"],
             output_dir=output_dir,
             manifest_dir=manifest_dir,
             teacher_model=teacher_model,
@@ -314,15 +293,52 @@ def _generate_and_materialize_signal_batches(
             retry_max_elapsed_seconds=retry_max_elapsed_seconds,
             adaptive_maximum_in_flight=adaptive_maximum_in_flight,
             adaptive_initial_in_flight=adaptive_initial_in_flight,
-            backend=backend,
+            backend=active_backend,
         )
 
-    batch_items = list(enumerate(batches, start=1))
-    if concurrency == 1 or len(batch_items) == 1:
-        batch_results = [run_batch(item) for item in batch_items]
-    else:
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            batch_results = list(executor.map(run_batch, batch_items))
+    pending_ranges: deque[tuple[int, int]] = deque([(0, len(prompt_records))])
+    active: dict[Any, dict[str, Any]] = {}
+    jobs: list[dict[str, Any]] = []
+    next_batch_number = 1
+
+    def submit_available(executor: ThreadPoolExecutor) -> None:
+        nonlocal next_batch_number
+        while pending_ranges and len(active) < concurrency:
+            offset, remaining = pending_ranges.popleft()
+            size = min(batch_controller.current, remaining)
+            if remaining > size:
+                pending_ranges.appendleft((offset + size, remaining - size))
+            job = {
+                "batch_number": next_batch_number,
+                "batch_start_offset": offset,
+                "prompt_records": list(prompt_records[offset : offset + size]),
+            }
+            next_batch_number += 1
+            active[executor.submit(run_batch, job)] = job
+
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        submit_available(executor)
+        while active:
+            done, _ = wait(set(active), return_when=FIRST_COMPLETED)
+            for future in done:
+                job = active.pop(future)
+                try:
+                    result = future.result()
+                except Exception:
+                    batch_controller.record_failure()
+                    if len(job["prompt_records"]) <= batch_controller.minimum:
+                        raise
+                    pending_ranges.appendleft((job["batch_start_offset"], len(job["prompt_records"])))
+                    submit_available(executor)
+                    continue
+                batch_controller.record_success()
+                job["result"] = result
+                job["adaptive_batch_size"] = batch_controller.snapshot()
+                jobs.append(job)
+                submit_available(executor)
+
+    jobs.sort(key=lambda item: (item["batch_start_offset"], item["batch_number"]))
+    batch_results = [job["result"] for job in jobs]
 
     public_rows: list[dict[str, Any]] = []
     for batch_result in batch_results:
@@ -343,8 +359,9 @@ def _generate_and_materialize_signal_batches(
         metadata={
             "prompt_count": len(prompt_records),
             "batch_count": len(batch_results),
-            "batch_size": batch_size,
+            "batch_size": maximum_batch_size,
             "concurrency": concurrency,
+            **batch_controller.snapshot(),
             "batch_manifests": [str(result.manifest_path) for result in batch_results],
         },
     )
