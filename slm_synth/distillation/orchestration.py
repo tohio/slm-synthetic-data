@@ -9,7 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from slm_synth.distillation.generation import StructuredTeacherBackend, generate_and_materialize_signal_batch
+from slm_synth.distillation.generation import (
+    StructuredTeacherBackend,
+    build_openrouter_backend,
+    generate_and_materialize_signal_batch,
+)
 from slm_synth.distillation.io import write_jsonl, write_manifest, write_run_manifest
 from slm_synth.distillation.runs import DistillationRunResult
 from slm_synth.distillation.seeds import build_seed_prompt_records
@@ -109,7 +113,7 @@ def generate_seed_multi_signal_run(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
     batch_size: int | None = None,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
@@ -128,13 +132,28 @@ def generate_seed_multi_signal_run(
     )
     normalized_batch_size = _validate_batch_size(batch_size)
     _validate_positive_int(concurrency, "concurrency")
+    adaptive_maximum_in_flight = concurrency
 
     signal_items = list(signal_counts.items())
+    shared_backend = None
+    if backend_factory is None:
+        shared_backend = build_openrouter_backend(
+            model=teacher_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+        )
 
     def run_signal(item: tuple[str, int]) -> DistillationRunResult:
         signal, count = item
         prompt_records = build_seed_prompt_records(signal=signal, count=count, start_index=start_index)
-        backend = backend_factory(signal) if backend_factory is not None else None
+        backend = backend_factory(signal) if backend_factory is not None else shared_backend
         batch_concurrency = concurrency if len(signal_items) == 1 else 1
         return _generate_and_materialize_signal_batches(
             signal=signal,
@@ -185,6 +204,8 @@ def generate_seed_multi_signal_run(
             "start_index": start_index,
             "batch_size": normalized_batch_size,
             "concurrency": concurrency,
+            "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
+            "adaptive_initial_in_flight": adaptive_initial_in_flight,
         },
     )
 
@@ -245,7 +266,7 @@ def _generate_and_materialize_signal_batches(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
     batch_size: int | None = None,
     concurrency: int = 1,
     backend: StructuredTeacherBackend | None = None,

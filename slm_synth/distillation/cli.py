@@ -174,7 +174,7 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         max_request_retries=args.max_request_retries,
         max_retryable_request_attempts=args.max_retryable_request_attempts,
         retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
+        adaptive_maximum_in_flight=args.concurrency,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
         batch_size=args.batch_size,
         concurrency=args.concurrency,
@@ -266,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
     generate_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
     generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
-    generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=1)
+    generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
     generate_parser.set_defaults(func=cmd_generate_batch)
 
 
@@ -295,7 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
     seed_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
     seed_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
-    seed_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=1)
+    seed_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
     seed_run_parser.add_argument("--batch-size", type=int, default=None)
     seed_run_parser.add_argument("--concurrency", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)

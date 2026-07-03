@@ -60,8 +60,12 @@ def test_generate_sft_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["teacher_provider"] == "openrouter"
     assert manifest["metadata"]["batch_size"] == 2
     assert manifest["metadata"]["concurrency"] == 2
+    assert manifest["metadata"]["adaptive_maximum_in_flight"] == 2
+    assert manifest["metadata"]["adaptive_initial_in_flight"] == 8
     assert [item["row_count"] for item in manifest["datasets"]] == [2, 1]
     assert [item["batch_number"] for item in manifest["datasets"]] == [1, 2]
+    batch_manifest = json.loads((tmp_path / "manifests" / "basic_arithmetic_qa.batch000001.sft-live-run-001.manifest.json").read_text())
+    assert batch_manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 12
 
 
 def test_generate_sft_llm_run_supports_multiple_families(tmp_path):

@@ -38,7 +38,7 @@ def build_openrouter_backend(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
 ) -> "LLMBackend":
     """Create the supported production teacher backend.
 
@@ -73,6 +73,21 @@ def generate_teacher_batch_response(
     The rendered prompt sends only id + prompt fields. Local signal/metadata remain
     local and are reattached only during materialization.
     """
+    data, _telemetry = generate_teacher_batch_response_with_metadata(
+        signal=signal,
+        prompt_records=prompt_records,
+        backend=backend,
+    )
+    return data
+
+
+def generate_teacher_batch_response_with_metadata(
+    *,
+    signal: str,
+    prompt_records: Sequence[Mapping[str, Any]],
+    backend: StructuredTeacherBackend,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Call a teacher backend and return the response object plus operational telemetry."""
     normalized_signal = validate_signal(signal)
     rendered_prompt = render_teacher_batch_prompt(signal=normalized_signal, prompt_records=prompt_records)
     result = backend.generate_structured_object_with_metadata(
@@ -83,7 +98,8 @@ def generate_teacher_batch_response(
     data = result.get("data")
     if not isinstance(data, Mapping):
         raise ValueError("teacher backend returned non-object data")
-    return dict(data)
+    telemetry = result.get("telemetry")
+    return dict(data), dict(telemetry) if isinstance(telemetry, Mapping) else {}
 
 
 def generate_and_materialize_signal_batch(
@@ -105,7 +121,7 @@ def generate_and_materialize_signal_batch(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
     """Generate one signal batch with OpenRouter and write dataset + manifest."""
@@ -122,7 +138,7 @@ def generate_and_materialize_signal_batch(
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
     )
-    teacher_response = generate_teacher_batch_response(
+    teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
         signal=normalized_signal,
         prompt_records=prompt_records,
         backend=active_backend,
@@ -141,5 +157,6 @@ def generate_and_materialize_signal_batch(
         manifest_filename=manifest_filename,
         metadata={
             "prompt_count": len(prompt_records),
+            "llm_telemetry": telemetry,
         },
     )

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from slm_synth.dpo.generation import StructuredTeacherBackend, generate_llm_batch
+from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
 from slm_synth.dpo.io import write_jsonl
 from slm_synth.dpo.manifest import write_manifest, write_run_manifest
 from slm_synth.dpo.seeds import DPO_SEED_FAMILIES, build_seed_rows
@@ -222,7 +222,7 @@ def generate_llm_run(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -235,6 +235,7 @@ def generate_llm_run(
     _validate_positive_int(batch_size, "batch_size")
     _validate_positive_int(start_index, "start_index")
     _validate_positive_int(concurrency, "concurrency")
+    adaptive_maximum_in_flight = concurrency
 
     jobs: list[dict[str, Any]] = []
     for family in resolved_families:
@@ -277,8 +278,21 @@ def generate_llm_run(
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
-            backend=backend,
+            backend=active_backend,
         )
+
+    active_backend = backend or build_openrouter_backend(
+        model=teacher_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+    )
 
     if concurrency == 1:
         results = [run_job(job) for job in jobs]
@@ -312,6 +326,8 @@ def generate_llm_run(
             "count_per_family": count_per_family,
             "batch_size": batch_size,
             "concurrency": concurrency,
+            "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
+            "adaptive_initial_in_flight": adaptive_initial_in_flight,
             "start_index": start_index,
             **dict(metadata or {}),
         },

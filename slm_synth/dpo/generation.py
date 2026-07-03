@@ -60,7 +60,7 @@ def build_openrouter_backend(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
 ) -> "LLMBackend":
     """Create the supported production DPO teacher backend."""
     from slm_synth.llm import LLMBackend
@@ -114,6 +114,16 @@ def generate_teacher_batch_response(
     backend: StructuredTeacherBackend,
 ) -> dict[str, Any]:
     """Call a teacher backend and return the strict DPO batch response object."""
+    data, _telemetry = generate_teacher_batch_response_with_metadata(specs=specs, backend=backend)
+    return data
+
+
+def generate_teacher_batch_response_with_metadata(
+    *,
+    specs: Iterable[Mapping[str, Any]],
+    backend: StructuredTeacherBackend,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Call a teacher backend and return the response object plus operational telemetry."""
     validated_specs = [validate_dpo_spec(spec) for spec in specs]
     rendered_prompt = render_dpo_batch_prompt(validated_specs)
     result = backend.generate_structured_object_with_metadata(
@@ -124,7 +134,8 @@ def generate_teacher_batch_response(
     data = result.get("data")
     if not isinstance(data, Mapping):
         raise ValueError("DPO teacher backend returned non-object data")
-    return dict(data)
+    telemetry = result.get("telemetry")
+    return dict(data), dict(telemetry) if isinstance(telemetry, Mapping) else {}
 
 
 def generate_llm_batch(
@@ -143,7 +154,7 @@ def generate_llm_batch(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
@@ -166,7 +177,7 @@ def generate_llm_batch(
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
     )
-    teacher_response = generate_teacher_batch_response(
+    teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
         specs=validated_specs,
         backend=active_backend,
     )
@@ -181,6 +192,7 @@ def generate_llm_batch(
         metadata={
             "generation_mode": "live_llm_batch",
             "spec_count": len(validated_specs),
+            "llm_telemetry": telemetry,
             **dict(metadata or {}),
         },
         holdout_registry=holdout_registry,
@@ -203,7 +215,7 @@ def generate_llm_batch_from_files(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,

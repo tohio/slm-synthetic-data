@@ -364,8 +364,8 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "max_request_retries": 3,
             "max_retryable_request_attempts": 20,
             "retry_max_elapsed_seconds": 1800.0,
-            "adaptive_maximum_in_flight": 1,
-            "adaptive_initial_in_flight": 1,
+            "adaptive_maximum_in_flight": 2,
+            "adaptive_initial_in_flight": 8,
             "concurrency": 2,
             "run_manifest_filename": "custom.manifest.json",
         }

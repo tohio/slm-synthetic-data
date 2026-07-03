@@ -26,7 +26,8 @@ class SignalAwareBackend:
                         "response": f"Response for {self.signal}.",
                     }
                 ]
-            }
+            },
+            "telemetry": {"adaptive_peak_in_flight_limit": 2},
         }
 
 
@@ -108,6 +109,7 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert cloud_manifest["teacher_provider"] == "openrouter"
     assert database_manifest["teacher_model"] == "openai/gpt-4.1-mini"
     assert cloud_manifest["metadata"]["prompt_count"] == 1
+    assert cloud_manifest["metadata"]["llm_telemetry"]["adaptive_peak_in_flight_limit"] == 2
     assert database_manifest["metadata"]["prompt_count"] == 1
     assert run_manifest["generation_run"] == "smoke-001"
     assert run_manifest["signals"] == ["cloud", "database"]
@@ -116,6 +118,8 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert run_manifest["datasets"][1]["signal"] == "database"
     assert run_manifest["metadata"]["signal_count"] == 2
     assert run_manifest["metadata"]["concurrency"] == 2
+    assert run_manifest["metadata"]["adaptive_maximum_in_flight"] == 2
+    assert run_manifest["metadata"]["adaptive_initial_in_flight"] == 8
 
     assert backends["cloud"].calls[0]["schema_name"] == "cloud_distillation_batch"
     assert backends["database"].calls[0]["schema_name"] == "database_distillation_batch"
