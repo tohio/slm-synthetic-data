@@ -250,9 +250,18 @@ class GroundedBatchStore:
                 adaptive_batch_size_observed_peak,
                 int(telemetry.get("adaptive_batch_size_observed_peak", 0) or 0),
             )
-            adaptive_batch_size_increases += int(telemetry.get("adaptive_batch_size_increases", 0) or 0)
-            adaptive_batch_size_decreases += int(telemetry.get("adaptive_batch_size_decreases", 0) or 0)
-            adaptive_batch_size_failures += int(telemetry.get("adaptive_batch_size_failures", 0) or 0)
+            adaptive_batch_size_increases = max(
+                adaptive_batch_size_increases,
+                int(telemetry.get("adaptive_batch_size_increases", 0) or 0),
+            )
+            adaptive_batch_size_decreases = max(
+                adaptive_batch_size_decreases,
+                int(telemetry.get("adaptive_batch_size_decreases", 0) or 0),
+            )
+            adaptive_batch_size_failures = max(
+                adaptive_batch_size_failures,
+                int(telemetry.get("adaptive_batch_size_failures", 0) or 0),
+            )
 
         for batch_id in self.failed_batch_ids():
             payload = self._load(self._failed_path(batch_id))
@@ -299,9 +308,18 @@ class GroundedBatchStore:
                 adaptive_batch_size_observed_peak,
                 int(telemetry.get("adaptive_batch_size_observed_peak", 0) or 0),
             )
-            adaptive_batch_size_increases += int(telemetry.get("adaptive_batch_size_increases", 0) or 0)
-            adaptive_batch_size_decreases += int(telemetry.get("adaptive_batch_size_decreases", 0) or 0)
-            adaptive_batch_size_failures += int(telemetry.get("adaptive_batch_size_failures", 0) or 0)
+            adaptive_batch_size_increases = max(
+                adaptive_batch_size_increases,
+                int(telemetry.get("adaptive_batch_size_increases", 0) or 0),
+            )
+            adaptive_batch_size_decreases = max(
+                adaptive_batch_size_decreases,
+                int(telemetry.get("adaptive_batch_size_decreases", 0) or 0),
+            )
+            adaptive_batch_size_failures = max(
+                adaptive_batch_size_failures,
+                int(telemetry.get("adaptive_batch_size_failures", 0) or 0),
+            )
 
         return {
             "batches": batches,

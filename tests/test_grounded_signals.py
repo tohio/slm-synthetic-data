@@ -341,7 +341,7 @@ def test_run_signal_requeues_exhausted_retryable_provider_failure_and_continues(
 
     generate.run_signal("factual_restraint", cfg, tmp_path)
 
-    assert llm.calls == 2
+    assert llm.calls == 3
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
     rejection = (tmp_path / "rejected" / "factual_restraint.jsonl").read_text()
     assert "requeued_retryable_provider_failure" in rejection

@@ -237,6 +237,7 @@ def generate_llm_run(
     _validate_positive_int(batch_size, "batch_size")
     _validate_positive_int(start_index, "start_index")
     _validate_positive_int(concurrency, "concurrency")
+    adaptive_maximum_in_flight = concurrency
 
     active_backend = backend or build_openrouter_backend(
         model=teacher_model,
@@ -361,6 +362,8 @@ def generate_llm_run(
             "count_per_family": count_per_family,
             "batch_size": batch_size,
             "concurrency": concurrency,
+            "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
+            "adaptive_initial_in_flight": adaptive_initial_in_flight,
             **batch_controller.snapshot(),
             "start_index": start_index,
             **dict(metadata or {}),
