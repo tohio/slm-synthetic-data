@@ -34,13 +34,15 @@ DISTILL_TARGET_RUN ?= distill-target-001
 DISTILL_REPORT_RUN ?= $(DISTILL_RUN)
 DISTILL_TARGET ?= smoke
 DISTILL_TARGET_SIZE ?= pilot
+DISTILL_SMOKE_COUNT_PER_SIGNAL ?= 2
+DISTILL_BATCH_SIZE ?= 5
 DISTILL_SIGNALS ?=
 DISTILL_SIGNALS_ARG := $(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),)
 DISTILL_ESTIMATED_TOKENS_PER_ROW ?= 512
 DISTILL_OUTPUT_DIR ?= data/distillation/datasets
 DISTILL_MANIFEST_DIR ?= data/distillation/manifests
 DISTILL_MODEL ?= $(MODEL)
-DISTILL_MAX_TOKENS ?= 1024
+DISTILL_MAX_TOKENS ?= 4096
 DISTILL_COVERAGE_REPORT ?= data/distillation/coverage.json
 DISTILL_DATASET_CARD ?= data/distillation/README.md
 DISTILL_DATASET_NAME ?= SLM Synthetic Distillation
@@ -177,13 +179,13 @@ pretrain-push:
 distill-smoke:
 > $(PYTHON) -m slm_synth.distillation.cli generate-seed-run \
 >   $(DISTILL_SIGNALS_ARG) \
->   --target-preset $(DISTILL_TARGET) \
->   --estimated-tokens-per-row $(DISTILL_ESTIMATED_TOKENS_PER_ROW) \
+>   --count-per-signal $(DISTILL_SMOKE_COUNT_PER_SIGNAL) \
 >   --output-dir $(DISTILL_OUTPUT_DIR) \
 >   --manifest-dir $(DISTILL_MANIFEST_DIR) \
 >   --teacher-model $(DISTILL_MODEL) \
 >   --generation-run $(DISTILL_RUN) \
->   --max-tokens $(DISTILL_MAX_TOKENS)
+>   --max-tokens $(DISTILL_MAX_TOKENS) \
+>   --batch-size $(DISTILL_BATCH_SIZE)
 > $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_RUN)
 
 distill-generate:
@@ -195,7 +197,8 @@ distill-generate:
 >   --manifest-dir $(DISTILL_MANIFEST_DIR) \
 >   --teacher-model $(DISTILL_MODEL) \
 >   --generation-run $(DISTILL_TARGET_RUN) \
->   --max-tokens $(DISTILL_MAX_TOKENS)
+>   --max-tokens $(DISTILL_MAX_TOKENS) \
+>   --batch-size $(DISTILL_BATCH_SIZE)
 > $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_TARGET_RUN)
 
 distill-report:

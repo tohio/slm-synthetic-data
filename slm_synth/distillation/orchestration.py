@@ -7,11 +7,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from slm_synth.distillation.generation import StructuredTeacherBackend, generate_and_materialize_signal_batch
-from slm_synth.distillation.io import write_run_manifest
-from slm_synth.distillation.runs import DistillationRunResult
+from slm_synth.distillation.batches import validate_teacher_batch_response
+from slm_synth.distillation.generation import (
+    StructuredTeacherBackend,
+    build_openrouter_backend,
+    generate_teacher_batch_response,
+)
+from slm_synth.distillation.io import write_manifest, write_run_manifest, write_signal_dataset
+from slm_synth.distillation.runs import DistillationRunResult, default_manifest_path
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
+from slm_synth.distillation.validate import merge_teacher_outputs
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,7 @@ def generate_seed_multi_signal_run(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 1,
+    batch_size: int | None = None,
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
 ) -> MultiSignalRunResult:
@@ -126,12 +133,13 @@ def generate_seed_multi_signal_run(
         count_per_signal=count_per_signal,
         counts_by_signal=counts_by_signal,
     )
+    normalized_batch_size = _validate_batch_size(batch_size)
 
     results: list[DistillationRunResult] = []
     for signal, count in signal_counts.items():
         prompt_records = build_seed_prompt_records(signal=signal, count=count, start_index=start_index)
         backend = backend_factory(signal) if backend_factory is not None else None
-        result = generate_and_materialize_signal_batch(
+        result = _generate_and_materialize_signal_batches(
             signal=signal,
             prompt_records=prompt_records,
             output_dir=output_dir,
@@ -148,6 +156,7 @@ def generate_seed_multi_signal_run(
             retry_max_elapsed_seconds=retry_max_elapsed_seconds,
             adaptive_maximum_in_flight=adaptive_maximum_in_flight,
             adaptive_initial_in_flight=adaptive_initial_in_flight,
+            batch_size=normalized_batch_size,
             backend=backend,
         )
         results.append(result)
@@ -185,3 +194,97 @@ def _validate_count(count: Any) -> int:
     if not isinstance(count, int) or count < 1:
         raise ValueError("signal prompt counts must be positive integers")
     return count
+
+
+def _validate_batch_size(batch_size: Any) -> int | None:
+    if batch_size is None:
+        return None
+    if not isinstance(batch_size, int) or batch_size < 1:
+        raise ValueError("batch_size must be a positive integer")
+    return batch_size
+
+
+def _chunks(records: Sequence[Mapping[str, Any]], batch_size: int | None) -> list[list[Mapping[str, Any]]]:
+    if batch_size is None or batch_size >= len(records):
+        return [list(records)]
+    return [list(records[index : index + batch_size]) for index in range(0, len(records), batch_size)]
+
+
+def _generate_and_materialize_signal_batches(
+    *,
+    signal: str,
+    prompt_records: Sequence[Mapping[str, Any]],
+    output_dir: str | Path,
+    manifest_dir: str | Path,
+    teacher_model: str,
+    generation_run: str,
+    max_tokens: int,
+    token_target: str | int | None = None,
+    temperature: float = 0.2,
+    top_p: float = 0.95,
+    request_timeout: float | None = None,
+    max_request_retries: int = 3,
+    max_retryable_request_attempts: int = 20,
+    retry_max_elapsed_seconds: float = 1800.0,
+    adaptive_maximum_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 1,
+    batch_size: int | None = None,
+    backend: StructuredTeacherBackend | None = None,
+) -> DistillationRunResult:
+    normalized_signal = validate_signal(signal)
+    batches = _chunks(prompt_records, batch_size)
+    active_backend = backend or build_openrouter_backend(
+        model=teacher_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+    )
+
+    public_rows: list[dict[str, Any]] = []
+    for batch in batches:
+        teacher_response = generate_teacher_batch_response(
+            signal=normalized_signal,
+            prompt_records=batch,
+            backend=active_backend,
+        )
+        teacher_outputs = validate_teacher_batch_response(teacher_response, expected_count=len(batch))
+        public_rows.extend(merge_teacher_outputs(batch, teacher_outputs))
+
+    dataset_path = write_signal_dataset(
+        signal=normalized_signal,
+        rows=public_rows,
+        output_dir=output_dir,
+    )
+    manifest_path = default_manifest_path(
+        manifest_dir=manifest_dir,
+        signal=normalized_signal,
+        generation_run=generation_run,
+    )
+    write_manifest(
+        manifest_path=manifest_path,
+        signal=normalized_signal,
+        dataset_path=dataset_path,
+        row_count=len(public_rows),
+        teacher_model=teacher_model,
+        teacher_provider="openrouter",
+        generation_run=generation_run,
+        token_target=token_target,
+        metadata={
+            "prompt_count": len(prompt_records),
+            "batch_count": len(batches),
+            "batch_size": batch_size,
+        },
+    )
+
+    return DistillationRunResult(
+        signal=normalized_signal,
+        dataset_path=dataset_path,
+        manifest_path=manifest_path,
+        row_count=len(public_rows),
+    )
