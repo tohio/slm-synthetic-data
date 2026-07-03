@@ -133,3 +133,9 @@ def test_sft_batch_schema_matches_response_contract():
     item_schema = SFT_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
     assert item_schema["required"] == ["id", "messages", "metadata"]
     assert item_schema["additionalProperties"] is False
+    message_schema = item_schema["properties"]["messages"]["items"]
+    assert message_schema["required"] == ["role", "content"]
+    assert message_schema["properties"]["role"]["enum"] == ["user", "assistant"]
+    metadata_schema = item_schema["properties"]["metadata"]
+    assert metadata_schema["additionalProperties"] is False
+    assert metadata_schema["required"] == ["category", "difficulty", "template_family", "eval_family"]

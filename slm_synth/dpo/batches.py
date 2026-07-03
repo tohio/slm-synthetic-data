@@ -11,6 +11,35 @@ from slm_synth.dpo.specs import teacher_visible_dpo_spec
 
 DPO_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
+CHAT_MESSAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["role", "content"],
+    "properties": {
+        "role": {"type": "string", "enum": ["user", "assistant"]},
+        "content": {"type": "string", "minLength": 1},
+    },
+}
+
+DPO_METADATA_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "category",
+        "difficulty",
+        "template_family",
+        "eval_family",
+        "failure_mode",
+    ],
+    "properties": {
+        "category": {"type": "string", "minLength": 1},
+        "difficulty": {"type": "integer"},
+        "template_family": {"type": "string", "minLength": 1},
+        "eval_family": {"type": ["string", "null"]},
+        "failure_mode": {"type": "string", "minLength": 1},
+    },
+}
+
 DPO_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -24,10 +53,19 @@ DPO_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
                 "required": ["id", "prompt", "chosen", "rejected", "metadata"],
                 "properties": {
                     "id": {"type": "string", "minLength": 1},
-                    "prompt": {"type": "array"},
-                    "chosen": {"type": "array"},
-                    "rejected": {"type": "array"},
-                    "metadata": {"type": "object"},
+                    "prompt": {
+                        "type": "array",
+                        "items": CHAT_MESSAGE_SCHEMA,
+                    },
+                    "chosen": {
+                        "type": "array",
+                        "items": CHAT_MESSAGE_SCHEMA,
+                    },
+                    "rejected": {
+                        "type": "array",
+                        "items": CHAT_MESSAGE_SCHEMA,
+                    },
+                    "metadata": DPO_METADATA_SCHEMA,
                 },
             },
         }

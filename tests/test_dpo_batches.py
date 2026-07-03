@@ -129,3 +129,16 @@ def test_dpo_batch_schema_matches_response_contract():
     item_schema = DPO_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
     assert item_schema["required"] == ["id", "prompt", "chosen", "rejected", "metadata"]
     assert item_schema["additionalProperties"] is False
+    for field in ("prompt", "chosen", "rejected"):
+        message_schema = item_schema["properties"][field]["items"]
+        assert message_schema["required"] == ["role", "content"]
+        assert message_schema["properties"]["role"]["enum"] == ["user", "assistant"]
+    metadata_schema = item_schema["properties"]["metadata"]
+    assert metadata_schema["additionalProperties"] is False
+    assert metadata_schema["required"] == [
+        "category",
+        "difficulty",
+        "template_family",
+        "eval_family",
+        "failure_mode",
+    ]

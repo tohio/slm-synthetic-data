@@ -11,6 +11,28 @@ from slm_synth.sft.specs import teacher_visible_sft_spec
 
 SFT_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
+CHAT_MESSAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["role", "content"],
+    "properties": {
+        "role": {"type": "string", "enum": ["user", "assistant"]},
+        "content": {"type": "string", "minLength": 1},
+    },
+}
+
+SFT_METADATA_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["category", "difficulty", "template_family", "eval_family"],
+    "properties": {
+        "category": {"type": "string", "minLength": 1},
+        "difficulty": {"type": "integer"},
+        "template_family": {"type": "string", "minLength": 1},
+        "eval_family": {"type": ["string", "null"]},
+    },
+}
+
 SFT_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -24,8 +46,11 @@ SFT_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
                 "required": ["id", "messages", "metadata"],
                 "properties": {
                     "id": {"type": "string", "minLength": 1},
-                    "messages": {"type": "array"},
-                    "metadata": {"type": "object"},
+                    "messages": {
+                        "type": "array",
+                        "items": CHAT_MESSAGE_SCHEMA,
+                    },
+                    "metadata": SFT_METADATA_SCHEMA,
                 },
             },
         }
