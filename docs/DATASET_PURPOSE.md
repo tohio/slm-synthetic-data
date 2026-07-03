@@ -1,6 +1,6 @@
 # Dataset Purpose
 
-This repository produces two different dataset families. They are intentionally separate.
+This repository produces four dataset families. They are separate because each family has a different training objective and public row contract.
 
 ## Pretraining Synthetic Data
 
@@ -28,7 +28,67 @@ Public distillation rows use this schema:
 
 `reasoning` may also be a list of strings when step-by-step supervision is useful.
 
-Teacher model, provider, generation run, signal, difficulty, and internal metadata are excluded from public rows. Those details are stored in local manifests and dataset cards.
+Teacher model, provider, generation run, signal, token target, difficulty, and internal metadata are excluded from public rows. Those details are stored in local manifests and dataset cards.
+
+## SFT Data
+
+SFT records are chat-style supervised examples.
+
+Public SFT rows use this schema:
+
+```json
+{
+  "id": "string",
+  "messages": [
+    {"role": "user", "content": "string"},
+    {"role": "assistant", "content": "string"}
+  ],
+  "metadata": {
+    "category": "string",
+    "difficulty": 1,
+    "template_family": "string",
+    "eval_family": "string | null"
+  }
+}
+```
+
+Teacher model, provider, generation run, retries, cost, task variables, and `holdout_key` are excluded from public rows. Run details stay in manifests.
+
+## DPO Data
+
+DPO records are preference examples with a preferred answer and a rejected answer.
+
+Public DPO rows use this schema:
+
+```json
+{
+  "id": "string",
+  "prompt": [{"role": "user", "content": "string"}],
+  "chosen": [{"role": "assistant", "content": "string"}],
+  "rejected": [{"role": "assistant", "content": "string"}],
+  "metadata": {
+    "category": "string",
+    "difficulty": 1,
+    "template_family": "string",
+    "eval_family": "string | null",
+    "failure_mode": "string"
+  }
+}
+```
+
+Teacher model, provider, generation run, retries, cost, task variables, and `holdout_key` are excluded from public rows. Run details stay in manifests.
+
+## Taxonomy
+
+| Field | Meaning | Used by |
+|---|---|---|
+| `category` | Training objective | SFT, DPO |
+| `eval_family` | Eval-shaped behavior pattern | SFT, DPO, holdout checks |
+| `template_family` | Generation/template surface | SFT, DPO |
+| `failure_mode` | Rejected-answer behavior | DPO only |
+| `holdout_key` | Exact local structured holdout guard | Spec validation and materialization |
+
+Same-family training examples are allowed when variables and templates differ from eval items. Exact eval prompts and matching structured holdout keys are rejected.
 
 ## Token Targets
 
