@@ -1,6 +1,6 @@
 import json
 
-from slm_synth.validate import validate_signal
+from slm_synth.pretrain.validate import validate_signal
 
 
 def test_validate_signal_writes_math_mcq_without_raw_verification_fields(tmp_path):

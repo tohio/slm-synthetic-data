@@ -9,12 +9,12 @@ from slm_synth.llm import (
     RetryableProviderExhaustedError,
     StructuredRenderedResponseError,
 )
-from slm_synth.sources.arithmetic import ArithmeticGenerator
-from slm_synth.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
-from slm_synth.sources.educational_qa_mcq_math import EducationalQAMCQMathGenerator
-from slm_synth.sources.factual_restraint import FactualRestraintGenerator
-from slm_synth.sources.task_code import TaskCodeGenerator
-from slm_synth.sources.two_pass import order_responses
+from slm_synth.pretrain.sources.arithmetic import ArithmeticGenerator
+from slm_synth.pretrain.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
+from slm_synth.pretrain.sources.educational_qa_mcq_math import EducationalQAMCQMathGenerator
+from slm_synth.pretrain.sources.factual_restraint import FactualRestraintGenerator
+from slm_synth.pretrain.sources.task_code import TaskCodeGenerator
+from slm_synth.pretrain.sources.two_pass import order_responses
 
 
 class MockArithmeticCandidateLLM:

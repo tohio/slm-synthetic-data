@@ -40,10 +40,6 @@ Prompts should:
 After changing pretraining prompts or prompt wrappers:
 
 ```bash
-make configure TOKENS=100000 BATCH=32 CONCURRENCY=4 RUN=prompt_smoke
-make preflight-artifacts
-make generate
-make validate
-make dedup
-make report-duplicates STAGE=deduped
+make pretrain-smoke PRETRAIN_RUN=prompt-smoke-001
+make pretrain-inspect
 ```

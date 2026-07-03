@@ -1,17 +1,15 @@
 # SLM Synthetic Data
 
-Synthetic data generation for the SLM projects.
+Synthetic dataset generation for the SLM training stack.
 
-The repository has four workflows:
-
-| Workflow | Package | Public output | Purpose |
+| Dataset | Smoke Run | Target Run | Public Output |
 |---|---|---|---|
-| Pretraining synthetic data | `slm_synth.pretrain` | Validated and deduped JSONL records | Targeted signals for pretraining or continued pretraining |
-| Response distillation | `slm_synth.distillation` | Prompt-response JSONL rows | Teacher response distillation datasets |
-| SFT | `slm_synth.sft` | Chat-message JSONL rows | Supervised instruction/chat examples |
-| DPO | `slm_synth.dpo` | Preference JSONL rows | Chosen/rejected preference examples |
+| Pretraining synthetic data | `make pretrain-smoke` | `make pretrain-generate` | `data/runs/<run>/deduped` |
+| Response distillation | `make distill-smoke` | `make distill-generate` | `data/distillation/datasets` |
+| SFT | `make sft-smoke` | `make sft-generate` | `data/sft/datasets` |
+| DPO | `make dpo-smoke` | `make dpo-generate` | `data/dpo/datasets` |
 
-OpenRouter is the only supported production provider. Shared provider, retry, concurrency, and structured-output logic lives in `slm_synth/llm.py`. Unsupported providers fail fast.
+OpenRouter is the only supported live provider. Provider calls, retries, concurrency, and structured-output handling live in `slm_synth/llm.py`.
 
 ## Setup
 
@@ -30,22 +28,21 @@ OPENROUTER_API_KEY=...
 HF_TOKEN=...       # only needed for Hugging Face publishing
 ```
 
-## Choose A Generation Target
+The default live model is:
 
-Pick the dataset you want to produce, then run the matching section below.
+```bash
+MODEL=openai/gpt-4.1-mini
+```
 
-| Target | Use This Section | Main Output |
-|---|---|---|
-| Pretraining signals | [Generate Pretraining Data](#generate-pretraining-data) | `data/runs/<run>/deduped` |
-| Teacher response data | [Generate Response Distillation Data](#generate-response-distillation-data) | `data/distillation/datasets` |
-| Supervised chat data | [Generate SFT Data](#generate-sft-data) | `data/sft/datasets` |
-| Preference data | [Generate DPO Data](#generate-dpo-data) | `data/dpo/datasets` |
+Override it on any generation command:
 
-For a new run, start with the small command first, inspect the output, then run the target command with the row or token count you want.
+```bash
+make sft-smoke MODEL=<provider/model>
+```
 
-## Generate Pretraining Data
+## Pretraining
 
-Pretraining data is generated from configured grounded signals, then validated and deduped.
+Pretraining data is grounded synthetic text for continued pretraining or mixing into a broader pretraining corpus.
 
 Supported signals:
 
@@ -57,58 +54,92 @@ educational_qa_mcq_general
 factual_restraint
 ```
 
-### Small Smoke Run
+Small run:
 
 ```bash
-make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_smoke
-make preflight-artifacts
-make generate
-make report-artifacts
-make validate
-make dedup
-make pretrain-generate-manifest
-make pretrain-report-coverage
-make report-duplicates STAGE=deduped
-make report-lengths STAGE=deduped
+make pretrain-smoke
+make pretrain-inspect
 ```
 
-Production-sized configuration:
+Target run:
 
 ```bash
-make production-config CONCURRENCY=4
+make pretrain-generate \
+  PRETRAIN_TARGET_TOKENS=1000000 \
+  PRETRAIN_TARGET_CONCURRENCY=4
+
+make pretrain-inspect
 ```
+
+Useful variables:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PRETRAIN_TOKENS` | `100000` | Smoke token target |
+| `PRETRAIN_TARGET_TOKENS` | `1000000` | Target token target |
+| `PRETRAIN_CONCURRENCY` | `1` | Smoke request concurrency |
+| `PRETRAIN_TARGET_CONCURRENCY` | `4` | Target request concurrency |
+| `PRETRAIN_MODEL` | `$(MODEL)` | Pretraining model |
+| `PRETRAIN_SIGNAL` | unset | Optional single-signal filter |
 
 ## Response Distillation
 
-Distillation rows use this public schema:
+Distillation data is teacher prompt/response supervision.
+
+Public row schema:
 
 ```json
 {"id": "string", "prompt": "string", "reasoning": null, "response": "string"}
 ```
 
-`reasoning` may also be a list of strings. Teacher model, provider, generation run, token target, signal, and internal metadata stay in manifests and dataset cards.
+Supported signals:
 
-Generate a seed run:
-
-```bash
-make distill-generate-seed-run \
-  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
-  DISTILL_GENERATION_RUN=distill-smoke-001 \
-  DISTILL_TARGET=smoke
+```text
+arithmetic
+cloud
+code
+data_transform
+database
+debugging
+educational_qa
+factual_restraint
+instruction
+planning
 ```
 
-Build a dataset card:
+Small run:
 
 ```bash
-make distill-build-dataset-card \
-  DISTILL_RUN_MANIFEST=data/distillation/manifests/distill-smoke-001.manifest.json \
-  DISTILL_DATASET_CARD=data/distillation/README.md \
-  DISTILL_DATASET_NAME="SLM Synthetic Distillation Smoke"
+make distill-smoke
+make distill-inspect
 ```
+
+Target run:
+
+```bash
+make distill-generate \
+  DISTILL_TARGET_SIZE=pilot \
+  DISTILL_TARGET_RUN=distill-pilot-001
+
+make distill-inspect
+```
+
+Useful variables:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `DISTILL_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
+| `DISTILL_TARGET_SIZE` | `pilot` | Target preset |
+| `DISTILL_BATCH_SIZE` | `5` | Prompts per teacher request |
+| `DISTILL_SIGNALS` | unset | Optional signal list |
+| `DISTILL_MODEL` | `$(MODEL)` | Teacher model |
+| `DISTILL_MAX_TOKENS` | `4096` | Teacher response max tokens |
 
 ## SFT
 
-SFT rows use this public schema:
+SFT data is chat-style supervised instruction data.
+
+Public row schema:
 
 ```json
 {
@@ -126,31 +157,42 @@ SFT rows use this public schema:
 }
 ```
 
-Build no-network task specs:
+Small run:
 
 ```bash
-make sft-build-specs \
-  SFT_SPEC_FAMILY=basic_arithmetic_qa \
-  SFT_COUNT=2 \
-  SFT_SPECS=/tmp/sft.specs.jsonl
+make sft-smoke
+make sft-inspect
 ```
 
-Generate a live OpenRouter run:
+Target run:
 
 ```bash
-make sft-generate-llm-run \
-  SFT_FAMILIES=basic_arithmetic_qa \
-  SFT_COUNT_PER_FAMILY=2 \
-  SFT_BATCH_SIZE=2 \
-  SFT_MAX_WORKERS=1 \
-  SFT_TEACHER_MODEL=openai/gpt-4.1-mini \
-  SFT_GENERATION_RUN=sft-smoke-001 \
-  SFT_MAX_TOKENS=2048
+make sft-generate \
+  SFT_FAMILIES=all \
+  SFT_COUNT_PER_FAMILY=1000 \
+  SFT_CONCURRENCY=2
+
+make sft-inspect
 ```
+
+Useful variables:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `SFT_SMOKE_FAMILIES` | `basic_arithmetic_qa` | Smoke family list |
+| `SFT_FAMILIES` | `all` | Target family list |
+| `SFT_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
+| `SFT_COUNT_PER_FAMILY` | `1000` | Target rows per family |
+| `SFT_BATCH_SIZE` | `5` | Specs per teacher request |
+| `SFT_CONCURRENCY` | `1` | Request concurrency across run batches |
+| `SFT_MODEL` | `$(MODEL)` | Teacher model |
+| `SFT_MAX_TOKENS` | `4096` | Teacher response max tokens |
 
 ## DPO
 
-DPO rows use this public schema:
+DPO data is preference supervision with chosen and rejected assistant answers.
+
+Public row schema:
 
 ```json
 {
@@ -168,131 +210,54 @@ DPO rows use this public schema:
 }
 ```
 
-Build no-network task specs:
+Small run:
 
 ```bash
-make dpo-build-specs \
-  DPO_SPEC_FAMILY=basic_arithmetic_qa \
-  DPO_COUNT=2 \
-  DPO_SPECS=/tmp/dpo.specs.jsonl
+make dpo-smoke
+make dpo-inspect
 ```
 
-Generate a live OpenRouter run:
+Target run:
 
 ```bash
-make dpo-generate-llm-run \
-  DPO_FAMILIES=basic_arithmetic_qa \
-  DPO_COUNT_PER_FAMILY=2 \
-  DPO_BATCH_SIZE=2 \
-  DPO_MAX_WORKERS=1 \
-  DPO_TEACHER_MODEL=openai/gpt-4.1-mini \
-  DPO_GENERATION_RUN=dpo-smoke-001 \
-  DPO_MAX_TOKENS=2048
-```
-
-### Generate Target DPO Data
-
-Set `DPO_COUNT_PER_FAMILY` to the target number of rows per family.
-
-```bash
-make dpo-generate-llm-run \
+make dpo-generate \
   DPO_FAMILIES=all \
   DPO_COUNT_PER_FAMILY=1000 \
-  DPO_BATCH_SIZE=5 \
-  DPO_MAX_WORKERS=2 \
-  DPO_TEACHER_MODEL=openai/gpt-4.1-mini \
-  DPO_GENERATION_RUN=dpo-target-001 \
-  DPO_MAX_TOKENS=4096
+  DPO_CONCURRENCY=2
 
-make dpo-report-coverage
+make dpo-inspect
 ```
 
-For a conservative CPU node, keep `DPO_MAX_WORKERS=1`. Increase to `2` only after a clean smoke run.
+Useful variables:
 
-## Generate Multiple Dataset Types
+| Variable | Default | Purpose |
+|---|---:|---|
+| `DPO_SMOKE_FAMILIES` | `basic_arithmetic_qa` | Smoke family list |
+| `DPO_FAMILIES` | `all` | Target family list |
+| `DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
+| `DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family |
+| `DPO_BATCH_SIZE` | `5` | Specs per teacher request |
+| `DPO_CONCURRENCY` | `1` | Request concurrency across run batches |
+| `DPO_MODEL` | `$(MODEL)` | Teacher model |
+| `DPO_MAX_TOKENS` | `4096` | Teacher response max tokens |
 
-Use this order when you want a small end-to-end data generation pass across the repo:
+## Reports
+
+Smoke and target generation commands build their reports automatically. Rebuild reports manually when needed:
 
 ```bash
-make configure TOKENS=100000 CONCURRENCY=4 RUN=grounded_smoke
-make preflight-artifacts
-make generate
-make report-artifacts
-make validate
-make dedup
-
-make distill-generate-seed-run \
-  DISTILL_TEACHER_MODEL=openai/gpt-4.1-mini \
-  DISTILL_GENERATION_RUN=distill-smoke-001 \
-  DISTILL_TARGET=smoke
-
-make sft-generate-llm-run \
-  SFT_FAMILIES=basic_arithmetic_qa \
-  SFT_COUNT_PER_FAMILY=2 \
-  SFT_BATCH_SIZE=2 \
-  SFT_MAX_WORKERS=1 \
-  SFT_TEACHER_MODEL=openai/gpt-4.1-mini \
-  SFT_GENERATION_RUN=sft-smoke-001 \
-  SFT_MAX_TOKENS=2048
-
-make dpo-generate-llm-run \
-  DPO_FAMILIES=basic_arithmetic_qa \
-  DPO_COUNT_PER_FAMILY=2 \
-  DPO_BATCH_SIZE=2 \
-  DPO_MAX_WORKERS=1 \
-  DPO_TEACHER_MODEL=openai/gpt-4.1-mini \
-  DPO_GENERATION_RUN=dpo-smoke-001 \
-  DPO_MAX_TOKENS=2048
+make pretrain-report PRETRAIN_REPORT_RUN=<run-id>
+make distill-report DISTILL_REPORT_RUN=<run-id>
+make sft-report
+make dpo-report
 ```
 
-After those outputs look correct, run the target commands for the dataset families you need.
-
-## Output Locations
-
-| Dataset | Public Data | Manifests And Reports |
-|---|---|---|
-| Pretraining | `data/runs/<run>/deduped` | `data/runs/<run>/...` |
-| Distillation | `data/distillation/datasets` | `data/distillation/manifests`, `data/distillation/coverage.json` |
-| SFT | `data/sft/datasets` | `data/sft/manifests`, `data/sft/coverage.json` |
-| DPO | `data/dpo/datasets` | `data/dpo/manifests`, `data/dpo/coverage.json` |
-
-## Holdout Policy
-
-Training examples may use the same task family as evals with different variables or templates. They must not include exact eval prompts or matching structured `holdout_key` values.
-
-Taxonomy fields:
-
-| Field | Meaning |
-|---|---|
-| `category` | Training objective |
-| `eval_family` | Eval-shaped behavior pattern |
-| `template_family` | Generation/template surface |
-| `failure_mode` | DPO-only rejected-answer behavior |
-| `holdout_key` | Exact local structured holdout guard |
-
-## Optional Test Commands
-
-Tests are for repo maintenance and pre-scale confidence checks. They are not required as the first user step.
-
-Run the full suite:
+## Test
 
 ```bash
-python -m compileall -q slm_synth tests
-pytest -q
-```
-
-Focused validation:
-
-```bash
-pytest -q \
-  tests/test_sft_*.py \
-  tests/test_dpo_*.py \
-  tests/test_distillation_*.py \
-  tests/test_taxonomy.py \
-  tests/test_eval_holdouts.py \
-  tests/test_pretrain_manifest.py
+make test
 ```
 
 ## Command Reference
 
-See [docs/COMMANDS.md](docs/COMMANDS.md) for every Make variable and command.
+See [docs/COMMANDS.md](docs/COMMANDS.md) for the full Make variable reference.

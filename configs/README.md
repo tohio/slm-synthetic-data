@@ -30,7 +30,7 @@ All profiles use the qualified DeepSeek renderer; profile differences affect run
 After a clean smoke run, update the `avg_tokens_per_sample` values using:
 
 ```bash
-python -m slm_synth.report_lengths --config configs/synthetic.yaml --stage deduped
+python -m slm_synth.pretrain.report_lengths --config configs/synthetic.yaml --stage deduped
 ```
 
 No downstream tokenizer is required by this repository.

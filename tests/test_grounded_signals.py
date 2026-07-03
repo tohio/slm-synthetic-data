@@ -4,17 +4,17 @@ from collections import Counter, defaultdict
 
 import pytest
 
-import slm_synth.generate as generate
-from slm_synth.artifacts import (
+import slm_synth.pretrain.generate as generate
+from slm_synth.pretrain.artifacts import (
     ArithmeticArtifactFactory,
     EducationalQAMCQGeneralArtifactFactory,
     EducationalQAMCQMathArtifactFactory,
     FactualRestraintArtifactFactory,
     TaskCodeArtifactFactory,
 )
-from slm_synth.grounded import GroundedBatchStore, GroundedSignalGenerator
+from slm_synth.pretrain.grounded import GroundedBatchStore, GroundedSignalGenerator
 from slm_synth.llm import RetryableProviderExhaustedError, StructuredRenderedResponseError
-from slm_synth.artifacts.quality import artifact_fingerprint, validate_artifact
+from slm_synth.pretrain.artifacts.quality import artifact_fingerprint, validate_artifact
 
 
 class GroundedMockLLM:
@@ -512,8 +512,8 @@ def test_run_signal_rejects_concurrency_above_qualification_limit(tmp_path):
         generate.run_signal("factual_restraint", cfg, tmp_path)
 
 def test_general_mcq_count_pattern_uses_deterministic_explanation():
-    from slm_synth.artifacts.educational_qa_mcq_general import EducationalQAMCQGeneralArtifactFactory
-    from slm_synth.grounded import GroundedSignalGenerator
+    from slm_synth.pretrain.artifacts.educational_qa_mcq_general import EducationalQAMCQGeneralArtifactFactory
+    from slm_synth.pretrain.grounded import GroundedSignalGenerator
 
     factory = EducationalQAMCQGeneralArtifactFactory()
 

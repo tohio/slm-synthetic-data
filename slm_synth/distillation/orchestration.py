@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from slm_synth.distillation.batches import validate_teacher_batch_response
-from slm_synth.distillation.generation import (
-    StructuredTeacherBackend,
-    build_openrouter_backend,
-    generate_teacher_batch_response,
-)
-from slm_synth.distillation.io import write_manifest, write_run_manifest, write_signal_dataset
-from slm_synth.distillation.runs import DistillationRunResult, default_manifest_path
+from slm_synth.distillation.generation import StructuredTeacherBackend, generate_and_materialize_signal_batch
+from slm_synth.distillation.io import write_jsonl, write_manifest, write_run_manifest
+from slm_synth.distillation.runs import DistillationRunResult
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
-from slm_synth.distillation.validate import merge_teacher_outputs
 
 
 @dataclass(frozen=True)
@@ -118,11 +113,7 @@ def generate_seed_multi_signal_run(
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
 ) -> MultiSignalRunResult:
-    """Generate one seed batch for each requested signal and materialize outputs.
-
-    This is intentionally a thin loop over the existing single-signal live path.
-    It does not perform dataset-card generation or Makefile integration.
-    """
+    """Generate seed prompts across signals and materialize public datasets."""
     if not isinstance(generation_run, str) or not generation_run.strip():
         raise ValueError("generation_run must be a non-empty string")
     if not isinstance(start_index, int) or start_index < 1:
@@ -210,6 +201,14 @@ def _chunks(records: Sequence[Mapping[str, Any]], batch_size: int | None) -> lis
     return [list(records[index : index + batch_size]) for index in range(0, len(records), batch_size)]
 
 
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
 def _generate_and_materialize_signal_batches(
     *,
     signal: str,
@@ -231,60 +230,77 @@ def _generate_and_materialize_signal_batches(
     batch_size: int | None = None,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
-    normalized_signal = validate_signal(signal)
     batches = _chunks(prompt_records, batch_size)
-    active_backend = backend or build_openrouter_backend(
-        model=teacher_model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        request_timeout=request_timeout,
-        max_request_retries=max_request_retries,
-        max_retryable_request_attempts=max_retryable_request_attempts,
-        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-        adaptive_initial_in_flight=adaptive_initial_in_flight,
-    )
-
-    public_rows: list[dict[str, Any]] = []
-    for batch in batches:
-        teacher_response = generate_teacher_batch_response(
-            signal=normalized_signal,
-            prompt_records=batch,
-            backend=active_backend,
+    if len(batches) == 1:
+        return generate_and_materialize_signal_batch(
+            signal=signal,
+            prompt_records=batches[0],
+            output_dir=output_dir,
+            manifest_dir=manifest_dir,
+            teacher_model=teacher_model,
+            generation_run=generation_run,
+            max_tokens=max_tokens,
+            token_target=token_target,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            backend=backend,
         )
-        teacher_outputs = validate_teacher_batch_response(teacher_response, expected_count=len(batch))
-        public_rows.extend(merge_teacher_outputs(batch, teacher_outputs))
 
-    dataset_path = write_signal_dataset(
-        signal=normalized_signal,
-        rows=public_rows,
-        output_dir=output_dir,
-    )
-    manifest_path = default_manifest_path(
-        manifest_dir=manifest_dir,
-        signal=normalized_signal,
-        generation_run=generation_run,
-    )
+    batch_results: list[DistillationRunResult] = []
+    public_rows: list[dict[str, Any]] = []
+    for batch_number, batch_records in enumerate(batches, start=1):
+        batch_result = generate_and_materialize_signal_batch(
+            signal=signal,
+            prompt_records=batch_records,
+            output_dir=output_dir,
+            manifest_dir=manifest_dir,
+            teacher_model=teacher_model,
+            generation_run=generation_run,
+            max_tokens=max_tokens,
+            token_target=token_target,
+            dataset_filename=f"{signal}.batch{batch_number:06d}.jsonl",
+            manifest_filename=f"{signal}.batch{batch_number:06d}.{generation_run}.manifest.json",
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            backend=backend,
+        )
+        batch_results.append(batch_result)
+        public_rows.extend(_read_jsonl(batch_result.dataset_path))
+
+    dataset_path = Path(output_dir) / f"{signal}.jsonl"
+    row_count = write_jsonl(public_rows, dataset_path)
+    manifest_path = Path(manifest_dir) / f"{signal}.{generation_run}.manifest.json"
     write_manifest(
         manifest_path=manifest_path,
-        signal=normalized_signal,
+        signal=signal,
         dataset_path=dataset_path,
-        row_count=len(public_rows),
+        row_count=row_count,
         teacher_model=teacher_model,
         teacher_provider="openrouter",
         generation_run=generation_run,
         token_target=token_target,
         metadata={
             "prompt_count": len(prompt_records),
-            "batch_count": len(batches),
+            "batch_count": len(batch_results),
             "batch_size": batch_size,
+            "batch_manifests": [str(result.manifest_path) for result in batch_results],
         },
     )
-
     return DistillationRunResult(
-        signal=normalized_signal,
+        signal=signal,
         dataset_path=dataset_path,
         manifest_path=manifest_path,
-        row_count=len(public_rows),
+        row_count=row_count,
     )

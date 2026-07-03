@@ -1,4 +1,4 @@
-from slm_synth.schemas import (
+from slm_synth.pretrain.schemas import (
     validate_arithmetic,
     validate_educational_qa_mcq_general,
     validate_educational_qa_mcq_math,

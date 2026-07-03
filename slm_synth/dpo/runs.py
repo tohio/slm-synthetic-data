@@ -223,7 +223,7 @@ def generate_llm_run(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 1,
-    max_workers: int = 1,
+    concurrency: int = 1,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
@@ -234,7 +234,7 @@ def generate_llm_run(
     _validate_positive_int(count_per_family, "count_per_family")
     _validate_positive_int(batch_size, "batch_size")
     _validate_positive_int(start_index, "start_index")
-    _validate_positive_int(max_workers, "max_workers")
+    _validate_positive_int(concurrency, "concurrency")
 
     jobs: list[dict[str, Any]] = []
     for family in resolved_families:
@@ -280,10 +280,10 @@ def generate_llm_run(
             backend=backend,
         )
 
-    if max_workers == 1:
+    if concurrency == 1:
         results = [run_job(job) for job in jobs]
     else:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
             results = list(executor.map(run_job, jobs))
 
     datasets: list[dict[str, Any]] = []
@@ -311,7 +311,7 @@ def generate_llm_run(
             "generation_mode": "live_llm_run",
             "count_per_family": count_per_family,
             "batch_size": batch_size,
-            "max_workers": max_workers,
+            "concurrency": concurrency,
             "start_index": start_index,
             **dict(metadata or {}),
         },

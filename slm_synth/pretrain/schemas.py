@@ -69,9 +69,6 @@ EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA = {
     "required": ["type", "evidence", "question", "choices", "correct_index", "explanation"],
 }
 
-# Compatibility alias: the old mixed MCQ path is retired in the generated mix.
-EDUCATIONAL_QA_MCQ_SCHEMA = EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA
-
 FACTUAL_RESTRAINT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -97,11 +94,6 @@ def validate_educational_qa_mcq_math(obj):
 
 def validate_educational_qa_mcq_general(obj):
     jsonschema.validate(obj, EDUCATIONAL_QA_MCQ_GENERAL_SCHEMA)
-
-
-def validate_educational_qa_mcq(obj):
-    """Backward-compatible validator for the general, non-math MCQ schema."""
-    validate_educational_qa_mcq_general(obj)
 
 
 def validate_factual_restraint(obj):

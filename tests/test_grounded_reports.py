@@ -1,9 +1,9 @@
 import json
 
-from slm_synth.artifacts import ArithmeticArtifactFactory
-from slm_synth.grounded import GroundedBatchStore
-from slm_synth.report_artifacts import scan_signal
-from slm_synth.report_lengths import estimated_tokens
+from slm_synth.pretrain.artifacts import ArithmeticArtifactFactory
+from slm_synth.pretrain.grounded import GroundedBatchStore
+from slm_synth.pretrain.report_artifacts import scan_signal
+from slm_synth.pretrain.report_lengths import estimated_tokens
 
 
 def test_artifact_report_reads_persisted_grounded_manifests(tmp_path):
@@ -23,7 +23,7 @@ def test_length_report_estimate_is_positive():
 
 def test_preflight_artifacts_scans_planned_rows_without_api_calls(tmp_path, monkeypatch):
     import yaml
-    import slm_synth.preflight_artifacts as preflight
+    import slm_synth.pretrain.preflight_artifacts as preflight
     config = tmp_path / "synthetic.yaml"
     config.write_text(yaml.safe_dump({
         "output_dir": str(tmp_path / "out"),

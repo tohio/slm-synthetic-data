@@ -55,7 +55,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--concurrency", type=int, default=None)
     parser.add_argument("--max-tokens", type=int, default=None)
-    # Backward-compatible accepted argument; ignored by the OpenRouter generation path.
+    # Accepted for config callers that share provider options; not written by this grounded profile.
     parser.add_argument("--service-tier", default=None)
     args = parser.parse_args()
     if not MIN_BATCH_SIZE <= args.batch_size <= MAX_BATCH_SIZE:

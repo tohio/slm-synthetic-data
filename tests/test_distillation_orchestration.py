@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -24,6 +25,23 @@ class SignalAwareBackend:
                         "reasoning": None,
                         "response": f"Response for {self.signal}.",
                     }
+                ]
+            }
+        }
+
+
+class PromptIdBackend:
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        ids = re.findall(r'"id": "([^"]+)"', prompt)
+        return {
+            "data": {
+                "items": [
+                    {
+                        "id": item_id,
+                        "reasoning": None,
+                        "response": f"Response for {item_id}.",
+                    }
+                    for item_id in ids
                 ]
             }
         }
@@ -111,3 +129,33 @@ def test_generate_seed_multi_signal_run_rejects_missing_count_strategy(tmp_path)
             generation_run="smoke-001",
             max_tokens=512,
         )
+
+
+def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
+    result = generate_seed_multi_signal_run(
+        signals=["arithmetic"],
+        count_per_signal=3,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="smoke-001",
+        max_tokens=512,
+        backend_factory=lambda signal: PromptIdBackend(),
+    )
+
+    assert result.row_count == 3
+    assert result.results[0].dataset_path == tmp_path / "datasets" / "arithmetic.jsonl"
+    assert (tmp_path / "datasets" / "arithmetic.batch000001.jsonl").exists()
+    assert (tmp_path / "datasets" / "arithmetic.batch000002.jsonl").exists()
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "datasets" / "arithmetic.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["id"] for row in rows] == ["arithmetic-000001", "arithmetic-000002", "arithmetic-000003"]
+
+    manifest = json.loads((tmp_path / "manifests" / "arithmetic.smoke-001.manifest.json").read_text())
+    assert manifest["row_count"] == 3
+    assert manifest["metadata"]["batch_count"] == 2
+    assert manifest["metadata"]["batch_size"] == 2

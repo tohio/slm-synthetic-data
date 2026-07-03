@@ -28,8 +28,6 @@ Implementation lives under `slm_synth.pretrain`.
 | `pretrain/report_lengths.py` | Per-record size estimation for row-target calibration. |
 | `pretrain/push_hf.py` | Hugging Face publishing. |
 
-Compatibility wrappers remain at old module paths such as `slm_synth.generate`, `slm_synth.validate`, and `slm_synth.dedup`.
-
 ## Distillation Modules
 
 Implementation lives under `slm_synth.distillation`.

@@ -1,6 +1,6 @@
 import json
 
-from slm_synth.dedup import dedup_signal
+from slm_synth.pretrain.dedup import dedup_signal
 
 
 def test_exact_dedup_general_mcq(tmp_path):
@@ -55,8 +55,8 @@ def test_math_mcq_dedup_ignores_choice_permutations_for_same_question_and_answer
 
 
 def test_two_step_math_artifacts_carry_required_item_terms_and_prompt_requires_them():
-    from slm_synth.artifacts import EducationalQAMCQMathArtifactFactory
-    from slm_synth.grounded import GroundedSignalGenerator
+    from slm_synth.pretrain.artifacts import EducationalQAMCQMathArtifactFactory
+    from slm_synth.pretrain.grounded import GroundedSignalGenerator
 
     class NoopLLM:
         pass

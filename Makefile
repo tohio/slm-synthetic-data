@@ -3,6 +3,7 @@
 # ============================================================
 
 .RECIPEPREFIX := >
+MAKEFLAGS += --no-print-directory
 
 PYTHON ?= python
 
@@ -56,7 +57,7 @@ SFT_COUNT_PER_FAMILY ?= 1000
 SFT_SMOKE_COUNT_PER_FAMILY ?= 2
 SFT_BATCH_SIZE ?= 5
 SFT_SMOKE_BATCH_SIZE ?= 2
-SFT_MAX_WORKERS ?= 1
+SFT_CONCURRENCY ?= 1
 SFT_OUTPUT_DIR ?= data/sft/datasets
 SFT_MANIFEST_DIR ?= data/sft/manifests
 SFT_COVERAGE_REPORT ?= data/sft/coverage.json
@@ -72,7 +73,7 @@ DPO_COUNT_PER_FAMILY ?= 1000
 DPO_SMOKE_COUNT_PER_FAMILY ?= 2
 DPO_BATCH_SIZE ?= 5
 DPO_SMOKE_BATCH_SIZE ?= 2
-DPO_MAX_WORKERS ?= 1
+DPO_CONCURRENCY ?= 1
 DPO_OUTPUT_DIR ?= data/dpo/datasets
 DPO_MANIFEST_DIR ?= data/dpo/manifests
 DPO_COVERAGE_REPORT ?= data/dpo/coverage.json
@@ -134,11 +135,11 @@ pretrain-smoke:
 >   --concurrency $(PRETRAIN_CONCURRENCY) \
 >   --run $(PRETRAIN_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
-> $(PYTHON) -m slm_synth.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.dedup --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_RUN)
 
 pretrain-generate:
@@ -150,22 +151,19 @@ pretrain-generate:
 >   --concurrency $(PRETRAIN_TARGET_CONCURRENCY) \
 >   --run $(PRETRAIN_TARGET_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
-> $(PYTHON) -m slm_synth.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.dedup --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_TARGET_RUN)
 
 pretrain-report:
 > $(PYTHON) -m slm_synth.pretrain.manifest \
 >   --config $(CONFIG_FILE) \
 >   --generation-run $(PRETRAIN_REPORT_RUN)
-> $(PYTHON) -m slm_synth.pretrain.manifest \
->   --config $(CONFIG_FILE) \
->   --generation-run $(PRETRAIN_REPORT_RUN)
-> $(PYTHON) -m slm_synth.report_duplicates --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
-> $(PYTHON) -m slm_synth.report_lengths --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
+> $(PYTHON) -m slm_synth.pretrain.report_duplicates --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
+> $(PYTHON) -m slm_synth.pretrain.report_lengths --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
 
 pretrain-inspect:
 > @echo "== pretraining files =="
@@ -174,7 +172,7 @@ pretrain-inspect:
 > @find $(DATA_DIR) -path '*/deduped/*.jsonl' -type f | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 pretrain-push:
-> $(PYTHON) -m slm_synth.push_hf --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 
 distill-smoke:
 > $(PYTHON) -m slm_synth.distillation.cli generate-seed-run \
@@ -226,7 +224,7 @@ sft-smoke:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
->   --max-workers $(SFT_MAX_WORKERS)
+>   --concurrency $(SFT_CONCURRENCY)
 > $(MAKE) sft-report
 
 sft-generate:
@@ -239,7 +237,7 @@ sft-generate:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_TARGET_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
->   --max-workers $(SFT_MAX_WORKERS)
+>   --concurrency $(SFT_CONCURRENCY)
 > $(MAKE) sft-report
 
 sft-report:
@@ -263,7 +261,7 @@ dpo-smoke:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
->   --max-workers $(DPO_MAX_WORKERS)
+>   --concurrency $(DPO_CONCURRENCY)
 > $(MAKE) dpo-report
 
 dpo-generate:
@@ -276,7 +274,7 @@ dpo-generate:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_TARGET_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
->   --max-workers $(DPO_MAX_WORKERS)
+>   --concurrency $(DPO_CONCURRENCY)
 > $(MAKE) dpo-report
 
 dpo-report:
