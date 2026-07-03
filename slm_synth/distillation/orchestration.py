@@ -21,6 +21,7 @@ from slm_synth.distillation.runs import DistillationRunResult
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
 from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
+from slm_synth.run_summary import print_batch_failure, print_batch_progress
 
 
 @dataclass(frozen=True)
@@ -142,7 +143,6 @@ def generate_seed_multi_signal_run(
         signal, count = item
         prompt_records = build_seed_prompt_records(signal=signal, count=count, start_index=start_index)
         backend = backend_factory(signal) if backend_factory is not None else None
-        batch_concurrency = concurrency if len(signal_items) == 1 else 1
         return _generate_and_materialize_signal_batches(
             signal=signal,
             prompt_records=prompt_records,
@@ -161,15 +161,11 @@ def generate_seed_multi_signal_run(
             adaptive_maximum_in_flight=adaptive_maximum_in_flight,
             adaptive_initial_in_flight=adaptive_initial_in_flight,
             batch_size=normalized_batch_size,
-            concurrency=batch_concurrency,
+            concurrency=concurrency,
             backend=backend,
         )
 
-    if concurrency == 1 or len(signal_items) == 1:
-        results = [run_signal(item) for item in signal_items]
-    else:
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            results = list(executor.map(run_signal, signal_items))
+    results = [run_signal(item) for item in signal_items]
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     write_run_manifest(
@@ -262,6 +258,12 @@ def _generate_and_materialize_signal_batches(
     prompt_records = list(prompt_records)
     maximum_batch_size = batch_size or len(prompt_records)
     batch_controller = AdaptiveBatchSizeController(maximum=maximum_batch_size, minimum=1)
+    print(
+        "[generate] Starting distillation signal: "
+        f"{signal} (target_rows={len(prompt_records)}, batch_size={maximum_batch_size}, "
+        f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
+        flush=True,
+    )
     active_backend = backend or build_openrouter_backend(
         model=teacher_model,
         max_tokens=max_tokens,
@@ -303,6 +305,7 @@ def _generate_and_materialize_signal_batches(
     active: dict[Any, dict[str, Any]] = {}
     jobs: list[dict[str, Any]] = []
     next_batch_number = 1
+    signal_rows_done = 0
 
     def submit_available(executor: ThreadPoolExecutor) -> None:
         nonlocal next_batch_number
@@ -327,8 +330,18 @@ def _generate_and_materialize_signal_batches(
                 job = active.pop(future)
                 try:
                     result = future.result()
-                except Exception:
+                except Exception as exc:
                     batch_controller.record_failure()
+                    print_batch_failure(
+                        workflow="distillation",
+                        group_key="signal",
+                        group_value=signal,
+                        batch_number=job["batch_number"],
+                        batch_start=job["batch_start_offset"],
+                        batch_size=len(job["prompt_records"]),
+                        adaptive_batch_size=batch_controller.snapshot(),
+                        error=exc,
+                    )
                     if len(job["prompt_records"]) <= batch_controller.minimum:
                         raise
                     pending_ranges.appendleft((job["batch_start_offset"], len(job["prompt_records"])))
@@ -338,6 +351,19 @@ def _generate_and_materialize_signal_batches(
                 job["result"] = result
                 job["adaptive_batch_size"] = batch_controller.snapshot()
                 jobs.append(job)
+                signal_rows_done += result.row_count
+                print_batch_progress(
+                    workflow="distillation",
+                    group_key="signal",
+                    group_value=signal,
+                    batch_number=job["batch_number"],
+                    batch_start=job["batch_start_offset"],
+                    batch_size=len(job["prompt_records"]),
+                    rows_done=signal_rows_done,
+                    rows_total=len(prompt_records),
+                    manifest_path=result.manifest_path,
+                    adaptive_batch_size=job["adaptive_batch_size"],
+                )
                 submit_available(executor)
 
     jobs.sort(key=lambda item: (item["batch_start_offset"], item["batch_number"]))
@@ -370,6 +396,17 @@ def _generate_and_materialize_signal_batches(
             ),
             "batch_manifests": [str(result.manifest_path) for result in batch_results],
         },
+    )
+    print(
+        "[generate] Completed distillation signal: "
+        f"{signal} rows={row_count}, target_rows={len(prompt_records)}, "
+        f"batches={len(batch_results)}, batch_size={maximum_batch_size}, min_batch_size=1, "
+        f"parallel_requests={concurrency}, adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
+        f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "
+        f"adaptive_batch_size_increases={batch_controller.increases}, "
+        f"adaptive_batch_size_decreases={batch_controller.decreases}, "
+        f"adaptive_batch_size_failures={batch_controller.failures}",
+        flush=True,
     )
     return DistillationRunResult(
         signal=signal,

@@ -18,6 +18,7 @@ from slm_synth.sft.seeds import SFT_SEED_FAMILIES, build_seed_rows
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
+from slm_synth.run_summary import print_batch_failure, print_batch_progress
 
 
 @dataclass(frozen=True)
@@ -286,9 +287,16 @@ def generate_llm_run(
     batch_controller = AdaptiveBatchSizeController(maximum=batch_size, minimum=1)
     for family in resolved_families:
         specs = build_specs(family=family, count=count_per_family, start_index=start_index)
+        print(
+            "[generate] Starting SFT family: "
+            f"{family} (target_rows={len(specs)}, batch_size={batch_size}, "
+            f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
+            flush=True,
+        )
         pending_ranges: deque[tuple[int, int]] = deque([(0, len(specs))])
         active: dict[Any, dict[str, Any]] = {}
         next_batch_number = 1
+        family_rows_done = 0
 
         def make_job(batch_specs: list[dict[str, Any]], batch_number: int, offset: int) -> dict[str, Any]:
             batch_start_index = start_index + offset
@@ -320,8 +328,18 @@ def generate_llm_run(
                     job = active.pop(future)
                     try:
                         result = future.result()
-                    except Exception:
+                    except Exception as exc:
                         batch_controller.record_failure()
+                        print_batch_failure(
+                            workflow="SFT",
+                            group_key="family",
+                            group_value=family,
+                            batch_number=job["batch_number"],
+                            batch_start=job["batch_start_index"],
+                            batch_size=len(job["specs"]),
+                            adaptive_batch_size=batch_controller.snapshot(),
+                            error=exc,
+                        )
                         if len(job["specs"]) <= batch_controller.minimum:
                             raise
                         offset = job["batch_start_index"] - start_index
@@ -332,7 +350,31 @@ def generate_llm_run(
                     job["result"] = result
                     job["adaptive_batch_size"] = batch_controller.snapshot()
                     jobs.append(job)
+                    family_rows_done += result.row_count
+                    print_batch_progress(
+                        workflow="SFT",
+                        group_key="family",
+                        group_value=family,
+                        batch_number=job["batch_number"],
+                        batch_start=job["batch_start_index"],
+                        batch_size=len(job["specs"]),
+                        rows_done=family_rows_done,
+                        rows_total=len(specs),
+                        manifest_path=result.manifest_path,
+                        adaptive_batch_size=job["adaptive_batch_size"],
+                    )
                     submit_available(executor)
+        print(
+            "[generate] Completed SFT family: "
+            f"{family} rows={family_rows_done}, target_rows={len(specs)}, "
+            f"batch_size={batch_size}, min_batch_size=1, parallel_requests={concurrency}, "
+            f"adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
+            f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "
+            f"adaptive_batch_size_increases={batch_controller.increases}, "
+            f"adaptive_batch_size_decreases={batch_controller.decreases}, "
+            f"adaptive_batch_size_failures={batch_controller.failures}",
+            flush=True,
+        )
 
     jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
     results = [job["result"] for job in jobs]

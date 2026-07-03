@@ -60,6 +60,74 @@ def print_distillation_run_summary(manifest_path: str | Path) -> None:
         )
 
 
+def print_batch_progress(
+    *,
+    workflow: str,
+    group_key: str,
+    group_value: str,
+    batch_number: int,
+    batch_start: int,
+    batch_size: int,
+    rows_done: int,
+    rows_total: int,
+    manifest_path: str | Path,
+    adaptive_batch_size: Mapping[str, Any],
+) -> None:
+    manifest = _load_json(manifest_path)
+    metadata = _metadata(manifest)
+    telemetry = _llm_telemetry(metadata)
+    usage = telemetry.get("usage", {})
+    if not isinstance(usage, Mapping):
+        usage = {}
+    print(
+        f"[generate] {workflow}: "
+        f"{group_key}={group_value} "
+        f"batch={batch_number} "
+        f"batch_start={batch_start} "
+        f"batch_size={batch_size} "
+        f"rows={rows_done}/{rows_total} "
+        f"adaptive_batch_size_current={adaptive_batch_size.get('adaptive_batch_size_current', 'n/a')} "
+        f"adaptive_batch_size_observed_minimum={adaptive_batch_size.get('adaptive_batch_size_observed_minimum', 'n/a')} "
+        f"adaptive_batch_size_observed_peak={adaptive_batch_size.get('adaptive_batch_size_observed_peak', 'n/a')} "
+        f"adaptive_batch_size_increases={adaptive_batch_size.get('adaptive_batch_size_increases', 'n/a')} "
+        f"adaptive_batch_size_decreases={adaptive_batch_size.get('adaptive_batch_size_decreases', 'n/a')} "
+        f"adaptive_batch_size_failures={adaptive_batch_size.get('adaptive_batch_size_failures', 'n/a')} "
+        f"provider_retries={int(telemetry.get('retryable_provider_retries', 0) or 0)} "
+        f"retry_sleep_seconds={float(telemetry.get('retry_sleep_seconds', 0.0) or 0.0):.3f} "
+        f"adaptive_peak_in_flight_limit={int(telemetry.get('adaptive_peak_in_flight_limit', 0) or 0)} "
+        f"cost={float(usage.get('cost', 0.0) or 0.0):.8f} "
+        f"request_tokens={int(usage.get('total_tokens', 0) or 0)}",
+        flush=True,
+    )
+
+
+def print_batch_failure(
+    *,
+    workflow: str,
+    group_key: str,
+    group_value: str,
+    batch_number: int,
+    batch_start: int,
+    batch_size: int,
+    adaptive_batch_size: Mapping[str, Any],
+    error: BaseException,
+) -> None:
+    print(
+        f"[generate] {workflow}: "
+        f"{group_key}={group_value} "
+        f"batch={batch_number} "
+        f"batch_start={batch_start} "
+        f"batch_size={batch_size} "
+        f"retrying_after_failure=true "
+        f"adaptive_batch_size_current={adaptive_batch_size.get('adaptive_batch_size_current', 'n/a')} "
+        f"adaptive_batch_size_observed_minimum={adaptive_batch_size.get('adaptive_batch_size_observed_minimum', 'n/a')} "
+        f"adaptive_batch_size_decreases={adaptive_batch_size.get('adaptive_batch_size_decreases', 'n/a')} "
+        f"adaptive_batch_size_failures={adaptive_batch_size.get('adaptive_batch_size_failures', 'n/a')} "
+        f"error={str(error)!r}",
+        flush=True,
+    )
+
+
 def _print_chat_run_summary(*, label: str, manifest: Mapping[str, Any]) -> None:
     metadata = _metadata(manifest)
     telemetry = _llm_telemetry(metadata)
