@@ -191,6 +191,8 @@ def generate_seed_multi_signal_run(
             "start_index": start_index,
             "batch_size": normalized_batch_size,
             "concurrency": concurrency,
+            "adaptive_maximum_in_flight": concurrency,
+            "adaptive_initial_in_flight": adaptive_initial_in_flight,
         },
     )
 
