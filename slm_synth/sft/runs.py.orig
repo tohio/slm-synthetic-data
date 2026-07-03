@@ -224,7 +224,7 @@ def generate_llm_run(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_initial_in_flight: int = 1,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,

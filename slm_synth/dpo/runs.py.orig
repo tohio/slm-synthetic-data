@@ -1,4 +1,4 @@
-"""SFT dataset materialization helpers."""
+"""DPO dataset materialization helpers."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
-from slm_synth.sft.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
-from slm_synth.sft.io import write_jsonl
-from slm_synth.sft.manifest import write_manifest, write_run_manifest
-from slm_synth.sft.seeds import SFT_SEED_FAMILIES, build_seed_rows
-from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs
+from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
+from slm_synth.dpo.io import write_jsonl
+from slm_synth.dpo.manifest import write_manifest, write_run_manifest
+from slm_synth.dpo.seeds import DPO_SEED_FAMILIES, build_seed_rows
+from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_specs
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 @dataclass(frozen=True)
-class SFTSeedRunResult:
-    """Result of materializing one SFT seed dataset."""
+class DPOSeedRunResult:
+    """Result of materializing one DPO seed dataset."""
 
     dataset_path: Path
     manifest_path: Path
@@ -31,10 +31,10 @@ class SFTSeedRunResult:
 
 
 @dataclass(frozen=True)
-class SFTSeedFamilyRunResult:
-    """Result of materializing multiple SFT seed families."""
+class DPOSeedFamilyRunResult:
+    """Result of materializing multiple DPO seed families."""
 
-    results: tuple[SFTSeedRunResult, ...]
+    results: tuple[DPOSeedRunResult, ...]
     row_count: int
     families: tuple[str, ...]
     generation_run: str
@@ -42,8 +42,8 @@ class SFTSeedFamilyRunResult:
 
 
 @dataclass(frozen=True)
-class SFTLLMRunResult:
-    """Result of running one multi-batch LLM-generated SFT job."""
+class DPOLLMRunResult:
+    """Result of running one multi-batch LLM-generated DPO job."""
 
     results: tuple[Any, ...]
     row_count: int
@@ -53,12 +53,12 @@ class SFTLLMRunResult:
 
 
 def default_dataset_path(*, output_dir: str | Path, family: str) -> Path:
-    """Return the default SFT JSONL path for a seed family."""
+    """Return the default DPO JSONL path for a seed family."""
     return Path(output_dir) / f"{family}.jsonl"
 
 
 def default_manifest_path(*, manifest_dir: str | Path, family: str, generation_run: str) -> Path:
-    """Return the default local SFT manifest path for a seed run."""
+    """Return the default local DPO manifest path for a seed run."""
     if not isinstance(generation_run, str) or not generation_run.strip():
         raise ValueError("generation_run must be a non-empty string")
     return Path(manifest_dir) / f"{family}.{generation_run}.manifest.json"
@@ -76,8 +76,8 @@ def materialize_seed_dataset(
     manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
-) -> SFTSeedRunResult:
-    """Build SFT seed rows and write JSONL plus a local manifest."""
+) -> DPOSeedRunResult:
+    """Build DPO seed rows and write JSONL plus a local manifest."""
     rows = build_seed_rows(
         family=family,
         count=count,
@@ -108,7 +108,7 @@ def materialize_seed_dataset(
         },
     )
 
-    return SFTSeedRunResult(
+    return DPOSeedRunResult(
         dataset_path=dataset_path,
         manifest_path=manifest_path,
         row_count=row_count,
@@ -128,8 +128,8 @@ def materialize_seed_run(
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
-) -> SFTSeedFamilyRunResult:
-    """Materialize one SFT seed dataset per requested family."""
+) -> DPOSeedFamilyRunResult:
+    """Materialize one DPO seed dataset per requested family."""
     resolved_families = resolve_seed_families(families)
     if not isinstance(count_per_family, int) or count_per_family < 1:
         raise ValueError("count_per_family must be a positive integer")
@@ -171,7 +171,7 @@ def materialize_seed_run(
         },
     )
 
-    return SFTSeedFamilyRunResult(
+    return DPOSeedFamilyRunResult(
         results=results,
         row_count=sum(result.row_count for result in results),
         families=resolved_families,
@@ -181,27 +181,27 @@ def materialize_seed_run(
 
 
 def resolve_seed_families(families: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-    """Resolve requested SFT seed families, where None or ['all'] means all families."""
+    """Resolve requested DPO seed families, where None or ['all'] means all families."""
     if families is None or tuple(families) == ("all",):
-        return tuple(sorted(SFT_SEED_FAMILIES))
+        return tuple(sorted(DPO_SEED_FAMILIES))
     if "all" in families:
-        raise ValueError("'all' cannot be combined with explicit SFT seed families")
+        raise ValueError("'all' cannot be combined with explicit DPO seed families")
 
     resolved: list[str] = []
     seen: set[str] = set()
     for family in families:
         if not isinstance(family, str) or not family.strip():
-            raise ValueError("SFT seed family must be a non-empty string")
+            raise ValueError("DPO seed family must be a non-empty string")
         normalized = family.strip().lower()
-        if normalized not in SFT_SEED_FAMILIES:
-            supported = ", ".join(sorted(SFT_SEED_FAMILIES))
-            raise ValueError(f"Unsupported SFT seed family '{family}'. Supported families: {supported}")
+        if normalized not in DPO_SEED_FAMILIES:
+            supported = ", ".join(sorted(DPO_SEED_FAMILIES))
+            raise ValueError(f"Unsupported DPO seed family '{family}'. Supported families: {supported}")
         if normalized in seen:
-            raise ValueError(f"Duplicate SFT seed family: {normalized}")
+            raise ValueError(f"Duplicate DPO seed family: {normalized}")
         seen.add(normalized)
         resolved.append(normalized)
     if not resolved:
-        raise ValueError("at least one SFT seed family is required")
+        raise ValueError("at least one DPO seed family is required")
     return tuple(resolved)
 
 
@@ -224,14 +224,14 @@ def generate_llm_run(
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_initial_in_flight: int = 1,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
-) -> SFTLLMRunResult:
-    """Build specs and generate SFT datasets across families and batches."""
+) -> DPOLLMRunResult:
+    """Build specs and generate DPO datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
     _validate_positive_int(count_per_family, "count_per_family")
     _validate_positive_int(batch_size, "batch_size")
@@ -370,7 +370,7 @@ def generate_llm_run(
         },
     )
 
-    return SFTLLMRunResult(
+    return DPOLLMRunResult(
         results=tuple(results),
         row_count=sum(result.row_count for result in results),
         families=resolved_families,
@@ -380,27 +380,27 @@ def generate_llm_run(
 
 
 def resolve_spec_families(families: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-    """Resolve requested SFT spec families, where None or ['all'] means all families."""
+    """Resolve requested DPO spec families, where None or ['all'] means all families."""
     if families is None or tuple(families) == ("all",):
-        return tuple(sorted(SFT_SPEC_FAMILIES))
+        return tuple(sorted(DPO_SPEC_FAMILIES))
     if "all" in families:
-        raise ValueError("'all' cannot be combined with explicit SFT spec families")
+        raise ValueError("'all' cannot be combined with explicit DPO spec families")
 
     resolved: list[str] = []
     seen: set[str] = set()
     for family in families:
         if not isinstance(family, str) or not family.strip():
-            raise ValueError("SFT spec family must be a non-empty string")
+            raise ValueError("DPO spec family must be a non-empty string")
         normalized = family.strip().lower()
-        if normalized not in SFT_SPEC_FAMILIES:
-            supported = ", ".join(sorted(SFT_SPEC_FAMILIES))
-            raise ValueError(f"Unsupported SFT spec family '{family}'. Supported families: {supported}")
+        if normalized not in DPO_SPEC_FAMILIES:
+            supported = ", ".join(sorted(DPO_SPEC_FAMILIES))
+            raise ValueError(f"Unsupported DPO spec family '{family}'. Supported families: {supported}")
         if normalized in seen:
-            raise ValueError(f"Duplicate SFT spec family: {normalized}")
+            raise ValueError(f"Duplicate DPO spec family: {normalized}")
         seen.add(normalized)
         resolved.append(normalized)
     if not resolved:
-        raise ValueError("at least one SFT spec family is required")
+        raise ValueError("at least one DPO spec family is required")
     return tuple(resolved)
 
 
@@ -417,7 +417,7 @@ def _write_llm_run_manifest(
     payload = {
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "dataset_type": "sft",
+        "dataset_type": "dpo",
         "generation_run": generation_run,
         "generation_mode": "live_llm_run",
         "teacher_model": teacher_model,
