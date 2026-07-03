@@ -234,6 +234,20 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _read_manifest_metadata(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    metadata = payload.get("metadata")
+    return dict(metadata) if isinstance(metadata, Mapping) else {}
+
+
+def _first_llm_telemetry(batch_results: Sequence[DistillationRunResult]) -> dict[str, Any]:
+    for result in batch_results:
+        telemetry = _read_manifest_metadata(result.manifest_path).get("llm_telemetry")
+        if isinstance(telemetry, Mapping):
+            return dict(telemetry)
+    return {}
+
+
 def _generate_and_materialize_signal_batches(
     *,
     signal: str,
@@ -362,6 +376,7 @@ def _generate_and_materialize_signal_batches(
             "batch_size": maximum_batch_size,
             "concurrency": concurrency,
             **batch_controller.snapshot(),
+            "llm_telemetry": _first_llm_telemetry(batch_results),
             "batch_manifests": [str(result.manifest_path) for result in batch_results],
         },
     )
