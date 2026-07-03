@@ -41,7 +41,7 @@ DISTILL_SMOKE_COUNT_PER_SIGNAL ?= 2
 DISTILL_BATCH_SIZE ?= 5
 DISTILL_CONCURRENCY ?= 1
 DISTILL_SIGNALS ?=
-DISTILL_SIGNALS_ARG := $(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),)
+DISTILL_SIGNALS_ARG := $(if $(filter all,$(DISTILL_SIGNALS)),,$(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),))
 DISTILL_ESTIMATED_TOKENS_PER_ROW ?= 512
 DISTILL_RUN_ROOT ?= data/distillation/runs
 DISTILL_MODEL ?= $(MODEL)
@@ -63,6 +63,7 @@ SFT_CONCURRENCY ?= 1
 SFT_RUN_ROOT ?= data/sft/runs
 SFT_MODEL ?= $(MODEL)
 SFT_MAX_TOKENS ?= 4096
+SFT_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin SFT_FAMILIES)),$(SFT_FAMILIES),$(SFT_SMOKE_FAMILIES))
 
 # DPO
 DPO_RUN ?= dpo-smoke-001
@@ -79,6 +80,7 @@ DPO_CONCURRENCY ?= 1
 DPO_RUN_ROOT ?= data/dpo/runs
 DPO_MODEL ?= $(MODEL)
 DPO_MAX_TOKENS ?= 4096
+DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES)),$(DPO_FAMILIES),$(DPO_SMOKE_FAMILIES))
 
 .PHONY: help \
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
@@ -219,7 +221,7 @@ distill-inspect:
 
 sft-smoke:
 > $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
->   --families $(SFT_SMOKE_FAMILIES) \
+>   --families $(SFT_SMOKE_FAMILIES_EFFECTIVE) \
 >   --count-per-family $(SFT_SMOKE_COUNT_PER_FAMILY) \
 >   --batch-size $(SFT_SMOKE_BATCH_SIZE) \
 >   --output-dir $(SFT_RUN_ROOT)/$(SFT_RUN)/datasets \
@@ -256,7 +258,7 @@ sft-inspect:
 
 dpo-smoke:
 > $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
->   --families $(DPO_SMOKE_FAMILIES) \
+>   --families $(DPO_SMOKE_FAMILIES_EFFECTIVE) \
 >   --count-per-family $(DPO_SMOKE_COUNT_PER_FAMILY) \
 >   --batch-size $(DPO_SMOKE_BATCH_SIZE) \
 >   --output-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/datasets \
