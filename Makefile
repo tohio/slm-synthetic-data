@@ -18,6 +18,7 @@ PROFILE ?= balanced
 PRETRAIN_RUN ?= pretrain-smoke-001
 PRETRAIN_TARGET_RUN ?= pretrain-target-001
 PRETRAIN_REPORT_RUN ?= $(PRETRAIN_RUN)
+PRETRAIN_INSPECT_RUN ?= $(PRETRAIN_REPORT_RUN)
 PRETRAIN_TOKENS ?= 100000
 PRETRAIN_TARGET_TOKENS ?= 1000000
 PRETRAIN_BATCH_SIZE ?= 32
@@ -33,6 +34,7 @@ HF_REPO ?=
 DISTILL_RUN ?= distill-smoke-001
 DISTILL_TARGET_RUN ?= distill-target-001
 DISTILL_REPORT_RUN ?= $(DISTILL_RUN)
+DISTILL_INSPECT_RUN ?= $(DISTILL_REPORT_RUN)
 DISTILL_TARGET ?= smoke
 DISTILL_TARGET_SIZE ?= pilot
 DISTILL_SMOKE_COUNT_PER_SIGNAL ?= 2
@@ -41,17 +43,16 @@ DISTILL_CONCURRENCY ?= 1
 DISTILL_SIGNALS ?=
 DISTILL_SIGNALS_ARG := $(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),)
 DISTILL_ESTIMATED_TOKENS_PER_ROW ?= 512
-DISTILL_OUTPUT_DIR ?= data/distillation/datasets
-DISTILL_MANIFEST_DIR ?= data/distillation/manifests
+DISTILL_RUN_ROOT ?= data/distillation/runs
 DISTILL_MODEL ?= $(MODEL)
 DISTILL_MAX_TOKENS ?= 4096
-DISTILL_COVERAGE_REPORT ?= data/distillation/coverage.json
-DISTILL_DATASET_CARD ?= data/distillation/README.md
 DISTILL_DATASET_NAME ?= SLM Synthetic Distillation
 
 # SFT
 SFT_RUN ?= sft-smoke-001
 SFT_TARGET_RUN ?= sft-target-001
+SFT_REPORT_RUN ?= $(SFT_RUN)
+SFT_INSPECT_RUN ?= $(SFT_REPORT_RUN)
 SFT_FAMILIES ?= all
 SFT_SMOKE_FAMILIES ?= basic_arithmetic_qa
 SFT_COUNT_PER_FAMILY ?= 1000
@@ -59,15 +60,15 @@ SFT_SMOKE_COUNT_PER_FAMILY ?= 2
 SFT_BATCH_SIZE ?= 5
 SFT_SMOKE_BATCH_SIZE ?= 2
 SFT_CONCURRENCY ?= 1
-SFT_OUTPUT_DIR ?= data/sft/datasets
-SFT_MANIFEST_DIR ?= data/sft/manifests
-SFT_COVERAGE_REPORT ?= data/sft/coverage.json
+SFT_RUN_ROOT ?= data/sft/runs
 SFT_MODEL ?= $(MODEL)
 SFT_MAX_TOKENS ?= 4096
 
 # DPO
 DPO_RUN ?= dpo-smoke-001
 DPO_TARGET_RUN ?= dpo-target-001
+DPO_REPORT_RUN ?= $(DPO_RUN)
+DPO_INSPECT_RUN ?= $(DPO_REPORT_RUN)
 DPO_FAMILIES ?= all
 DPO_SMOKE_FAMILIES ?= basic_arithmetic_qa
 DPO_COUNT_PER_FAMILY ?= 1000
@@ -75,9 +76,7 @@ DPO_SMOKE_COUNT_PER_FAMILY ?= 2
 DPO_BATCH_SIZE ?= 5
 DPO_SMOKE_BATCH_SIZE ?= 2
 DPO_CONCURRENCY ?= 1
-DPO_OUTPUT_DIR ?= data/dpo/datasets
-DPO_MANIFEST_DIR ?= data/dpo/manifests
-DPO_COVERAGE_REPORT ?= data/dpo/coverage.json
+DPO_RUN_ROOT ?= data/dpo/runs
 DPO_MODEL ?= $(MODEL)
 DPO_MAX_TOKENS ?= 4096
 
@@ -169,9 +168,9 @@ pretrain-report:
 
 pretrain-inspect:
 > @echo "== pretraining files =="
-> @find $(DATA_DIR) -type f | sort | tail -n 50
+> @find $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN) -type f 2>/dev/null | sort | tail -n 50
 > @echo "== pretraining sample rows =="
-> @find $(DATA_DIR) -path '*/deduped/*.jsonl' -type f | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
+> @find $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN) -path '*/deduped/*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 pretrain-push:
 > $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
@@ -180,8 +179,8 @@ distill-smoke:
 > $(PYTHON) -m slm_synth.distillation.cli generate-seed-run \
 >   $(DISTILL_SIGNALS_ARG) \
 >   --count-per-signal $(DISTILL_SMOKE_COUNT_PER_SIGNAL) \
->   --output-dir $(DISTILL_OUTPUT_DIR) \
->   --manifest-dir $(DISTILL_MANIFEST_DIR) \
+>   --output-dir $(DISTILL_RUN_ROOT)/$(DISTILL_RUN)/datasets \
+>   --manifest-dir $(DISTILL_RUN_ROOT)/$(DISTILL_RUN)/manifests \
 >   --teacher-model $(DISTILL_MODEL) \
 >   --generation-run $(DISTILL_RUN) \
 >   --max-tokens $(DISTILL_MAX_TOKENS) \
@@ -194,8 +193,8 @@ distill-generate:
 >   $(DISTILL_SIGNALS_ARG) \
 >   --target-preset $(DISTILL_TARGET_SIZE) \
 >   --estimated-tokens-per-row $(DISTILL_ESTIMATED_TOKENS_PER_ROW) \
->   --output-dir $(DISTILL_OUTPUT_DIR) \
->   --manifest-dir $(DISTILL_MANIFEST_DIR) \
+>   --output-dir $(DISTILL_RUN_ROOT)/$(DISTILL_TARGET_RUN)/datasets \
+>   --manifest-dir $(DISTILL_RUN_ROOT)/$(DISTILL_TARGET_RUN)/manifests \
 >   --teacher-model $(DISTILL_MODEL) \
 >   --generation-run $(DISTILL_TARGET_RUN) \
 >   --max-tokens $(DISTILL_MAX_TOKENS) \
@@ -205,92 +204,92 @@ distill-generate:
 
 distill-report:
 > $(PYTHON) -m slm_synth.distillation.cli report-coverage \
->   --run-manifest $(DISTILL_MANIFEST_DIR)/$(DISTILL_REPORT_RUN).manifest.json \
->   --output $(DISTILL_COVERAGE_REPORT)
+>   --run-manifest $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/manifests/$(DISTILL_REPORT_RUN).manifest.json \
+>   --output $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.distillation.cli build-dataset-card \
->   --run-manifest $(DISTILL_MANIFEST_DIR)/$(DISTILL_REPORT_RUN).manifest.json \
->   --output $(DISTILL_DATASET_CARD) \
+>   --run-manifest $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/manifests/$(DISTILL_REPORT_RUN).manifest.json \
+>   --output $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILL_DATASET_NAME)"
 
 distill-inspect:
 > @echo "== distillation files =="
-> @find $(DISTILL_OUTPUT_DIR) $(DISTILL_MANIFEST_DIR) -type f 2>/dev/null | sort
+> @find $(DISTILL_RUN_ROOT)/$(DISTILL_INSPECT_RUN) -type f 2>/dev/null | sort
 > @echo "== distillation sample rows =="
-> @find $(DISTILL_OUTPUT_DIR) -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
+> @find $(DISTILL_RUN_ROOT)/$(DISTILL_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 sft-smoke:
 > $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_SMOKE_FAMILIES) \
 >   --count-per-family $(SFT_SMOKE_COUNT_PER_FAMILY) \
 >   --batch-size $(SFT_SMOKE_BATCH_SIZE) \
->   --output-dir $(SFT_OUTPUT_DIR) \
->   --manifest-dir $(SFT_MANIFEST_DIR) \
+>   --output-dir $(SFT_RUN_ROOT)/$(SFT_RUN)/datasets \
+>   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_RUN)/manifests \
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
 >   --concurrency $(SFT_CONCURRENCY)
-> $(MAKE) sft-report
+> $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
 > $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_FAMILIES) \
 >   --count-per-family $(SFT_COUNT_PER_FAMILY) \
 >   --batch-size $(SFT_BATCH_SIZE) \
->   --output-dir $(SFT_OUTPUT_DIR) \
->   --manifest-dir $(SFT_MANIFEST_DIR) \
+>   --output-dir $(SFT_RUN_ROOT)/$(SFT_TARGET_RUN)/datasets \
+>   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_TARGET_RUN)/manifests \
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_TARGET_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
 >   --concurrency $(SFT_CONCURRENCY)
-> $(MAKE) sft-report
+> $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_TARGET_RUN)
 
 sft-report:
 > $(PYTHON) -m slm_synth.sft.cli report-coverage \
->   --input $(SFT_OUTPUT_DIR) \
->   --output $(SFT_COVERAGE_REPORT)
+>   --input $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/datasets \
+>   --output $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/coverage.json
 
 sft-inspect:
 > @echo "== SFT files =="
-> @find $(SFT_OUTPUT_DIR) $(SFT_MANIFEST_DIR) -type f 2>/dev/null | sort
+> @find $(SFT_RUN_ROOT)/$(SFT_INSPECT_RUN) -type f 2>/dev/null | sort
 > @echo "== SFT sample rows =="
-> @find $(SFT_OUTPUT_DIR) -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
+> @find $(SFT_RUN_ROOT)/$(SFT_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 dpo-smoke:
 > $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
 >   --families $(DPO_SMOKE_FAMILIES) \
 >   --count-per-family $(DPO_SMOKE_COUNT_PER_FAMILY) \
 >   --batch-size $(DPO_SMOKE_BATCH_SIZE) \
->   --output-dir $(DPO_OUTPUT_DIR) \
->   --manifest-dir $(DPO_MANIFEST_DIR) \
+>   --output-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/datasets \
+>   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/manifests \
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
 >   --concurrency $(DPO_CONCURRENCY)
-> $(MAKE) dpo-report
+> $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_RUN)
 
 dpo-generate:
 > $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
 >   --families $(DPO_FAMILIES) \
 >   --count-per-family $(DPO_COUNT_PER_FAMILY) \
 >   --batch-size $(DPO_BATCH_SIZE) \
->   --output-dir $(DPO_OUTPUT_DIR) \
->   --manifest-dir $(DPO_MANIFEST_DIR) \
+>   --output-dir $(DPO_RUN_ROOT)/$(DPO_TARGET_RUN)/datasets \
+>   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_TARGET_RUN)/manifests \
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_TARGET_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
 >   --concurrency $(DPO_CONCURRENCY)
-> $(MAKE) dpo-report
+> $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_TARGET_RUN)
 
 dpo-report:
 > $(PYTHON) -m slm_synth.dpo.cli report-coverage \
->   --input $(DPO_OUTPUT_DIR) \
->   --output $(DPO_COVERAGE_REPORT)
+>   --input $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/datasets \
+>   --output $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/coverage.json
 
 dpo-inspect:
 > @echo "== DPO files =="
-> @find $(DPO_OUTPUT_DIR) $(DPO_MANIFEST_DIR) -type f 2>/dev/null | sort
+> @find $(DPO_RUN_ROOT)/$(DPO_INSPECT_RUN) -type f 2>/dev/null | sort
 > @echo "== DPO sample rows =="
-> @find $(DPO_OUTPUT_DIR) -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
+> @find $(DPO_RUN_ROOT)/$(DPO_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 test:
 > $(PYTHON) -m compileall -q slm_synth tests

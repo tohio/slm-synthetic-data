@@ -5,9 +5,9 @@ Synthetic dataset generation for the SLM training stack.
 | Dataset | Smoke Run | Target Run | Public Output |
 |---|---|---|---|
 | Pretraining synthetic data | `make pretrain-smoke` | `make pretrain-generate` | `data/runs/<run>/deduped` |
-| Response distillation | `make distill-smoke` | `make distill-generate` | `data/distillation/datasets` |
-| SFT | `make sft-smoke` | `make sft-generate` | `data/sft/datasets` |
-| DPO | `make dpo-smoke` | `make dpo-generate` | `data/dpo/datasets` |
+| Response distillation | `make distill-smoke` | `make distill-generate` | `data/distillation/runs/<run>/datasets` |
+| SFT | `make sft-smoke` | `make sft-generate` | `data/sft/runs/<run>/datasets` |
+| DPO | `make dpo-smoke` | `make dpo-generate` | `data/dpo/runs/<run>/datasets` |
 
 OpenRouter is the only supported live provider. Provider calls, retries, concurrency, and structured-output handling live in `slm_synth/llm.py`.
 
@@ -68,7 +68,7 @@ make pretrain-generate \
   PRETRAIN_TARGET_TOKENS=1000000 \
   PRETRAIN_TARGET_CONCURRENCY=4
 
-make pretrain-inspect
+make pretrain-inspect PRETRAIN_INSPECT_RUN=pretrain-target-001
 ```
 
 Useful variables:
@@ -79,6 +79,7 @@ Useful variables:
 | `PRETRAIN_TARGET_TOKENS` | `1000000` | Target token target |
 | `PRETRAIN_CONCURRENCY` | `1` | Smoke request concurrency |
 | `PRETRAIN_TARGET_CONCURRENCY` | `4` | Target request concurrency |
+| `PRETRAIN_INSPECT_RUN` | `$(PRETRAIN_REPORT_RUN)` | Run inspected by `pretrain-inspect` |
 | `PRETRAIN_MODEL` | `$(MODEL)` | Pretraining model |
 | `PRETRAIN_SIGNAL` | unset | Optional single-signal filter |
 
@@ -121,7 +122,7 @@ make distill-generate \
   DISTILL_TARGET_SIZE=pilot \
   DISTILL_TARGET_RUN=distill-pilot-001
 
-make distill-inspect
+make distill-inspect DISTILL_INSPECT_RUN=distill-pilot-001
 ```
 
 Useful variables:
@@ -132,6 +133,8 @@ Useful variables:
 | `DISTILL_TARGET_SIZE` | `pilot` | Target preset |
 | `DISTILL_BATCH_SIZE` | `5` | Prompts per teacher request |
 | `DISTILL_CONCURRENCY` | `1` | Parallel teacher requests |
+| `DISTILL_RUN_ROOT` | `data/distillation/runs` | Run output root |
+| `DISTILL_INSPECT_RUN` | `$(DISTILL_REPORT_RUN)` | Run inspected by `distill-inspect` |
 | `DISTILL_SIGNALS` | unset | Optional signal list |
 | `DISTILL_MODEL` | `$(MODEL)` | Teacher model |
 | `DISTILL_MAX_TOKENS` | `4096` | Teacher response max tokens |
@@ -170,10 +173,11 @@ Target run:
 ```bash
 make sft-generate \
   SFT_FAMILIES=all \
+  SFT_TARGET_RUN=sft-target-001 \
   SFT_COUNT_PER_FAMILY=1000 \
   SFT_CONCURRENCY=2
 
-make sft-inspect
+make sft-inspect SFT_INSPECT_RUN=sft-target-001
 ```
 
 Useful variables:
@@ -186,6 +190,9 @@ Useful variables:
 | `SFT_COUNT_PER_FAMILY` | `1000` | Target rows per family |
 | `SFT_BATCH_SIZE` | `5` | Specs per teacher request |
 | `SFT_CONCURRENCY` | `1` | Request concurrency across run batches |
+| `SFT_RUN_ROOT` | `data/sft/runs` | Run output root |
+| `SFT_REPORT_RUN` | `$(SFT_RUN)` | Run used by `sft-report` |
+| `SFT_INSPECT_RUN` | `$(SFT_REPORT_RUN)` | Run inspected by `sft-inspect` |
 | `SFT_MODEL` | `$(MODEL)` | Teacher model |
 | `SFT_MAX_TOKENS` | `4096` | Teacher response max tokens |
 
@@ -223,10 +230,11 @@ Target run:
 ```bash
 make dpo-generate \
   DPO_FAMILIES=all \
+  DPO_TARGET_RUN=dpo-target-001 \
   DPO_COUNT_PER_FAMILY=1000 \
   DPO_CONCURRENCY=2
 
-make dpo-inspect
+make dpo-inspect DPO_INSPECT_RUN=dpo-target-001
 ```
 
 Useful variables:
@@ -239,6 +247,9 @@ Useful variables:
 | `DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family |
 | `DPO_BATCH_SIZE` | `5` | Specs per teacher request |
 | `DPO_CONCURRENCY` | `1` | Request concurrency across run batches |
+| `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root |
+| `DPO_REPORT_RUN` | `$(DPO_RUN)` | Run used by `dpo-report` |
+| `DPO_INSPECT_RUN` | `$(DPO_REPORT_RUN)` | Run inspected by `dpo-inspect` |
 | `DPO_MODEL` | `$(MODEL)` | Teacher model |
 | `DPO_MAX_TOKENS` | `4096` | Teacher response max tokens |
 
@@ -249,8 +260,8 @@ Smoke and target generation commands build their reports automatically. Rebuild 
 ```bash
 make pretrain-report PRETRAIN_REPORT_RUN=<run-id>
 make distill-report DISTILL_REPORT_RUN=<run-id>
-make sft-report
-make dpo-report
+make sft-report SFT_REPORT_RUN=<run-id>
+make dpo-report DPO_REPORT_RUN=<run-id>
 ```
 
 ## Test
