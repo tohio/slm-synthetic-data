@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -110,6 +111,7 @@ def generate_seed_multi_signal_run(
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 1,
     batch_size: int | None = None,
+    concurrency: int = 1,
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
 ) -> MultiSignalRunResult:
@@ -125,12 +127,16 @@ def generate_seed_multi_signal_run(
         counts_by_signal=counts_by_signal,
     )
     normalized_batch_size = _validate_batch_size(batch_size)
+    _validate_positive_int(concurrency, "concurrency")
 
-    results: list[DistillationRunResult] = []
-    for signal, count in signal_counts.items():
+    signal_items = list(signal_counts.items())
+
+    def run_signal(item: tuple[str, int]) -> DistillationRunResult:
+        signal, count = item
         prompt_records = build_seed_prompt_records(signal=signal, count=count, start_index=start_index)
         backend = backend_factory(signal) if backend_factory is not None else None
-        result = _generate_and_materialize_signal_batches(
+        batch_concurrency = concurrency if len(signal_items) == 1 else 1
+        return _generate_and_materialize_signal_batches(
             signal=signal,
             prompt_records=prompt_records,
             output_dir=output_dir,
@@ -148,9 +154,15 @@ def generate_seed_multi_signal_run(
             adaptive_maximum_in_flight=adaptive_maximum_in_flight,
             adaptive_initial_in_flight=adaptive_initial_in_flight,
             batch_size=normalized_batch_size,
+            concurrency=batch_concurrency,
             backend=backend,
         )
-        results.append(result)
+
+    if concurrency == 1 or len(signal_items) == 1:
+        results = [run_signal(item) for item in signal_items]
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            results = list(executor.map(run_signal, signal_items))
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     write_run_manifest(
@@ -171,6 +183,8 @@ def generate_seed_multi_signal_run(
         metadata={
             "signal_count": len(results),
             "start_index": start_index,
+            "batch_size": normalized_batch_size,
+            "concurrency": concurrency,
         },
     )
 
@@ -193,6 +207,11 @@ def _validate_batch_size(batch_size: Any) -> int | None:
     if not isinstance(batch_size, int) or batch_size < 1:
         raise ValueError("batch_size must be a positive integer")
     return batch_size
+
+
+def _validate_positive_int(value: Any, name: str) -> None:
+    if not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive integer")
 
 
 def _chunks(records: Sequence[Mapping[str, Any]], batch_size: int | None) -> list[list[Mapping[str, Any]]]:
@@ -228,6 +247,7 @@ def _generate_and_materialize_signal_batches(
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 1,
     batch_size: int | None = None,
+    concurrency: int = 1,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
     batches = _chunks(prompt_records, batch_size)
@@ -252,10 +272,9 @@ def _generate_and_materialize_signal_batches(
             backend=backend,
         )
 
-    batch_results: list[DistillationRunResult] = []
-    public_rows: list[dict[str, Any]] = []
-    for batch_number, batch_records in enumerate(batches, start=1):
-        batch_result = generate_and_materialize_signal_batch(
+    def run_batch(item: tuple[int, list[Mapping[str, Any]]]) -> DistillationRunResult:
+        batch_number, batch_records = item
+        return generate_and_materialize_signal_batch(
             signal=signal,
             prompt_records=batch_records,
             output_dir=output_dir,
@@ -276,7 +295,16 @@ def _generate_and_materialize_signal_batches(
             adaptive_initial_in_flight=adaptive_initial_in_flight,
             backend=backend,
         )
-        batch_results.append(batch_result)
+
+    batch_items = list(enumerate(batches, start=1))
+    if concurrency == 1 or len(batch_items) == 1:
+        batch_results = [run_batch(item) for item in batch_items]
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            batch_results = list(executor.map(run_batch, batch_items))
+
+    public_rows: list[dict[str, Any]] = []
+    for batch_result in batch_results:
         public_rows.extend(_read_jsonl(batch_result.dataset_path))
 
     dataset_path = Path(output_dir) / f"{signal}.jsonl"
@@ -295,6 +323,7 @@ def _generate_and_materialize_signal_batches(
             "prompt_count": len(prompt_records),
             "batch_count": len(batch_results),
             "batch_size": batch_size,
+            "concurrency": concurrency,
             "batch_manifests": [str(result.manifest_path) for result in batch_results],
         },
     )

@@ -177,6 +177,7 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
         batch_size=args.batch_size,
+        concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
     )
     signals_text = ", ".join(result.signals)
@@ -296,6 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
     seed_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=1)
     seed_run_parser.add_argument("--batch-size", type=int, default=None)
+    seed_run_parser.add_argument("--concurrency", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
     seed_run_parser.set_defaults(func=cmd_generate_seed_run)
 

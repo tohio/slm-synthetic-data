@@ -37,6 +37,7 @@ DISTILL_TARGET ?= smoke
 DISTILL_TARGET_SIZE ?= pilot
 DISTILL_SMOKE_COUNT_PER_SIGNAL ?= 2
 DISTILL_BATCH_SIZE ?= 5
+DISTILL_CONCURRENCY ?= 1
 DISTILL_SIGNALS ?=
 DISTILL_SIGNALS_ARG := $(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),)
 DISTILL_ESTIMATED_TOKENS_PER_ROW ?= 512
@@ -122,6 +123,7 @@ help:
 > @echo "  PRETRAIN_TARGET_TOKENS=$(PRETRAIN_TARGET_TOKENS)"
 > @echo "  DISTILL_TARGET=$(DISTILL_TARGET)"
 > @echo "  DISTILL_TARGET_SIZE=$(DISTILL_TARGET_SIZE)"
+> @echo "  DISTILL_CONCURRENCY=$(DISTILL_CONCURRENCY)"
 > @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
 > @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
 > @echo ""
@@ -183,7 +185,8 @@ distill-smoke:
 >   --teacher-model $(DISTILL_MODEL) \
 >   --generation-run $(DISTILL_RUN) \
 >   --max-tokens $(DISTILL_MAX_TOKENS) \
->   --batch-size $(DISTILL_BATCH_SIZE)
+>   --batch-size $(DISTILL_BATCH_SIZE) \
+>   --concurrency $(DISTILL_CONCURRENCY)
 > $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_RUN)
 
 distill-generate:
@@ -196,7 +199,8 @@ distill-generate:
 >   --teacher-model $(DISTILL_MODEL) \
 >   --generation-run $(DISTILL_TARGET_RUN) \
 >   --max-tokens $(DISTILL_MAX_TOKENS) \
->   --batch-size $(DISTILL_BATCH_SIZE)
+>   --batch-size $(DISTILL_BATCH_SIZE) \
+>   --concurrency $(DISTILL_CONCURRENCY)
 > $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_TARGET_RUN)
 
 distill-report:

@@ -83,6 +83,7 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
         generation_run="smoke-001",
         max_tokens=512,
         token_target="100K",
+        concurrency=2,
         backend_factory=backend_factory,
     )
 
@@ -114,6 +115,7 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert run_manifest["datasets"][0]["signal"] == "cloud"
     assert run_manifest["datasets"][1]["signal"] == "database"
     assert run_manifest["metadata"]["signal_count"] == 2
+    assert run_manifest["metadata"]["concurrency"] == 2
 
     assert backends["cloud"].calls[0]["schema_name"] == "cloud_distillation_batch"
     assert backends["database"].calls[0]["schema_name"] == "database_distillation_batch"
@@ -131,11 +133,26 @@ def test_generate_seed_multi_signal_run_rejects_missing_count_strategy(tmp_path)
         )
 
 
+def test_generate_seed_multi_signal_run_rejects_bad_concurrency(tmp_path):
+    with pytest.raises(ValueError, match="concurrency"):
+        generate_seed_multi_signal_run(
+            signals=["cloud"],
+            count_per_signal=1,
+            concurrency=0,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="smoke-001",
+            max_tokens=512,
+        )
+
+
 def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
     result = generate_seed_multi_signal_run(
         signals=["arithmetic"],
         count_per_signal=3,
         batch_size=2,
+        concurrency=2,
         output_dir=tmp_path / "datasets",
         manifest_dir=tmp_path / "manifests",
         teacher_model="openai/gpt-4.1-mini",
@@ -159,3 +176,4 @@ def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
     assert manifest["row_count"] == 3
     assert manifest["metadata"]["batch_count"] == 2
     assert manifest["metadata"]["batch_size"] == 2
+    assert manifest["metadata"]["concurrency"] == 2

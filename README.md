@@ -131,6 +131,7 @@ Useful variables:
 | `DISTILL_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
 | `DISTILL_TARGET_SIZE` | `pilot` | Target preset |
 | `DISTILL_BATCH_SIZE` | `5` | Prompts per teacher request |
+| `DISTILL_CONCURRENCY` | `1` | Parallel teacher requests |
 | `DISTILL_SIGNALS` | unset | Optional signal list |
 | `DISTILL_MODEL` | `$(MODEL)` | Teacher model |
 | `DISTILL_MAX_TOKENS` | `4096` | Teacher response max tokens |
