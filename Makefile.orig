@@ -67,8 +67,6 @@ SFT_CONCURRENCY ?= 1
 SFT_RUN_ROOT ?= data/sft/runs
 SFT_MODEL ?= $(MODEL)
 SFT_MAX_TOKENS ?= 4096
-SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
-SFT_HF_REPO ?= $(HF_REPO)
 SFT_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin SFT_FAMILIES)),$(SFT_FAMILIES),$(SFT_SMOKE_FAMILIES))
 
 # DPO
@@ -86,15 +84,13 @@ DPO_CONCURRENCY ?= 1
 DPO_RUN_ROOT ?= data/dpo/runs
 DPO_MODEL ?= $(MODEL)
 DPO_MAX_TOKENS ?= 4096
-DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
-DPO_HF_REPO ?= $(HF_REPO)
 DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES)),$(DPO_FAMILIES),$(DPO_SMOKE_FAMILIES))
 
 .PHONY: help \
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
-	distill-smoke distill-generate distill-report distill-inspect distill-push \
-	sft-smoke sft-generate sft-report sft-inspect sft-push \
-	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
+	distill-smoke distill-generate distill-report distill-inspect \
+	sft-smoke sft-generate sft-report sft-inspect \
+	dpo-smoke dpo-generate dpo-report dpo-inspect \
 	test clean
 
 help:
