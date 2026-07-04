@@ -77,7 +77,7 @@ def test_generate_and_materialize_signal_batch_writes_public_dataset_and_manifes
     assert public_row == {
         "id": "planning-000001",
         "prompt": "Create a concise plan for preparing a small dataset for model fine-tuning.",
-        "reasoning": ["List dependencies before sequencing work."],
+        "reasoning": None,
         "response": "Start by identifying dependencies, then order tasks by risk and unblockers.",
     }
     assert "signal" not in public_row

@@ -39,17 +39,16 @@ def test_public_row_accepts_response_only_distillation():
     }
 
 
-def test_public_row_accepts_step_by_step_distillation():
-    row = validate_public_row(
-        {
-            "id": "arithmetic-000002",
-            "prompt": "What is 12 * 3?",
-            "reasoning": ["12 * 3 means three groups of 12.", "12 + 12 + 12 = 36."],
-            "response": "36",
-        }
-    )
-
-    assert row["reasoning"] == ["12 * 3 means three groups of 12.", "12 + 12 + 12 = 36."]
+def test_public_row_rejects_step_by_step_reasoning():
+    with pytest.raises(ValueError, match="reasoning.*null"):
+        validate_public_row(
+            {
+                "id": "arithmetic-000002",
+                "prompt": "What is 12 * 3?",
+                "reasoning": ["12 * 3 means three groups of 12.", "12 + 12 + 12 = 36."],
+                "response": "36",
+            }
+        )
 
 
 @pytest.mark.parametrize(
@@ -125,6 +124,34 @@ def test_merge_teacher_outputs_returns_public_rows_only():
             "prompt": "Explain one benefit of autoscaling.",
             "reasoning": None,
             "response": "Autoscaling can add or remove capacity as demand changes.",
+        }
+    ]
+
+
+def test_merge_teacher_outputs_drops_teacher_reasoning():
+    rows = merge_teacher_outputs(
+        [
+            {
+                "id": "arithmetic-000001",
+                "prompt": "What is 2 + 2?",
+                "signal": "arithmetic",
+            }
+        ],
+        [
+            {
+                "id": "arithmetic-000001",
+                "reasoning": ["Add 2 and 2."],
+                "response": "4",
+            }
+        ],
+    )
+
+    assert rows == [
+        {
+            "id": "arithmetic-000001",
+            "prompt": "What is 2 + 2?",
+            "reasoning": None,
+            "response": "4",
         }
     ]
 

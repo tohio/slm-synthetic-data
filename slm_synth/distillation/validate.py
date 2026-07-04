@@ -98,7 +98,7 @@ def merge_teacher_outputs(
                 {
                     "id": prompt["id"],
                     "prompt": prompt["prompt"],
-                    "reasoning": output["reasoning"],
+                    "reasoning": None,
                     "response": output["response"],
                 }
             )

@@ -104,3 +104,4 @@ def test_teacher_batch_schema_matches_response_contract():
     item_schema = TEACHER_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
     assert item_schema["required"] == ["id", "reasoning", "response"]
     assert item_schema["additionalProperties"] is False
+    assert item_schema["properties"]["reasoning"] == {"type": "null"}

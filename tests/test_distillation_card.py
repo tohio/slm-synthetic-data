@@ -46,7 +46,8 @@ def test_render_dataset_card_includes_run_provenance_and_schema():
     assert "- Teacher model: `openai/gpt-4.1-mini`" in text
     assert "| cloud | 2 | `data/distillation/datasets/cloud.jsonl` |" in text
     assert '"id": "string"' in text
-    assert "`reasoning` may also be a list of strings" in text
+    assert '"reasoning": null' in text
+    assert "`reasoning` may also be a list of strings" not in text
     assert "intentionally excluded from public training rows" in text
 
 

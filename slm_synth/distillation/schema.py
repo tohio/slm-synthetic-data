@@ -27,8 +27,8 @@ def validate_public_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """Validate and return a normalized public distillation row.
 
     Public rows intentionally contain only the fields needed for training:
-    id, prompt, optional reasoning, and response. Internal metadata and teacher
-    provenance must stay in local manifests or dataset cards.
+    id, prompt, reasoning fixed to null, and response. Internal metadata and
+    teacher provenance must stay in local manifests or dataset cards.
     """
     if not isinstance(row, Mapping):
         raise TypeError("public distillation row must be a mapping")
@@ -52,14 +52,11 @@ def validate_public_row(row: Mapping[str, Any]) -> dict[str, Any]:
 
     reasoning = row["reasoning"]
     if reasoning is not None:
-        if not isinstance(reasoning, list):
-            raise ValueError("public distillation row field 'reasoning' must be null or list[str]")
-        if not all(isinstance(step, str) and step.strip() for step in reasoning):
-            raise ValueError("public distillation row field 'reasoning' must be null or list[str]")
+        raise ValueError("public distillation row field 'reasoning' must be null")
 
     return {
         "id": row["id"],
         "prompt": row["prompt"],
-        "reasoning": reasoning,
+        "reasoning": None,
         "response": row["response"],
     }

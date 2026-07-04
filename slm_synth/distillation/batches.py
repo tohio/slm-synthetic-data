@@ -30,15 +30,7 @@ TEACHER_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
                 "required": ["id", "reasoning", "response"],
                 "properties": {
                     "id": {"type": "string", "minLength": 1},
-                    "reasoning": {
-                        "anyOf": [
-                            {"type": "null"},
-                            {
-                                "type": "array",
-                                "items": {"type": "string", "minLength": 1},
-                            },
-                        ]
-                    },
+                    "reasoning": {"type": "null"},
                     "response": {"type": "string", "minLength": 1},
                 },
             },
@@ -94,11 +86,10 @@ def render_teacher_batch_prompt(
         f"Signal: {normalized_signal}\n\n"
         "For each input item, return exactly one output item with the same id.\n"
         "Return only a valid JSON object with this shape:\n"
-        '{"items":[{"id":"string","reasoning":null|["string"],"response":"string"}]}\n\n'
+        '{"items":[{"id":"string","reasoning":null,"response":"string"}]}\n\n'
         "Rules:\n"
         "- Do not add, remove, rename, or reorder ids.\n"
-        "- Use reasoning=null when step-by-step supervision is not useful.\n"
-        "- Use reasoning as a list of concise steps when it materially helps the task.\n"
+        "- Always set reasoning to null.\n"
         "- Keep the final response in response.\n"
         "- Do not include prompt, signal, metadata, teacher_model, teacher_provider, generation_run, or difficulty.\n\n"
         "Input items:\n"

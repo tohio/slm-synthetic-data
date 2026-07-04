@@ -61,7 +61,7 @@ def render_dataset_card(
         (
             "Signal-specific response-distillation datasets generated from local prompts "
             "and teacher responses. Public rows contain only `id`, `prompt`, `reasoning`, "
-            "and `response`."
+            "and `response`; `reasoning` is always null."
         ),
         "## Generation",
         "\n".join(
@@ -83,8 +83,6 @@ def render_dataset_card(
                 "```json",
                 '{ "id": "string", "prompt": "string", "reasoning": null, "response": "string" }',
                 "```",
-                "",
-                "`reasoning` may also be a list of strings when step-by-step supervision is useful.",
             ]
         ),
         "## Excluded From Rows",
