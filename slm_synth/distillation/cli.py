@@ -300,6 +300,8 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
     seed_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
     seed_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
+    seed_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=4)
+    seed_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=16)
     seed_run_parser.add_argument("--batch-size", type=int, default=None)
     seed_run_parser.add_argument("--concurrency", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)

@@ -232,6 +232,10 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
                 "2",
                 "--concurrency",
                 "3",
+                "--adaptive-initial-batch-size",
+                "2",
+                "--adaptive-batch-increase-successes",
+                "4",
                 "--run-manifest-filename",
                 "smoke-001.manifest.json",
             ]
@@ -249,6 +253,8 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
     assert calls[0]["concurrency"] == 3
     assert calls[0]["adaptive_maximum_in_flight"] == 3
     assert calls[0]["adaptive_initial_in_flight"] == 8
+    assert calls[0]["adaptive_initial_batch_size"] == 2
+    assert calls[0]["adaptive_batch_increase_successes"] == 4
     assert calls[0]["run_manifest_filename"] == "smoke-001.manifest.json"
     captured = capsys.readouterr()
     assert "generated and materialized 4 row(s) across 2 signal(s): cloud, database" in captured.out
