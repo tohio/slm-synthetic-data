@@ -118,6 +118,8 @@ def generate_seed_multi_signal_run(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    adaptive_initial_batch_size: int = 4,
+    adaptive_batch_increase_successes: int = 16,
     batch_size: int | None = None,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
@@ -160,6 +162,8 @@ def generate_seed_multi_signal_run(
             retry_max_elapsed_seconds=retry_max_elapsed_seconds,
             adaptive_maximum_in_flight=adaptive_maximum_in_flight,
             adaptive_initial_in_flight=adaptive_initial_in_flight,
+            adaptive_initial_batch_size=adaptive_initial_batch_size,
+            adaptive_batch_increase_successes=adaptive_batch_increase_successes,
             batch_size=normalized_batch_size,
             concurrency=concurrency,
             backend=backend,
@@ -190,6 +194,8 @@ def generate_seed_multi_signal_run(
             "concurrency": concurrency,
             "adaptive_maximum_in_flight": concurrency,
             "adaptive_initial_in_flight": adaptive_initial_in_flight,
+            "adaptive_initial_batch_size": adaptive_initial_batch_size,
+            "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
         },
     )
 
@@ -251,13 +257,20 @@ def _generate_and_materialize_signal_batches(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    adaptive_initial_batch_size: int = 4,
+    adaptive_batch_increase_successes: int = 16,
     batch_size: int | None = None,
     concurrency: int = 1,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
     prompt_records = list(prompt_records)
     maximum_batch_size = batch_size or len(prompt_records)
-    batch_controller = AdaptiveBatchSizeController(maximum=maximum_batch_size, minimum=1)
+    batch_controller = AdaptiveBatchSizeController(
+        maximum=maximum_batch_size,
+        minimum=1,
+        initial=adaptive_initial_batch_size,
+        increase_successes=adaptive_batch_increase_successes,
+    )
     print(
         "[generate] Starting distillation signal: "
         f"{signal} (target_rows={len(prompt_records)}, batch_size={maximum_batch_size}, "
@@ -307,9 +320,12 @@ def _generate_and_materialize_signal_batches(
     next_batch_number = 1
     signal_rows_done = 0
 
+    def active_job_limit() -> int:
+        return min(concurrency, max(1, adaptive_initial_in_flight, batch_controller.current))
+
     def submit_available(executor: ThreadPoolExecutor) -> None:
         nonlocal next_batch_number
-        while pending_ranges and len(active) < concurrency:
+        while pending_ranges and len(active) < active_job_limit():
             offset, remaining = pending_ranges.popleft()
             size = min(batch_controller.current, remaining)
             if remaining > size:
@@ -390,6 +406,8 @@ def _generate_and_materialize_signal_batches(
             "batch_count": len(batch_results),
             "batch_size": maximum_batch_size,
             "concurrency": concurrency,
+            "adaptive_initial_batch_size": adaptive_initial_batch_size,
+            "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             **batch_controller.snapshot(),
             "llm_telemetry": aggregate_llm_telemetry_from_manifests(
                 result.manifest_path for result in batch_results

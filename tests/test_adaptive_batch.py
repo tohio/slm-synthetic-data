@@ -52,6 +52,18 @@ def test_adaptive_batch_size_default_growth_requires_stable_success_window():
     assert controller.current == 8
 
 
+def test_adaptive_batch_size_can_start_aggressively_for_production_runs():
+    controller = AdaptiveBatchSizeController(maximum=256, minimum=1, initial=64, increase_successes=4)
+
+    assert controller.current == 64
+    for _ in range(4):
+        controller.record_success()
+    assert controller.current == 128
+    for _ in range(4):
+        controller.record_success()
+    assert controller.current == 256
+
+
 def test_adaptive_batch_size_initial_is_capped_by_maximum_and_minimum():
     assert AdaptiveBatchSizeController(maximum=2).current == 2
     assert AdaptiveBatchSizeController(maximum=8, minimum=6).current == 6

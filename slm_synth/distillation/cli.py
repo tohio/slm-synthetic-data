@@ -177,6 +177,8 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=args.concurrency,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        adaptive_initial_batch_size=args.adaptive_initial_batch_size,
+        adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,

@@ -227,6 +227,8 @@ def generate_llm_run(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    adaptive_initial_batch_size: int = 4,
+    adaptive_batch_increase_successes: int = 16,
     concurrency: int = 1,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -239,6 +241,8 @@ def generate_llm_run(
     _validate_positive_int(batch_size, "batch_size")
     _validate_positive_int(start_index, "start_index")
     _validate_positive_int(concurrency, "concurrency")
+    _validate_positive_int(adaptive_initial_batch_size, "adaptive_initial_batch_size")
+    _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     adaptive_maximum_in_flight = concurrency
 
     active_backend = backend or build_openrouter_backend(
@@ -284,7 +288,12 @@ def generate_llm_run(
         )
 
     jobs: list[dict[str, Any]] = []
-    batch_controller = AdaptiveBatchSizeController(maximum=batch_size, minimum=1)
+    batch_controller = AdaptiveBatchSizeController(
+        maximum=batch_size,
+        minimum=1,
+        initial=adaptive_initial_batch_size,
+        increase_successes=adaptive_batch_increase_successes,
+    )
     for family in resolved_families:
         specs = build_specs(family=family, count=count_per_family, start_index=start_index)
         print(
@@ -410,6 +419,8 @@ def generate_llm_run(
             "concurrency": concurrency,
             "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
             "adaptive_initial_in_flight": adaptive_initial_in_flight,
+            "adaptive_initial_batch_size": adaptive_initial_batch_size,
+            "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             **batch_controller.snapshot(),
             "llm_telemetry": aggregate_llm_telemetry_from_manifests(result.manifest_path for result in results),
             "start_index": start_index,

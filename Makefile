@@ -45,6 +45,9 @@ DISTILL_BATCH_SIZE ?= 5
 DISTILL_CONCURRENCY ?= 1
 DISTILL_SIGNALS ?=
 DISTILL_SIGNALS_ARG := $(if $(filter all,$(DISTILL_SIGNALS)),,$(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),))
+DISTILL_INITIAL_CONCURRENCY ?= 8
+DISTILL_INITIAL_BATCH_SIZE ?= 4
+DISTILL_BATCH_INCREASE_SUCCESSES ?= 16
 DISTILL_ESTIMATED_TOKENS_PER_ROW ?= 512
 DISTILL_RUN_ROOT ?= data/distillation/runs
 DISTILL_MODEL ?= $(MODEL)
@@ -67,6 +70,9 @@ SFT_SMOKE_BATCH_SIZE ?= 2
 SFT_CONCURRENCY ?= 1
 SFT_RUN_ROOT ?= data/sft/runs
 SFT_MODEL ?= $(MODEL)
+SFT_INITIAL_CONCURRENCY ?= 8
+SFT_INITIAL_BATCH_SIZE ?= 4
+SFT_BATCH_INCREASE_SUCCESSES ?= 16
 SFT_MAX_TOKENS ?= 4096
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(HF_REPO)
@@ -86,6 +92,9 @@ DPO_SMOKE_BATCH_SIZE ?= 2
 DPO_CONCURRENCY ?= 1
 DPO_RUN_ROOT ?= data/dpo/runs
 DPO_MODEL ?= $(MODEL)
+DPO_INITIAL_CONCURRENCY ?= 8
+DPO_INITIAL_BATCH_SIZE ?= 4
+DPO_BATCH_INCREASE_SUCCESSES ?= 16
 DPO_MAX_TOKENS ?= 4096
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(HF_REPO)
@@ -207,7 +216,10 @@ distill-smoke:
 >   --generation-run $(DISTILL_RUN) \
 >   --max-tokens $(DISTILL_MAX_TOKENS) \
 >   --batch-size $(DISTILL_BATCH_SIZE) \
->   --concurrency $(DISTILL_CONCURRENCY)
+>   --concurrency $(DISTILL_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DISTILL_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DISTILL_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DISTILL_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_RUN)
 
 distill-generate:
@@ -221,7 +233,10 @@ distill-generate:
 >   --generation-run $(DISTILL_TARGET_RUN) \
 >   --max-tokens $(DISTILL_MAX_TOKENS) \
 >   --batch-size $(DISTILL_BATCH_SIZE) \
->   --concurrency $(DISTILL_CONCURRENCY)
+>   --concurrency $(DISTILL_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DISTILL_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DISTILL_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DISTILL_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_TARGET_RUN)
 
 distill-report:
@@ -256,7 +271,10 @@ sft-smoke:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
->   --concurrency $(SFT_CONCURRENCY)
+>   --concurrency $(SFT_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
@@ -269,7 +287,10 @@ sft-generate:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_TARGET_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
->   --concurrency $(SFT_CONCURRENCY)
+>   --concurrency $(SFT_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_TARGET_RUN)
 
 sft-report:
@@ -300,7 +321,10 @@ dpo-smoke:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
->   --concurrency $(DPO_CONCURRENCY)
+>   --concurrency $(DPO_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_RUN)
 
 dpo-generate:
@@ -313,7 +337,10 @@ dpo-generate:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_TARGET_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
->   --concurrency $(DPO_CONCURRENCY)
+>   --concurrency $(DPO_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_TARGET_RUN)
 
 dpo-report:
