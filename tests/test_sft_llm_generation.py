@@ -20,7 +20,7 @@ def _sft_spec():
             "template_family": "direct_qa",
             "eval_family": "basic_arithmetic_qa",
         },
-        "variables": {"a": 13, "b": 28},
+        "variables": {"a": 13, "b": 28, "answer": 41},
         "holdout_key": {"op": "add", "a": 13, "b": 28},
     }
 
@@ -86,6 +86,21 @@ def test_materialize_llm_batch_rejects_teacher_id_mismatch(tmp_path):
         materialize_llm_batch(
             specs=[_sft_spec()],
             teacher_response=_teacher_response(row_id="sft_other_000001"),
+            output_path=tmp_path / "sft.jsonl",
+            manifest_path=tmp_path / "sft.manifest.json",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-llm-smoke-001",
+        )
+
+
+def test_materialize_llm_batch_rejects_family_quality_mismatch(tmp_path):
+    response = _teacher_response()
+    response["items"][0]["messages"][1]["content"] = "The answer is 41."
+
+    with pytest.raises(ValueError, match="exactly match expected answer"):
+        materialize_llm_batch(
+            specs=[_sft_spec()],
+            teacher_response=response,
             output_path=tmp_path / "sft.jsonl",
             manifest_path=tmp_path / "sft.manifest.json",
             teacher_model="openai/gpt-4.1-mini",

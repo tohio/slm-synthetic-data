@@ -50,6 +50,16 @@ _FUNCTIONS = [
     ("last_item", "Return the last item in a list."),
 ]
 _EXPRESSIONS = [("2 + 3 * 4", "14"), ("len('cat')", "3"), ("10 // 3", "3"), ("sorted([3, 1, 2])", "[1, 2, 3]")]
+_COMMON_COLOR_FACTS = [
+    ("clear sky", "blue"),
+    ("ripe banana", "yellow"),
+    ("grass leaf", "green"),
+    ("stop sign", "red"),
+]
+_ANSWER_ONLY_CONSTRAINTS = [
+    "Assistant response must contain only the final answer value.",
+    "Do not include prose, labels, explanations, or trailing punctuation in the assistant response.",
+]
 
 
 def build_specs(*, family: str, count: int, start_index: int = 1) -> list[dict[str, Any]]:
@@ -124,7 +134,10 @@ def _basic_arithmetic(index: int) -> dict[str, Any]:
         difficulty=1,
         instruction="Create a concise addition question and answer it with the correct number.",
         variables={"operation": "addition", "a": a, "b": b, "answer": a + b},
-        constraints=["Do not use the exact eval prompt 'What is 2 + 2?'."],
+        constraints=[
+            *_ANSWER_ONLY_CONSTRAINTS,
+            "Do not use the exact eval prompt 'What is 2 + 2?'.",
+        ],
         holdout_key={"operation": "addition", "a": a, "b": b},
     )
 
@@ -140,6 +153,7 @@ def _direct_subtraction(index: int) -> dict[str, Any]:
         difficulty=1,
         instruction="Create a direct subtraction question and answer with the correct number.",
         variables={"operation": "subtraction", "a": a, "b": b, "answer": a - b},
+        constraints=_ANSWER_ONLY_CONSTRAINTS,
         holdout_key={"operation": "subtraction", "a": a, "b": b},
     )
 
@@ -156,6 +170,7 @@ def _direct_division(index: int) -> dict[str, Any]:
         difficulty=1,
         instruction="Create a direct integer division question and answer with the correct number.",
         variables={"operation": "division", "dividend": dividend, "divisor": divisor, "answer": answer},
+        constraints=_ANSWER_ONLY_CONSTRAINTS,
         holdout_key={"operation": "division", "dividend": dividend, "divisor": divisor},
     )
 
@@ -170,11 +185,13 @@ def _capital_city(index: int) -> dict[str, Any]:
         difficulty=1,
         instruction="Create a concise capital-city question and answer with only the correct capital city.",
         variables={"country": country, "capital": capital},
+        constraints=_ANSWER_ONLY_CONSTRAINTS,
         holdout_key={"fact_type": "capital_city", "country": country},
     )
 
 
 def _clear_sky(index: int) -> dict[str, Any]:
+    topic, answer = _COMMON_COLOR_FACTS[(index - 1) % len(_COMMON_COLOR_FACTS)]
     return _spec(
         family="clear_sky_color_qa",
         index=index,
@@ -182,8 +199,8 @@ def _clear_sky(index: int) -> dict[str, Any]:
         template_family="common_fact_color",
         difficulty=1,
         instruction="Create a simple factual color question about a common observable object or condition.",
-        variables={"topic": ["clear sky", "ripe banana", "grass leaf", "stop sign"][(index - 1) % 4]},
-        constraints=["Answer concisely and avoid unrelated details."],
+        variables={"topic": topic, "answer": answer},
+        constraints=_ANSWER_ONLY_CONSTRAINTS,
     )
 
 
@@ -197,7 +214,11 @@ def _ai_concept(index: int) -> dict[str, Any]:
         difficulty=2,
         instruction="Create a concise machine-learning concept explanation question and answer clearly.",
         variables={"concept": concept, "expected_content": expected},
-        constraints=["Do not explain unrelated electrical or mechanical concepts."],
+        constraints=[
+            "Answer in one or two concise sentences.",
+            "Include the expected content from variables.expected_content.",
+            "Do not explain unrelated electrical or mechanical concepts.",
+        ],
     )
 
 
@@ -211,7 +232,10 @@ def _private_company(index: int) -> dict[str, Any]:
         difficulty=2,
         instruction="Create a question asking for a private or unverifiable current company metric and answer with restraint.",
         variables={"company": company, "metric": "private revenue last month"},
-        constraints=["The assistant should not invent a dollar amount."],
+        constraints=[
+            "Assistant response must state that the private metric cannot be verified from public information.",
+            "Do not invent numbers, dollar amounts, dates, or precise private metrics.",
+        ],
     )
 
 
@@ -225,7 +249,11 @@ def _code_generation(index: int) -> dict[str, Any]:
         difficulty=2,
         instruction="Create a Python function generation request and answer with code only.",
         variables={"function_name": name, "requirement": doc},
-        constraints=["Assistant response must not include prose outside code."],
+        constraints=[
+            "Assistant response must contain Python code only.",
+            "Do not include prose outside code.",
+            "Do not wrap the code in Markdown fences.",
+        ],
     )
 
 
@@ -239,7 +267,11 @@ def _function_completion(index: int) -> dict[str, Any]:
         difficulty=2,
         instruction="Create a Python function-completion prompt and answer with only the function body.",
         variables={"function_name": name, "docstring": doc},
-        constraints=["Do not repeat the function signature in the assistant response."],
+        constraints=[
+            "Assistant response must contain only the indented or unindented function body.",
+            "Do not repeat the function signature in the assistant response.",
+            "Do not include prose or Markdown fences.",
+        ],
     )
 
 
@@ -253,7 +285,11 @@ def _code_explanation(index: int) -> dict[str, Any]:
         difficulty=2,
         instruction="Create a prompt asking to explain a small code snippet and answer without code fences.",
         variables={"snippet": f"result = {expression}", "expected_result": answer},
-        constraints=["The assistant response should explain behavior, not reproduce the full code."],
+        constraints=[
+            "Assistant response should explain behavior in plain text.",
+            "Mention the expected result from variables.expected_result.",
+            "Do not reproduce the full code or use Markdown fences.",
+        ],
     )
 
 
@@ -267,6 +303,7 @@ def _code_expression(index: int) -> dict[str, Any]:
         difficulty=2,
         instruction="Create a Python expression evaluation prompt and answer with the resulting value.",
         variables={"expression": expression, "answer": answer},
+        constraints=_ANSWER_ONLY_CONSTRAINTS,
     )
 
 
@@ -281,12 +318,18 @@ def _repeat_exact(index: int) -> dict[str, Any]:
         difficulty=1,
         instruction="Create an exact repeat instruction and answer with only the repeated text.",
         variables={"word": word, "count": count, "answer": " ".join([word] * count)},
+        constraints=[
+            "Assistant response must exactly match variables.answer.",
+            "Use single spaces between repeated words.",
+            "Do not include punctuation, labels, or explanations.",
+        ],
         holdout_key={"task": "repeat", "word": word, "count": count},
     )
 
 
 def _list_exact(index: int) -> dict[str, Any]:
     items = _COLORS[(index - 1) % len(_COLORS)]
+    answer = ", ".join(items)
     return _spec(
         family="list_exact_n_items",
         index=index,
@@ -294,7 +337,12 @@ def _list_exact(index: int) -> dict[str, Any]:
         template_family="list_exact_count",
         difficulty=1,
         instruction="Create an instruction to list an exact number of simple items and answer with exactly that many items.",
-        variables={"item_type": "colors", "count": len(items), "items": items},
+        variables={"item_type": "colors", "count": len(items), "items": items, "answer": answer},
+        constraints=[
+            "Assistant response must exactly match variables.answer.",
+            "Use comma-space separators between items.",
+            "Do not include numbering, bullets, prose, or extra items.",
+        ],
     )
 
 
@@ -308,7 +356,10 @@ def _short_stop(index: int) -> dict[str, Any]:
         difficulty=1,
         instruction="Create a short factual question and answer briefly, stopping when complete.",
         variables={"country": country, "capital": capital},
-        constraints=["Answer in fewer than 12 words."],
+        constraints=[
+            *_ANSWER_ONLY_CONSTRAINTS,
+            "Answer with only the capital city.",
+        ],
     )
 
 

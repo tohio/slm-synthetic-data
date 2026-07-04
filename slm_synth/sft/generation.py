@@ -12,6 +12,7 @@ from slm_synth.sft.batches import (
     SFT_BATCH_RESPONSE_SCHEMA,
     render_sft_batch_prompt,
     validate_sft_batch_response,
+    validate_sft_rows_against_specs,
 )
 from slm_synth.sft.io import write_jsonl
 from slm_synth.sft.manifest import write_manifest
@@ -272,6 +273,7 @@ def materialize_llm_batch(
         expected_ids=expected_ids,
         expected_count=len(validated_specs),
     )
+    validate_sft_rows_against_specs(rows, validated_specs)
     _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
 
     dataset_path = Path(output_path)

@@ -161,3 +161,172 @@ def _validate_response_ids(row_ids: list[str], *, expected_ids: Iterable[str] | 
         raise ValueError(f"SFT batch response missing expected id(s): {missing}")
     if unexpected:
         raise ValueError(f"SFT batch response contains unexpected id(s): {unexpected}")
+
+
+def validate_sft_rows_against_specs(
+    rows: Iterable[Mapping[str, Any]],
+    specs: Iterable[Mapping[str, Any]],
+) -> None:
+    """Validate generated row content against local family specs."""
+    spec_by_id = {str(spec["id"]): spec for spec in specs}
+    for row in rows:
+        row_id = str(row["id"])
+        spec = spec_by_id.get(row_id)
+        if spec is None:
+            raise ValueError(f"SFT row {row_id} has no matching spec")
+        _validate_row_metadata_matches_spec(row=row, spec=spec)
+        answer = _assistant_answer(row)
+        family = str(spec["metadata"].get("eval_family") or "")
+        variables = dict(spec.get("variables", {}))
+        _validate_family_answer(row_id=row_id, family=family, answer=answer, variables=variables)
+
+
+def _validate_row_metadata_matches_spec(*, row: Mapping[str, Any], spec: Mapping[str, Any]) -> None:
+    if dict(row["metadata"]) != dict(spec["metadata"]):
+        raise ValueError(f"SFT row {row['id']} metadata does not match spec metadata")
+
+
+def _assistant_answer(row: Mapping[str, Any]) -> str:
+    messages = row["messages"]
+    if not isinstance(messages, list):
+        raise TypeError("SFT row messages must be a list")
+    return str(messages[-1]["content"]).strip()
+
+
+def _validate_family_answer(
+    *,
+    row_id: str,
+    family: str,
+    answer: str,
+    variables: Mapping[str, Any],
+) -> None:
+    if family in {
+        "basic_arithmetic_qa",
+        "code_expression_result",
+        "direct_division",
+        "direct_subtraction",
+        "repeat_exact_n_times",
+        "list_exact_n_items",
+    }:
+        _require_exact_answer(row_id=row_id, answer=answer, expected=variables.get("answer"))
+        return
+
+    if family == "capital_city_qa":
+        _require_exact_answer(row_id=row_id, answer=answer, expected=variables.get("capital"))
+        return
+
+    if family == "clear_sky_color_qa":
+        _require_exact_answer(row_id=row_id, answer=answer, expected=variables.get("answer"))
+        return
+
+    if family == "short_factual_stop_behavior":
+        _require_exact_answer(row_id=row_id, answer=answer, expected=variables.get("capital"))
+        return
+
+    if family == "private_or_unverifiable_company_fact":
+        _validate_private_company_answer(row_id=row_id, answer=answer)
+        return
+
+    if family == "code_generation_function":
+        _validate_code_generation_answer(row_id=row_id, answer=answer, variables=variables)
+        return
+
+    if family == "function_completion_body_only":
+        _validate_function_body_answer(row_id=row_id, answer=answer)
+        return
+
+    if family == "code_explanation_no_code":
+        _validate_code_explanation_answer(row_id=row_id, answer=answer, variables=variables)
+        return
+
+    if family == "ai_concept_explanation":
+        _validate_ai_concept_answer(row_id=row_id, answer=answer, variables=variables)
+        return
+
+
+def _require_exact_answer(*, row_id: str, answer: str, expected: Any) -> None:
+    if expected is None:
+        raise ValueError(f"SFT row {row_id} spec is missing expected answer")
+    if answer != str(expected):
+        raise ValueError(f"SFT row {row_id} assistant answer must exactly match expected answer")
+
+
+def _validate_private_company_answer(*, row_id: str, answer: str) -> None:
+    lowered = answer.lower()
+    restraint_markers = (
+        "cannot verify",
+        "can't verify",
+        "do not have access",
+        "don't have access",
+        "not publicly",
+        "not public",
+        "unverifiable",
+        "private",
+    )
+    if not any(marker in lowered for marker in restraint_markers):
+        raise ValueError(f"SFT row {row_id} assistant answer must show restraint for private information")
+    if any(char.isdigit() for char in answer) or "$" in answer:
+        raise ValueError(f"SFT row {row_id} assistant answer must not invent private numeric metrics")
+
+
+def _validate_code_generation_answer(
+    *,
+    row_id: str,
+    answer: str,
+    variables: Mapping[str, Any],
+) -> None:
+    function_name = variables.get("function_name")
+    if not isinstance(function_name, str) or not function_name:
+        raise ValueError(f"SFT row {row_id} spec is missing function_name")
+    _reject_markdown_fence(row_id=row_id, answer=answer)
+    if f"def {function_name}(" not in answer:
+        raise ValueError(f"SFT row {row_id} assistant answer must define {function_name}")
+    _reject_prose_prefix(row_id=row_id, answer=answer)
+
+
+def _validate_function_body_answer(*, row_id: str, answer: str) -> None:
+    _reject_markdown_fence(row_id=row_id, answer=answer)
+    if "def " in answer:
+        raise ValueError(f"SFT row {row_id} assistant answer must not repeat a function signature")
+    _reject_prose_prefix(row_id=row_id, answer=answer)
+
+
+def _validate_code_explanation_answer(
+    *,
+    row_id: str,
+    answer: str,
+    variables: Mapping[str, Any],
+) -> None:
+    _reject_markdown_fence(row_id=row_id, answer=answer)
+    expected_result = variables.get("expected_result")
+    if expected_result is not None and str(expected_result) not in answer:
+        raise ValueError(f"SFT row {row_id} assistant explanation must mention expected result")
+    snippet = variables.get("snippet")
+    if isinstance(snippet, str) and snippet.strip() and snippet.strip() in answer:
+        raise ValueError(f"SFT row {row_id} assistant explanation must not reproduce the full code")
+
+
+def _validate_ai_concept_answer(
+    *,
+    row_id: str,
+    answer: str,
+    variables: Mapping[str, Any],
+) -> None:
+    _reject_markdown_fence(row_id=row_id, answer=answer)
+    concept = variables.get("concept")
+    if isinstance(concept, str) and concept.lower() not in answer.lower():
+        raise ValueError(f"SFT row {row_id} assistant explanation must mention the target concept")
+    if len(answer.split()) > 80:
+        raise ValueError(f"SFT row {row_id} assistant explanation is too long")
+
+
+def _reject_markdown_fence(*, row_id: str, answer: str) -> None:
+    if "```" in answer:
+        raise ValueError(f"SFT row {row_id} assistant answer must not use Markdown fences")
+
+
+def _reject_prose_prefix(*, row_id: str, answer: str) -> None:
+    first_line = answer.lstrip().splitlines()[0].lower()
+    prose_prefixes = ("here", "sure", "this", "the ")
+    if first_line.startswith(prose_prefixes):
+        raise ValueError(f"SFT row {row_id} assistant answer must not include prose outside code")
