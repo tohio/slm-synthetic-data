@@ -29,6 +29,7 @@ PRETRAIN_SIGNAL ?=
 PRETRAIN_SIGNAL_ARG := $(if $(PRETRAIN_SIGNAL),--signal $(PRETRAIN_SIGNAL),)
 PRETRAIN_STAGE ?= deduped
 HF_REPO ?=
+HF_NAMESPACE ?= tohio
 HF_PRIVATE ?=
 HF_PRIVATE_ARG := $(if $(filter true yes 1,$(HF_PRIVATE)),--private,)
 
@@ -125,8 +126,8 @@ help:
 > @echo "Push to Hugging Face:"
 > @echo "  make pretrain-push       Push pretraining deduped data"
 > @echo "  make distill-push        Push a distillation run"
-> @echo "  make sft-push            Push an SFT run"
-> @echo "  make dpo-push            Push a DPO run"
+> @echo "  make sft-push            Push SFT families to slm-sft-* repos"
+> @echo "  make dpo-push            Push DPO families to slm-dpo-* repos"
 > @echo ""
 > @echo "Maintenance:"
 > @echo "  make test                Run tests"
@@ -141,9 +142,11 @@ help:
 > @echo "  DISTILL_CONCURRENCY=$(DISTILL_CONCURRENCY)"
 > @echo "  DISTILL_HF_REPO=$(DISTILL_HF_REPO)"
 > @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
-> @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
+> @echo "  SFT_HF_NAMESPACE=$(SFT_HF_NAMESPACE)"
+> @echo "  SFT_HF_PREFIX=$(SFT_HF_PREFIX)"
 > @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
-> @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
+> @echo "  DPO_HF_NAMESPACE=$(DPO_HF_NAMESPACE)"
+> @echo "  DPO_HF_PREFIX=$(DPO_HF_PREFIX)"
 > @echo ""
 
 pretrain-smoke:
@@ -281,11 +284,11 @@ sft-inspect:
 > @find $(SFT_RUN_ROOT)/$(SFT_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 sft-push:
-> test -n "$(SFT_HF_REPO)" || (echo "SFT_HF_REPO or HF_REPO is required" >&2; exit 2)
 > $(PYTHON) -m slm_synth.sft.push_hf \
 >   --dataset-dir $(SFT_RUN_ROOT)/$(SFT_PUSH_RUN)/datasets \
 >   --run-dir $(SFT_RUN_ROOT)/$(SFT_PUSH_RUN) \
->   --repo-id $(SFT_HF_REPO) $(HF_PRIVATE_ARG)
+>   --repo-owner $(SFT_HF_NAMESPACE) \
+>   --repo-prefix $(SFT_HF_PREFIX) $(HF_PRIVATE_ARG)
 
 dpo-smoke:
 > $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
@@ -325,11 +328,11 @@ dpo-inspect:
 > @find $(DPO_RUN_ROOT)/$(DPO_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 dpo-push:
-> test -n "$(DPO_HF_REPO)" || (echo "DPO_HF_REPO or HF_REPO is required" >&2; exit 2)
 > $(PYTHON) -m slm_synth.dpo.push_hf \
 >   --dataset-dir $(DPO_RUN_ROOT)/$(DPO_PUSH_RUN)/datasets \
 >   --run-dir $(DPO_RUN_ROOT)/$(DPO_PUSH_RUN) \
->   --repo-id $(DPO_HF_REPO) $(HF_PRIVATE_ARG)
+>   --repo-owner $(DPO_HF_NAMESPACE) \
+>   --repo-prefix $(DPO_HF_PREFIX) $(HF_PRIVATE_ARG)
 
 test:
 > $(PYTHON) -m compileall -q slm_synth tests

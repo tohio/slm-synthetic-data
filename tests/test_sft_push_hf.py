@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.sft.push_hf import count_and_validate_jsonl, push_sft_run
+from slm_synth.sft.push_hf import count_and_validate_jsonl, push_sft_run, repo_id_for_family
 
 
 def _sft_row(row_id="sft-1"):
@@ -31,16 +31,35 @@ def test_count_and_validate_sft_jsonl_rejects_bad_public_row(tmp_path):
         count_and_validate_jsonl(dataset)
 
 
-def test_push_sft_run_uploads_dataset_and_run_files(tmp_path, monkeypatch):
+def test_repo_id_for_sft_family_uses_slm_sft_prefix():
+    assert (
+        repo_id_for_family(repo_owner="tohio", repo_prefix="slm-sft", family="basic_arithmetic_qa")
+        == "tohio/slm-sft-basic-arithmetic-qa"
+    )
+
+
+def test_push_sft_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
     run_dir = tmp_path / "run"
     dataset_dir = run_dir / "datasets"
     manifest_dir = run_dir / "manifests"
     dataset_dir.mkdir(parents=True)
     manifest_dir.mkdir()
-    (dataset_dir / "basic_arithmetic_qa.jsonl").write_text(json.dumps(_sft_row()) + "\n", encoding="utf-8")
+    (dataset_dir / "basic_arithmetic_qa.batch000001.jsonl").write_text(
+        json.dumps(_sft_row("sft-1")) + "\n",
+        encoding="utf-8",
+    )
+    (dataset_dir / "basic_arithmetic_qa.batch000002.jsonl").write_text(
+        json.dumps(_sft_row("sft-2")) + "\n",
+        encoding="utf-8",
+    )
+    (dataset_dir / "ai_concept_explanation.batch000001.jsonl").write_text(
+        json.dumps(_sft_row("sft-3")) + "\n",
+        encoding="utf-8",
+    )
     (run_dir / "README.md").write_text("# SFT dataset\n", encoding="utf-8")
     (run_dir / "coverage.json").write_text("{}", encoding="utf-8")
-    (manifest_dir / "run.manifest.json").write_text("{}", encoding="utf-8")
+    (manifest_dir / "basic_arithmetic_qa.batch000001.sft-run.manifest.json").write_text("{}", encoding="utf-8")
+    (manifest_dir / "sft-run.manifest.json").write_text("{}", encoding="utf-8")
 
     calls = []
 
@@ -49,16 +68,27 @@ def test_push_sft_run_uploads_dataset_and_run_files(tmp_path, monkeypatch):
             calls.append(("api", token))
 
         def upload_file(self, **kwargs):
-            calls.append(("upload", kwargs["path_in_repo"]))
+            calls.append(("upload", kwargs["repo_id"], kwargs["path_in_repo"]))
 
     monkeypatch.setenv("HF_TOKEN", "token")
     monkeypatch.setattr("slm_synth.sft.push_hf.HfApi", FakeApi)
     monkeypatch.setattr("slm_synth.sft.push_hf.create_repo", lambda **kwargs: calls.append(("repo", kwargs)))
 
-    result = push_sft_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_id="org/sft")
+    result = push_sft_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_owner="tohio")
 
-    assert result == {"repo_id": "org/sft", "files": ["data/basic_arithmetic_qa.jsonl"], "rows": 1}
-    assert ("upload", "data/basic_arithmetic_qa.jsonl") in calls
-    assert ("upload", "README.md") in calls
-    assert ("upload", "coverage.json") in calls
-    assert ("upload", "manifests/run.manifest.json") in calls
+    assert result["repo_count"] == 2
+    assert result["rows"] == 3
+    assert result["repos"]["basic_arithmetic_qa"]["repo_id"] == "tohio/slm-sft-basic-arithmetic-qa"
+    assert result["repos"]["ai_concept_explanation"]["repo_id"] == "tohio/slm-sft-ai-concept-explanation"
+    assert ("repo", {"repo_id": "tohio/slm-sft-basic-arithmetic-qa", "repo_type": "dataset", "private": False, "exist_ok": True}) in calls
+    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "data/basic_arithmetic_qa.batch000001.jsonl") in calls
+    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "data/basic_arithmetic_qa.batch000002.jsonl") in calls
+    assert ("upload", "tohio/slm-sft-ai-concept-explanation", "data/ai_concept_explanation.batch000001.jsonl") in calls
+    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "README.md") in calls
+    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "coverage.json") in calls
+    assert (
+        "upload",
+        "tohio/slm-sft-basic-arithmetic-qa",
+        "manifests/basic_arithmetic_qa.batch000001.sft-run.manifest.json",
+    ) in calls
+    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "manifests/sft-run.manifest.json") in calls
