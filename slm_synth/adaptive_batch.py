@@ -12,7 +12,7 @@ class AdaptiveBatchSizeController:
     maximum: int
     minimum: int = 1
     initial: int = 4
-    increase_successes: int = 4
+    increase_successes: int = 16
     decrease_factor: float = 0.5
 
     def __post_init__(self) -> None:

@@ -309,9 +309,12 @@ def generate_llm_run(
                 "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
             }
 
+        def active_job_limit() -> int:
+            return min(concurrency, max(1, adaptive_initial_in_flight, batch_controller.current))
+
         def submit_available(executor: ThreadPoolExecutor) -> None:
             nonlocal next_batch_number
-            while pending_ranges and len(active) < concurrency:
+            while pending_ranges and len(active) < active_job_limit():
                 offset, remaining = pending_ranges.popleft()
                 size = min(batch_controller.current, remaining)
                 if remaining > size:
