@@ -11,15 +11,17 @@ class AdaptiveBatchSizeController:
 
     maximum: int
     minimum: int = 1
+    initial: int = 4
     increase_successes: int = 4
     decrease_factor: float = 0.5
 
     def __post_init__(self) -> None:
         self.maximum = max(1, int(self.maximum))
         self.minimum = min(self.maximum, max(1, int(self.minimum)))
+        self.initial = min(self.maximum, max(self.minimum, int(self.initial)))
         self.increase_successes = max(1, int(self.increase_successes))
         self.decrease_factor = min(1.0, max(0.01, float(self.decrease_factor)))
-        self.current = self.maximum
+        self.current = self.initial
         self.observed_minimum = self.current
         self.observed_peak = self.current
         self.increases = 0
