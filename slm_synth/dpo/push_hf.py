@@ -98,7 +98,6 @@ def push_dpo_run(
 
     token = get_hf_token()
     api = HfApi(token=token)
-    create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
 
     dataset_root = Path(dataset_dir)
     files = discover_jsonl_files(dataset_root)
