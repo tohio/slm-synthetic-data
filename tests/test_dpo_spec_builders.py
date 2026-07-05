@@ -35,6 +35,24 @@ def test_dpo_spec_builder_keeps_holdout_key_local_only():
     assert visible["metadata"]["failure_mode"] == "wrong_numeric_answer"
 
 
+@pytest.mark.parametrize(
+    ("family", "expected"),
+    [
+        ("basic_arithmetic_qa", "23"),
+        ("direct_subtraction", "28"),
+        ("direct_division", "5"),
+        ("code_expression_result", "15"),
+        ("repeat_exact_n_times", "dog dog dog dog"),
+        ("list_exact_n_items", "red, green, blue, purple"),
+    ],
+)
+def test_dpo_spec_builder_adds_rejected_answer_for_exact_families(family, expected):
+    spec = build_specs(family=family, count=1)[0]
+
+    assert spec["variables"]["rejected_answer"] == expected
+    assert "Rejected assistant content must exactly match variables.rejected_answer." in spec["constraints"]
+
+
 def test_write_dpo_specs_jsonl_round_trips_through_generation_reader(tmp_path):
     specs = build_specs(family="repeat_exact_n_times", count=2)
     path = tmp_path / "dpo.specs.jsonl"

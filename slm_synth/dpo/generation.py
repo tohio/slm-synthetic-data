@@ -267,8 +267,12 @@ def materialize_llm_batch(
     if len(expected_ids) != len(set(expected_ids)):
         raise ValueError("DPO specs contain duplicate id(s)")
 
+    repaired_response = _repair_identical_rejected_answers(
+        teacher_response=teacher_response,
+        specs=validated_specs,
+    )
     rows = validate_dpo_batch_response(
-        teacher_response,
+        repaired_response,
         expected_ids=expected_ids,
         expected_count=len(validated_specs),
     )
@@ -324,6 +328,54 @@ def materialize_llm_batch_from_files(
         metadata=metadata,
         holdout_registry=holdout_registry,
     )
+
+
+def _repair_identical_rejected_answers(
+    *,
+    teacher_response: Mapping[str, Any],
+    specs: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Repair only copied rejected answers with explicit local rejected targets."""
+    items = teacher_response.get("items")
+    if not isinstance(items, list):
+        return dict(teacher_response)
+
+    spec_by_id = {str(spec["id"]): spec for spec in specs}
+    repaired_items: list[Any] = []
+    changed = False
+    for item in items:
+        if not isinstance(item, Mapping):
+            repaired_items.append(item)
+            continue
+        repaired_item = dict(item)
+        spec = spec_by_id.get(str(repaired_item.get("id")))
+        rejected_answer = _spec_rejected_answer(spec)
+        if rejected_answer and _messages_are_identical(repaired_item.get("chosen"), repaired_item.get("rejected")):
+            repaired_item["rejected"] = [{"role": "assistant", "content": rejected_answer}]
+            changed = True
+        repaired_items.append(repaired_item)
+
+    if not changed:
+        return dict(teacher_response)
+    repaired = dict(teacher_response)
+    repaired["items"] = repaired_items
+    return repaired
+
+
+def _spec_rejected_answer(spec: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(spec, Mapping):
+        return None
+    variables = spec.get("variables")
+    if not isinstance(variables, Mapping):
+        return None
+    rejected_answer = variables.get("rejected_answer")
+    if not isinstance(rejected_answer, str) or not rejected_answer.strip():
+        return None
+    return rejected_answer.strip()
+
+
+def _messages_are_identical(left: Any, right: Any) -> bool:
+    return isinstance(left, list) and isinstance(right, list) and left == right
 
 
 def _reject_holdout_matches(

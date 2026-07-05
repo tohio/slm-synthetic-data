@@ -256,12 +256,18 @@ def _validate_private_company_answer(*, row_id: str, answer: str) -> None:
     restraint_markers = (
         "cannot verify",
         "can't verify",
+        "cannot determine",
+        "can't determine",
         "do not have access",
         "don't have access",
+        "no access",
         "not publicly",
         "not public",
+        "not available",
         "unverifiable",
         "private",
+        "i do not know",
+        "i don't know",
     )
     if not any(marker in lowered for marker in restraint_markers):
         raise ValueError(f"SFT row {row_id} assistant answer must show restraint for private information")
@@ -299,7 +305,7 @@ def _validate_code_explanation_answer(
 ) -> None:
     _reject_markdown_fence(row_id=row_id, answer=answer)
     expected_result = variables.get("expected_result")
-    if expected_result is not None and str(expected_result) not in answer:
+    if expected_result is not None and not _contains_expected_result(answer=answer, expected=expected_result):
         raise ValueError(f"SFT row {row_id} assistant explanation must mention expected result")
     snippet = variables.get("snippet")
     if isinstance(snippet, str) and snippet.strip() and snippet.strip() in answer:
@@ -313,11 +319,44 @@ def _validate_ai_concept_answer(
     variables: Mapping[str, Any],
 ) -> None:
     _reject_markdown_fence(row_id=row_id, answer=answer)
-    concept = variables.get("concept")
-    if isinstance(concept, str) and concept.lower() not in answer.lower():
-        raise ValueError(f"SFT row {row_id} assistant explanation must mention the target concept")
+    expected_content = variables.get("expected_content")
+    if isinstance(expected_content, str) and expected_content.strip():
+        expected_terms = _important_terms(expected_content)
+        answer_lowered = answer.lower()
+        if expected_terms and not any(term in answer_lowered for term in expected_terms):
+            raise ValueError(f"SFT row {row_id} assistant explanation must cover expected concept content")
+    else:
+        concept = variables.get("concept")
+        if isinstance(concept, str) and concept.lower() not in answer.lower():
+            raise ValueError(f"SFT row {row_id} assistant explanation must mention the target concept")
     if len(answer.split()) > 80:
         raise ValueError(f"SFT row {row_id} assistant explanation is too long")
+
+
+def _contains_expected_result(*, answer: str, expected: Any) -> bool:
+    expected_text = str(expected)
+    if expected_text in answer:
+        return True
+    return expected_text.replace(" ", "") in answer.replace(" ", "")
+
+
+def _important_terms(text: str) -> tuple[str, ...]:
+    stopwords = {
+        "that",
+        "with",
+        "from",
+        "into",
+        "used",
+        "uses",
+        "items",
+        "model",
+    }
+    terms: list[str] = []
+    for raw in text.lower().replace("-", " ").split():
+        term = "".join(char for char in raw if char.isalnum())
+        if len(term) >= 5 and term not in stopwords:
+            terms.append(term)
+    return tuple(terms)
 
 
 def _reject_markdown_fence(*, row_id: str, answer: str) -> None:

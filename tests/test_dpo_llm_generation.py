@@ -24,7 +24,7 @@ def _dpo_spec():
             "eval_family": "basic_arithmetic_qa",
             "failure_mode": "extra_explanation",
         },
-        "variables": {"a": 17, "b": 26},
+        "variables": {"a": 17, "b": 26, "answer": 43, "rejected_answer": "44"},
         "holdout_key": {"op": "add", "a": 17, "b": 26},
     }
 
@@ -93,6 +93,42 @@ def test_materialize_llm_batch_rejects_teacher_id_mismatch(tmp_path):
         materialize_llm_batch(
             specs=[_dpo_spec()],
             teacher_response=_teacher_response(row_id="dpo_other_000001"),
+            output_path=tmp_path / "dpo.jsonl",
+            manifest_path=tmp_path / "dpo.manifest.json",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="dpo-llm-smoke-001",
+        )
+
+
+def test_materialize_llm_batch_repairs_copied_rejected_answer(tmp_path):
+    response = _teacher_response()
+    response["items"][0]["rejected"] = response["items"][0]["chosen"]
+
+    result = materialize_llm_batch(
+        specs=[_dpo_spec()],
+        teacher_response=response,
+        output_path=tmp_path / "dpo.jsonl",
+        manifest_path=tmp_path / "dpo.manifest.json",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="dpo-llm-smoke-001",
+    )
+
+    assert result.row_count == 1
+    row = json.loads((tmp_path / "dpo.jsonl").read_text().strip())
+    assert row["chosen"][0]["content"] == "43"
+    assert row["rejected"][0]["content"] == "44"
+
+
+def test_materialize_llm_batch_rejects_copied_rejected_without_repair_target(tmp_path):
+    spec = _dpo_spec()
+    del spec["variables"]["rejected_answer"]
+    response = _teacher_response()
+    response["items"][0]["rejected"] = response["items"][0]["chosen"]
+
+    with pytest.raises(ValueError, match="chosen and rejected"):
+        materialize_llm_batch(
+            specs=[spec],
+            teacher_response=response,
             output_path=tmp_path / "dpo.jsonl",
             manifest_path=tmp_path / "dpo.manifest.json",
             teacher_model="openai/gpt-4.1-mini",

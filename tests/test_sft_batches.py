@@ -182,6 +182,13 @@ def test_validate_sft_rows_against_specs_accepts_private_metric_restraint():
     )
 
 
+def test_validate_sft_rows_against_specs_accepts_private_metric_unknown_restraint():
+    validate_sft_rows_against_specs(
+        [_row(answer="I don't know that private metric because it is not available publicly.", family="private_or_unverifiable_company_fact")],
+        [_spec(family="private_or_unverifiable_company_fact", variables={"company": "OpenAI"})],
+    )
+
+
 def test_validate_sft_rows_against_specs_rejects_code_fences():
     with pytest.raises(ValueError, match="Markdown fences"):
         validate_sft_rows_against_specs(
@@ -212,11 +219,25 @@ def test_validate_sft_rows_against_specs_accepts_code_explanation_plain_text():
     )
 
 
+def test_validate_sft_rows_against_specs_accepts_code_explanation_spacing_variant():
+    validate_sft_rows_against_specs(
+        [_row(answer="Sorting produces [1,2,3].", family="code_explanation_no_code")],
+        [_spec(family="code_explanation_no_code", variables={"snippet": "result = sorted([3, 1, 2])", "expected_result": "[1, 2, 3]"})],
+    )
+
+
+def test_validate_sft_rows_against_specs_accepts_ai_concept_without_literal_name():
+    validate_sft_rows_against_specs(
+        [_row(answer="It maps tokens into vectors so related meanings can be compared.", family="ai_concept_explanation")],
+        [_spec(family="ai_concept_explanation", variables={"concept": "embedding", "expected_content": "vectors that represent tokens or items"})],
+    )
+
+
 def test_validate_sft_rows_against_specs_rejects_ai_concept_wrong_topic():
-    with pytest.raises(ValueError, match="must mention the target concept"):
+    with pytest.raises(ValueError, match="must cover expected concept content"):
         validate_sft_rows_against_specs(
             [_row(answer="A gear transfers motion between machine parts.", family="ai_concept_explanation")],
-            [_spec(family="ai_concept_explanation", variables={"concept": "embedding"})],
+            [_spec(family="ai_concept_explanation", variables={"concept": "embedding", "expected_content": "vectors that represent tokens or items"})],
         )
 
 

@@ -84,6 +84,7 @@ def test_render_dpo_batch_prompt_contains_llm_generation_contract():
     assert "dpo_answer_only_arithmetic_000001" in prompt
     assert "failure_mode" in prompt
     assert "chosen and rejected responses must differ" in prompt
+    assert "variables.rejected_answer" in prompt
     assert '"holdout_key":' not in prompt
 
 

@@ -117,6 +117,7 @@ def render_dpo_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "- The chosen response must be correct and preferred.\n"
         "- The rejected response must be realistic and reflect metadata.failure_mode.\n"
         "- The chosen and rejected responses must differ.\n"
+        "- If variables.rejected_answer is present, use it for the rejected assistant content.\n"
         "- Do not copy known eval prompts exactly.\n"
         "- Do not include variables, constraints, holdout_key, teacher_model, teacher_provider, or generation_run.\n\n"
         "Input specs:\n"

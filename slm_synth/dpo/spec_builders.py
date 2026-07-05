@@ -63,6 +63,10 @@ def build_and_write_specs(
 def _dpo_from_sft_spec(spec: dict[str, Any], *, family: str) -> dict[str, Any]:
     metadata = dict(spec["metadata"])
     metadata["failure_mode"] = _FAILURE_MODE_BY_FAMILY[family]
+    variables = dict(spec.get("variables", {}))
+    rejected_answer = _build_rejected_answer(family=family, variables=variables)
+    if rejected_answer is not None:
+        variables["rejected_answer"] = rejected_answer
     return {
         "id": spec["id"].replace("sft_", "dpo_", 1),
         "instruction": (
@@ -71,14 +75,89 @@ def _dpo_from_sft_spec(spec: dict[str, Any], *, family: str) -> dict[str, Any]:
             f"that demonstrates the failure mode: {metadata['failure_mode']}."
         ),
         "metadata": metadata,
-        "variables": dict(spec.get("variables", {})),
+        "variables": variables,
         "constraints": [
             *list(spec.get("constraints", [])),
             "Chosen response must be preferred over rejected response.",
             "Rejected response must be realistic, not random.",
+            *(_rejected_answer_constraints(family) if rejected_answer is not None else []),
         ],
         **({"holdout_key": spec["holdout_key"]} if "holdout_key" in spec else {}),
     }
+
+
+def _build_rejected_answer(*, family: str, variables: dict[str, Any]) -> str | None:
+    if family in {"basic_arithmetic_qa", "direct_division", "direct_subtraction"}:
+        return _wrong_number(variables.get("answer"))
+    if family == "code_expression_result":
+        return _wrong_expression_result(variables.get("answer"))
+    if family == "capital_city_qa":
+        return _alternate_text(variables.get("capital"), fallback="Toronto")
+    if family == "clear_sky_color_qa":
+        return _alternate_text(variables.get("answer"), fallback="purple")
+    if family == "short_factual_stop_behavior":
+        return _alternate_text(variables.get("capital"), fallback="Toronto")
+    if family == "repeat_exact_n_times":
+        answer = variables.get("answer")
+        word = variables.get("word")
+        if isinstance(answer, str) and isinstance(word, str) and answer:
+            return f"{answer} {word}"
+    if family == "list_exact_n_items":
+        items = variables.get("items")
+        if isinstance(items, list) and items:
+            extra = "purple" if "purple" not in items else "silver"
+            return ", ".join(str(item) for item in [*items, extra])
+        answer = variables.get("answer")
+        if isinstance(answer, str) and answer:
+            return f"{answer}, purple"
+    return None
+
+
+def _rejected_answer_constraints(family: str) -> list[str]:
+    if family in {
+        "basic_arithmetic_qa",
+        "capital_city_qa",
+        "clear_sky_color_qa",
+        "code_expression_result",
+        "direct_division",
+        "direct_subtraction",
+        "list_exact_n_items",
+        "repeat_exact_n_times",
+        "short_factual_stop_behavior",
+    }:
+        return [
+            "Chosen assistant content must exactly match variables.answer or variables.capital.",
+            "Rejected assistant content must exactly match variables.rejected_answer.",
+            "Rejected assistant content must not equal chosen assistant content.",
+        ]
+    return []
+
+
+def _wrong_number(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value + 1)
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return str(int(value) + 1)
+    return None
+
+
+def _wrong_expression_result(value: Any) -> str | None:
+    wrong_number = _wrong_number(value)
+    if wrong_number is not None:
+        return wrong_number
+    if value == "[1, 2, 3]":
+        return "[3, 2, 1]"
+    if isinstance(value, str) and value:
+        return f"{value} extra"
+    return None
+
+
+def _alternate_text(value: Any, *, fallback: str) -> str:
+    if isinstance(value, str) and value.strip().lower() == fallback.lower():
+        return "Paris"
+    return fallback
 
 
 def _validate_family(family: str) -> str:
