@@ -250,7 +250,7 @@ pretrain-push:
 > $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 
 distillation-sft-smoke:
-> $(PYTHON) -m slm_synth.distillation.cli generate-seed-run \
+> $(PYTHON) -m slm_synth.distillation_sft.cli generate-seed-run \
 >   $(DISTILLATION_SFT_SIGNALS_ARG) \
 >   --count-per-signal $(DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL) \
 >   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_RUN)/datasets \
@@ -267,7 +267,7 @@ distillation-sft-smoke:
 > $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_RUN)
 
 distillation-sft-generate:
-> $(PYTHON) -m slm_synth.distillation.cli generate-production-run \
+> $(PYTHON) -m slm_synth.distillation_sft.cli generate-production-run \
 >   $(DISTILLATION_SFT_SIGNALS_ARG) \
 >   --target-rows $(DISTILLATION_SFT_TARGET_ROWS) \
 >   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_TARGET_RUN)/datasets \
@@ -284,10 +284,10 @@ distillation-sft-generate:
 > $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_TARGET_RUN)
 
 distillation-sft-report:
-> $(PYTHON) -m slm_synth.distillation.cli report-coverage \
+> $(PYTHON) -m slm_synth.distillation_sft.cli report-coverage \
 >   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/coverage.json
-> $(PYTHON) -m slm_synth.distillation.cli build-dataset-card \
+> $(PYTHON) -m slm_synth.distillation_sft.cli build-dataset-card \
 >   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_SFT_DATASET_NAME)"
@@ -300,7 +300,7 @@ distillation-sft-inspect:
 
 distillation-sft-push:
 > test -n "$(DISTILLATION_SFT_HF_REPO)" || (echo "DISTILLATION_SFT_HF_REPO or HF_REPO is required" >&2; exit 2)
-> $(PYTHON) -m slm_synth.distillation.push_hf \
+> $(PYTHON) -m slm_synth.distillation_sft.push_hf \
 >   --dataset-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_PUSH_RUN)/datasets \
 >   --run-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_PUSH_RUN) \
 >   --repo-id $(DISTILLATION_SFT_HF_REPO) $(HF_PRIVATE_ARG)

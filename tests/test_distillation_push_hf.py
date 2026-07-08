@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.distillation.push_hf import (
+from slm_synth.distillation_sft.push_hf import (
     count_and_validate_jsonl,
     discover_jsonl_files,
     discover_run_manifest,
@@ -107,8 +107,8 @@ def test_push_distillation_run_uploads_only_public_surface_files(tmp_path, monke
             calls.append(("upload", kwargs["path_in_repo"]))
 
     monkeypatch.setenv("HF_TOKEN", "token")
-    monkeypatch.setattr("slm_synth.distillation.push_hf.HfApi", FakeApi)
-    monkeypatch.setattr("slm_synth.distillation.push_hf.create_repo", lambda **kwargs: calls.append(("repo", kwargs)))
+    monkeypatch.setattr("slm_synth.distillation_sft.push_hf.HfApi", FakeApi)
+    monkeypatch.setattr("slm_synth.distillation_sft.push_hf.create_repo", lambda **kwargs: calls.append(("repo", kwargs)))
 
     result = push_distillation_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_id="org/distill")
 
@@ -149,8 +149,8 @@ def test_push_distillation_run_requires_public_surface_files(tmp_path, monkeypat
             pass
 
     monkeypatch.setenv("HF_TOKEN", "token")
-    monkeypatch.setattr("slm_synth.distillation.push_hf.HfApi", FakeApi)
-    monkeypatch.setattr("slm_synth.distillation.push_hf.create_repo", lambda **kwargs: None)
+    monkeypatch.setattr("slm_synth.distillation_sft.push_hf.HfApi", FakeApi)
+    monkeypatch.setattr("slm_synth.distillation_sft.push_hf.create_repo", lambda **kwargs: None)
 
     with pytest.raises(FileNotFoundError, match=message):
         push_distillation_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_id="org/distill")

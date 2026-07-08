@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from slm_synth.distillation.cli import main
+from slm_synth.distillation_sft.cli import main
 
 
 def test_build_seed_prompts_cli_writes_internal_prompt_records(tmp_path, capsys):
@@ -161,7 +161,7 @@ def test_generate_batch_cli_uses_live_generation_wrapper(tmp_path, monkeypatch, 
         return Result()
 
     monkeypatch.setattr(
-        "slm_synth.distillation.cli.generate_and_materialize_signal_batch",
+        "slm_synth.distillation_sft.cli.generate_and_materialize_signal_batch",
         fake_generate_and_materialize_signal_batch,
     )
 
@@ -218,10 +218,10 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
         return Result()
 
     monkeypatch.setattr(
-        "slm_synth.distillation.cli.generate_seed_multi_signal_run",
+        "slm_synth.distillation_sft.cli.generate_seed_multi_signal_run",
         fake_generate_seed_multi_signal_run,
     )
-    monkeypatch.setattr("slm_synth.distillation.cli.print_distillation_run_summary", lambda manifest_path: None)
+    monkeypatch.setattr("slm_synth.distillation_sft.cli.print_distillation_run_summary", lambda manifest_path: None)
 
     assert (
         main(
@@ -319,10 +319,10 @@ def test_generate_production_run_cli_uses_target_rows(tmp_path, monkeypatch):
         return Result()
 
     monkeypatch.setattr(
-        "slm_synth.distillation.cli.generate_prompt_spec_multi_signal_run",
+        "slm_synth.distillation_sft.cli.generate_prompt_spec_multi_signal_run",
         fake_generate_prompt_spec_multi_signal_run,
     )
-    monkeypatch.setattr("slm_synth.distillation.cli.print_distillation_run_summary", lambda manifest_path: None)
+    monkeypatch.setattr("slm_synth.distillation_sft.cli.print_distillation_run_summary", lambda manifest_path: None)
 
     assert (
         main(

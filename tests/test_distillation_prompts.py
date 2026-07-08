@@ -1,12 +1,12 @@
 import pytest
 
-from slm_synth.distillation.prompts import build_prompt_record, build_prompt_records, format_prompt_id
-from slm_synth.distillation.seeds import (
+from slm_synth.distillation_sft.prompts import build_prompt_record, build_prompt_records, format_prompt_id
+from slm_synth.distillation_sft.seeds import (
     DISTILLATION_PROMPT_SEEDS,
     build_seed_prompt_records,
     iter_seed_prompts,
 )
-from slm_synth.distillation.signals import DISTILLATION_SIGNALS
+from slm_synth.distillation_sft.signals import DISTILLATION_SIGNALS
 
 
 def test_format_prompt_id_uses_normalized_signal_and_padded_index():

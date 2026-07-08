@@ -3,13 +3,13 @@ import re
 
 import pytest
 
-from slm_synth.distillation.orchestration import (
+from slm_synth.distillation_sft.orchestration import (
     generate_prompt_spec_multi_signal_run,
     generate_seed_multi_signal_run,
     normalize_signal_counts,
     normalize_signal_sequence,
 )
-from slm_synth.distillation.prompts import build_prompt_record
+from slm_synth.distillation_sft.prompts import build_prompt_record
 
 
 class SignalAwareBackend:
@@ -339,7 +339,7 @@ def test_generate_prompt_spec_multi_signal_run_rejects_near_duplicate_prompts_be
         ]
 
     monkeypatch.setattr(
-        "slm_synth.distillation.orchestration.build_prompt_spec_records",
+        "slm_synth.distillation_sft.orchestration.build_prompt_spec_records",
         duplicate_prompt_builder,
     )
 

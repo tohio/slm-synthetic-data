@@ -1,8 +1,8 @@
 import pytest
 
-from slm_synth.distillation.prompt_quality import normalize_prompt_text, validate_prompt_preflight
-from slm_synth.distillation.prompts import build_prompt_record
-from slm_synth.distillation.seeds import build_seed_prompt_records
+from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text, validate_prompt_preflight
+from slm_synth.distillation_sft.prompts import build_prompt_record
+from slm_synth.distillation_sft.seeds import build_seed_prompt_records
 
 
 def test_normalize_prompt_text_catches_case_spacing_and_terminal_punctuation():

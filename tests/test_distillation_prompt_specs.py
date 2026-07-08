@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from slm_synth.distillation.signals import DISTILLATION_SIGNALS
-from slm_synth.distillation.spec_builders import (
+from slm_synth.distillation_sft.signals import DISTILLATION_SIGNALS
+from slm_synth.distillation_sft.spec_builders import (
     build_and_write_prompt_specs,
     build_prompt_spec_records,
 )

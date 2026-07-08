@@ -1,82 +1,44 @@
-# `slm_synth` Package
+# `slm_synth`
 
-## Shared Modules
+## Purpose
 
-| Module | Purpose |
+`slm_synth` owns synthetic dataset generation for the SLM stack. It contains provider integration, adaptive request control, validators, run manifests, coverage reports, and Hugging Face publishing helpers.
+
+It does not train models, run trained-model evals, create checkpoints, export models, or build logits artifacts.
+
+## Contents
+
+```text
+slm_synth/
+├── pretrain/            # grounded synthetic pretraining records
+├── sft/                 # generic supervised fine-tuning datasets
+├── dpo/                 # generic preference datasets
+├── distillation_sft/    # teacher prompt/response datasets for distillation
+├── distillation_dpo/    # preference pairs for distilled-model alignment
+├── taxonomy/            # shared public metadata labels
+├── adaptive_batch.py    # adaptive batch-size controller
+├── llm.py               # OpenRouter client, retries, telemetry, routing
+├── planning.py          # target-count allocation helpers
+└── push_hf.py           # shared Hugging Face utilities
+```
+
+## Key Files
+
+| File | Purpose |
 |---|---|
-| `llm.py` | OpenRouter client, structured JSON output, retries, and adaptive concurrency. |
-| `paths.py` | Shared data-path helpers. |
-| `rate_limit.py` | Request pacing helpers. |
-| `model_support.py` | Supported provider/model guidance. |
-| `taxonomy/` | Training labels, eval-family labels, and holdout registry. |
+| `llm.py` | OpenRouter structured generation, retry handling, routing policy, and provider telemetry. |
+| `adaptive_batch.py` | Batch-size backoff/ramp behavior after provider or parse failures. |
+| `planning.py` | Even target-count allocation across selected families/signals. |
+| `telemetry.py` | Run-level aggregation of per-batch/provider telemetry. |
+| `paths.py` | Shared path helpers. |
+| `push_hf.py` | Shared upload helpers used by dataset-specific push modules. |
 
-OpenRouter is the only supported production provider.
+## How It Fits In
 
-## Pretraining Modules
+Dataset-specific packages expose Make/CLI surfaces for pretraining, SFT, DPO, distillation SFT, and distillation DPO artifacts. Public command documentation lives in `../docs/COMMANDS.md`; dataset contracts live in `../docs/DATASET_PURPOSE.md`.
 
-Implementation lives under `slm_synth.pretrain`.
+## Conventions
 
-| Module | Purpose |
-|---|---|
-| `pretrain/artifacts/` | Deterministic grounded artifacts and preflight quality checks. |
-| `pretrain/generate.py` | Pretraining generation orchestration and resume. |
-| `pretrain/grounded.py` | Grounded batch rendering, anchoring, and persistence. |
-| `pretrain/validate.py` | Raw-to-validated record validation. |
-| `pretrain/dedup.py` | Exact deduplication. |
-| `pretrain/manifest.py` | Run manifest and coverage-report generation. |
-| `pretrain/report_artifacts.py` | Artifact duplicate, family, and quality reporting. |
-| `pretrain/report_lengths.py` | Per-record size estimation for row-target calibration. |
-| `pretrain/push_hf.py` | Hugging Face publishing. |
-
-## Distillation Modules
-
-Implementation lives under `slm_synth.distillation`.
-
-| Module | Purpose |
-|---|---|
-| `distillation/schema.py` | Public row and teacher-output validation. |
-| `distillation/signals.py` | Supported distillation signal names. |
-| `distillation/prompts.py` | Local prompt-record validation. |
-| `distillation/seeds.py` | Built-in smoke seed prompts. |
-| `distillation/spec_builders.py` | Production prompt-spec builders. |
-| `distillation/batches.py` | Teacher batch prompt and response formatting. |
-| `distillation/generation.py` | OpenRouter teacher generation for one signal batch. |
-| `distillation/orchestration.py` | Multi-signal smoke and production orchestration. |
-| `distillation/io.py` | Public JSONL, per-signal manifest, and run-manifest writers. |
-| `distillation/budget.py` | Token-target planning. |
-| `distillation/card.py` | Dataset-card generation from run manifests. |
-| `distillation/cli.py` | Command-line entrypoint for distillation helpers. |
-
-## SFT Modules
-
-Implementation lives under `slm_synth.sft`.
-
-| Module | Purpose |
-|---|---|
-| `sft/schema.py` | Public SFT row validation. |
-| `sft/specs.py` | LLM task-spec validation and teacher-visible spec shaping. |
-| `sft/spec_builders.py` | Scalable task-spec builders for eval-shaped families. |
-| `sft/batches.py` | SFT batch prompt and teacher response contracts. |
-| `sft/generation.py` | Local materialization and OpenRouter batch generation. |
-| `sft/runs.py` | Multi-family seed and LLM run orchestration. |
-| `sft/seeds.py` | Deterministic seed rows. |
-| `sft/manifest.py` | Dataset and run manifests. |
-| `sft/report.py` | Coverage reports. |
-| `sft/cli.py` | Command-line entrypoint for SFT helpers. |
-
-## DPO Modules
-
-Implementation lives under `slm_synth.dpo`.
-
-| Module | Purpose |
-|---|---|
-| `dpo/schema.py` | Public DPO row validation. |
-| `dpo/specs.py` | LLM task-spec validation and teacher-visible spec shaping. |
-| `dpo/spec_builders.py` | Scalable task-spec builders for eval-shaped families. |
-| `dpo/batches.py` | DPO batch prompt and teacher response contracts. |
-| `dpo/generation.py` | Local materialization and OpenRouter batch generation. |
-| `dpo/runs.py` | Multi-family seed and LLM run orchestration. |
-| `dpo/seeds.py` | Deterministic seed rows. |
-| `dpo/manifest.py` | Dataset and run manifests. |
-| `dpo/report.py` | Coverage reports. |
-| `dpo/cli.py` | Command-line entrypoint for DPO helpers. |
+- Public row contracts stay inside the dataset package that owns them.
+- Provider, cost, retry, routing, and teacher lineage details belong in manifests, not public rows.
+- Public artifact names use hyphens, such as `distillation-sft-*`; Python package names use underscores, such as `slm_synth.distillation_sft`.

@@ -1,8 +1,8 @@
 import pytest
 
-from slm_synth.distillation.schema import validate_public_row
-from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
-from slm_synth.distillation.validate import merge_teacher_outputs, validate_teacher_output
+from slm_synth.distillation_sft.schema import validate_public_row
+from slm_synth.distillation_sft.signals import DISTILLATION_SIGNALS, validate_signal
+from slm_synth.distillation_sft.validate import merge_teacher_outputs, validate_teacher_output
 
 
 def test_distillation_signals_are_fixed_scope():

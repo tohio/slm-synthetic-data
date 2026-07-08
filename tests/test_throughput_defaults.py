@@ -40,7 +40,7 @@ def test_make_openrouter_backed_defaults_match_pretrain_posture():
 def test_plain_batch_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one():
     from slm_synth.dpo.cli import build_parser as build_dpo_parser
     from slm_synth.sft.cli import build_parser as build_sft_parser
-    from slm_synth.distillation.cli import build_parser as build_distillation_parser
+    from slm_synth.distillation_sft.cli import build_parser as build_distillation_parser
 
     common_sft_dpo_args = [
         "generate-llm-batch",

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.distillation.report import build_coverage_report, write_coverage_report
+from slm_synth.distillation_sft.report import build_coverage_report, write_coverage_report
 
 
 def _write_run_manifest(path, datasets):

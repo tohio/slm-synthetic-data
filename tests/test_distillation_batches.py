@@ -1,6 +1,6 @@
 import pytest
 
-from slm_synth.distillation.batches import (
+from slm_synth.distillation_sft.batches import (
     TEACHER_BATCH_RESPONSE_SCHEMA,
     build_teacher_request_items,
     build_teacher_request_object,

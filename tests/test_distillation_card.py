@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.distillation.card import render_dataset_card, write_dataset_card
+from slm_synth.distillation_sft.card import render_dataset_card, write_dataset_card
 
 
 def _run_manifest():

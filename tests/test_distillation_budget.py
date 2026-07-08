@@ -1,6 +1,6 @@
 import pytest
 
-from slm_synth.distillation.budget import (
+from slm_synth.distillation_sft.budget import (
     TOKEN_TARGETS,
     build_token_budget_plan,
     format_token_count,

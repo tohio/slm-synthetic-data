@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.distillation.runs import default_manifest_path, materialize_teacher_batch
+from slm_synth.distillation_sft.runs import default_manifest_path, materialize_teacher_batch
 
 
 def test_default_manifest_path_uses_signal_and_generation_run(tmp_path):

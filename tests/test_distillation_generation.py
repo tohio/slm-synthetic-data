@@ -2,11 +2,11 @@ import json
 
 import pytest
 
-from slm_synth.distillation.generation import (
+from slm_synth.distillation_sft.generation import (
     generate_and_materialize_signal_batch,
     generate_teacher_batch_response,
 )
-from slm_synth.distillation.seeds import build_seed_prompt_records
+from slm_synth.distillation_sft.seeds import build_seed_prompt_records
 
 
 class FakeBackend:

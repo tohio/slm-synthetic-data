@@ -1,4 +1,4 @@
-from slm_synth.distillation.response_quality import (
+from slm_synth.distillation_sft.response_quality import (
     aggregate_rejection_reasons,
     filter_public_rows_by_response_quality,
     validate_response_quality,

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.distillation.io import write_jsonl, write_manifest, write_run_manifest, write_signal_dataset
+from slm_synth.distillation_sft.io import write_jsonl, write_manifest, write_run_manifest, write_signal_dataset
 
 
 def test_write_jsonl_writes_public_rows_only(tmp_path):

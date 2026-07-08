@@ -2,7 +2,7 @@
 
 This directory contains prompt helpers for the pretraining synthetic workflow.
 
-The current production pretraining path uses grounded artifacts plus OpenRouter structured rendering. Distillation prompt records live under `slm_synth/distillation/` because response distillation has a different public schema and teacher contract.
+The current production pretraining path uses grounded artifacts plus OpenRouter structured rendering. Distillation prompt records live under `slm_synth/distillation_sft/` because response distillation has a different public schema and teacher contract.
 
 ## Pretraining Contract
 
