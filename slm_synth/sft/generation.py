@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+)
 from slm_synth.sft.batches import (
     SFT_BATCH_RESPONSE_SCHEMA,
     render_sft_batch_prompt,
@@ -60,7 +63,7 @@ def build_openrouter_backend(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     adaptive_initial_in_flight: int = 8,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,
@@ -158,7 +161,7 @@ def generate_llm_batch(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     adaptive_initial_in_flight: int = 8,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,
@@ -223,7 +226,7 @@ def generate_llm_batch_from_files(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     adaptive_initial_in_flight: int = 8,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,

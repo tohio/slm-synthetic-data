@@ -14,6 +14,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from slm_synth.model_support import warn_if_unsupported_model
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_BATCH_SIZE,
+    MAX_OPENROUTER_BATCH_SIZE,
+    MAX_OPENROUTER_CONCURRENCY,
+    MIN_OPENROUTER_BATCH_SIZE,
+    MIN_OPENROUTER_CONCURRENCY,
+)
 
 TEMPLATE_PATH = REPO_ROOT / "configs" / "synthetic_template.yaml"
 OUTPUT_PATH = REPO_ROOT / "configs" / "synthetic.yaml"
@@ -25,10 +32,10 @@ PROFILES = {
     "quality": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.25, "top_p": 0.95, "concurrency": 2},
 }
 
-MIN_BATCH_SIZE = 1
-MAX_BATCH_SIZE = 64
-MIN_CONCURRENCY = 1
-MAX_CONCURRENCY = 1024
+MIN_BATCH_SIZE = MIN_OPENROUTER_BATCH_SIZE
+MAX_BATCH_SIZE = MAX_OPENROUTER_BATCH_SIZE
+MIN_CONCURRENCY = MIN_OPENROUTER_CONCURRENCY
+MAX_CONCURRENCY = MAX_OPENROUTER_CONCURRENCY
 
 
 def generate_run_name(length: int = 7) -> str:
@@ -52,7 +59,7 @@ def main() -> None:
     parser.add_argument("--tokens", required=True, type=int)
     parser.add_argument("--run", default=None)
     parser.add_argument("--hf_repo", default=None)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_OPENROUTER_BATCH_SIZE)
     parser.add_argument("--concurrency", type=int, default=None)
     parser.add_argument("--max-tokens", type=int, default=None)
     # Accepted for config callers that share provider options; not written by this grounded profile.

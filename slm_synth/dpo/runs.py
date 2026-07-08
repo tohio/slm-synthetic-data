@@ -18,6 +18,14 @@ from slm_synth.dpo.seeds import DPO_SEED_FAMILIES, build_seed_rows
 from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_specs
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+    DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    MAX_OPENROUTER_BATCH_SIZE,
+    MAX_OPENROUTER_CONCURRENCY,
+)
 from slm_synth.run_summary import print_batch_failure, print_batch_progress
 
 
@@ -231,13 +239,13 @@ def generate_llm_run(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    adaptive_initial_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,
-    adaptive_initial_batch_size: int = 4,
-    adaptive_batch_increase_successes: int = 16,
-    concurrency: int = 1,
+    adaptive_initial_batch_size: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
+    concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
@@ -246,9 +254,9 @@ def generate_llm_run(
     """Build specs and generate DPO datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
     _validate_positive_int(count_per_family, "count_per_family")
-    _validate_positive_int(batch_size, "batch_size")
+    _validate_openrouter_batch_size(batch_size)
     _validate_positive_int(start_index, "start_index")
-    _validate_positive_int(concurrency, "concurrency")
+    _validate_openrouter_concurrency(concurrency)
     _validate_positive_int(adaptive_initial_batch_size, "adaptive_initial_batch_size")
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     adaptive_maximum_in_flight = concurrency
@@ -526,3 +534,15 @@ def _write_public_family_files(*, jobs: list[dict[str, Any]], output_dir: str | 
 def _validate_positive_int(value: int, field_name: str) -> None:
     if not isinstance(value, int) or value < 1:
         raise ValueError(f"{field_name} must be a positive integer")
+
+
+def _validate_openrouter_batch_size(value: int) -> None:
+    _validate_positive_int(value, "batch_size")
+    if value > MAX_OPENROUTER_BATCH_SIZE:
+        raise ValueError(f"batch_size must be at most {MAX_OPENROUTER_BATCH_SIZE}")
+
+
+def _validate_openrouter_concurrency(value: int) -> None:
+    _validate_positive_int(value, "concurrency")
+    if value > MAX_OPENROUTER_CONCURRENCY:
+        raise ValueError(f"concurrency must be at most {MAX_OPENROUTER_CONCURRENCY}")

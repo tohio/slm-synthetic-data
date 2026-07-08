@@ -19,7 +19,7 @@ class FakeSFTBackend:
                         "id": spec["id"],
                         "messages": [
                             {"role": "user", "content": f"Answer this generated item: {spec['id']}"},
-                            {"role": "assistant", "content": "Correct."},
+                            {"role": "assistant", "content": str(spec.get("variables", {}).get("answer", "Correct."))},
                         ],
                         "metadata": spec["metadata"],
                     }
@@ -43,7 +43,7 @@ class SplitOnLargeSFTBackend(FakeSFTBackend):
                         "id": spec["id"],
                         "messages": [
                             {"role": "user", "content": f"Answer this generated item: {spec['id']}"},
-                            {"role": "assistant", "content": "Correct."},
+                            {"role": "assistant", "content": str(spec.get("variables", {}).get("answer", "Correct."))},
                         ],
                         "metadata": spec["metadata"],
                     }

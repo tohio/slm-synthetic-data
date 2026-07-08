@@ -6,6 +6,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+)
 from slm_synth.distillation.batches import TEACHER_BATCH_RESPONSE_SCHEMA, render_teacher_batch_prompt
 from slm_synth.distillation.prompt_quality import validate_prompt_preflight
 from slm_synth.distillation.runs import DistillationRunResult, materialize_teacher_batch
@@ -38,7 +41,7 @@ def build_openrouter_backend(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     adaptive_initial_in_flight: int = 8,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,
@@ -125,7 +128,7 @@ def generate_and_materialize_signal_batch(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     adaptive_initial_in_flight: int = 8,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,

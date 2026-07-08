@@ -146,8 +146,9 @@ Useful variables:
 |---|---:|---|
 | `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
 | `DISTILLATION_SFT_TARGET_ROWS` | `100000` | Target accepted public rows for production planning |
-| `DISTILLATION_SFT_BATCH_SIZE` | `5` | Maximum prompts per teacher request |
-| `DISTILLATION_SFT_CONCURRENCY` | `1` | Parallel teacher requests |
+| `DISTILLATION_SFT_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum prompts per teacher request |
+| `DISTILLATION_SFT_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests |
+| `DISTILLATION_SFT_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests |
 | `DISTILLATION_SFT_RUN_ROOT` | `data/distillation/runs` | Run output root |
 | `DISTILLATION_SFT_INSPECT_RUN` | `$(DISTILLATION_SFT_REPORT_RUN)` | Run inspected by `distillation-sft-inspect` |
 | `DISTILLATION_SFT_SIGNALS` | unset | Optional signal list |
@@ -255,8 +256,9 @@ Useful variables:
 | `SFT_FAMILIES` | `all` | Target family list |
 | `SFT_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
 | `SFT_COUNT_PER_FAMILY` | `1000` | Target rows per family |
-| `SFT_BATCH_SIZE` | `5` | Maximum specs per teacher request |
-| `SFT_CONCURRENCY` | `1` | Parallel teacher requests |
+| `SFT_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum specs per teacher request |
+| `SFT_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests |
+| `SFT_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests |
 | `SFT_RUN_ROOT` | `data/sft/runs` | Run output root |
 | `SFT_REPORT_RUN` | `$(SFT_RUN)` | Run used by `sft-report` |
 | `SFT_INSPECT_RUN` | `$(SFT_REPORT_RUN)` | Run inspected by `sft-inspect` |
@@ -312,8 +314,9 @@ Useful variables:
 | `DPO_FAMILIES` | `all` | Target family list |
 | `DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
 | `DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family |
-| `DPO_BATCH_SIZE` | `5` | Maximum specs per teacher request |
-| `DPO_CONCURRENCY` | `1` | Parallel teacher requests |
+| `DPO_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum specs per teacher request |
+| `DPO_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests |
+| `DPO_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests |
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root |
 | `DPO_REPORT_RUN` | `$(DPO_RUN)` | Run used by `dpo-report` |
 | `DPO_INSPECT_RUN` | `$(DPO_REPORT_RUN)` | Run inspected by `dpo-inspect` |

@@ -5,6 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+    DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+)
 from slm_synth.run_summary import print_dpo_run_summary
 from slm_synth.dpo.generation import generate_llm_batch_from_files, materialize_llm_batch_from_files
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
@@ -230,8 +236,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--max-request-retries", type=int, default=3)
     generate_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
     generate_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
-    generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
-    generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
+    generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
+    generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
     generate_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     generate_parser.add_argument("--openrouter-provider", default=None)
     generate_parser.set_defaults(func=cmd_generate_llm_batch)
@@ -260,10 +266,10 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
     generate_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
     generate_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
-    generate_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
-    generate_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=4)
-    generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=16)
-    generate_run_parser.add_argument("--concurrency", type=int, default=1)
+    generate_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
+    generate_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE)
+    generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES)
+    generate_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
     generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     generate_run_parser.add_argument("--openrouter-provider", default=None)

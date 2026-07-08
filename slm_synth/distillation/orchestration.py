@@ -27,6 +27,14 @@ from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.spec_builders import build_prompt_spec_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
 from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+    DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    MAX_OPENROUTER_BATCH_SIZE,
+    MAX_OPENROUTER_CONCURRENCY,
+)
 from slm_synth.run_summary import print_batch_failure, print_batch_progress
 
 
@@ -137,14 +145,14 @@ def generate_seed_multi_signal_run(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    adaptive_initial_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,
-    adaptive_initial_batch_size: int = 4,
-    adaptive_batch_increase_successes: int = 16,
+    adaptive_initial_batch_size: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     batch_size: int | None = None,
-    concurrency: int = 1,
+    concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
 ) -> MultiSignalRunResult:
@@ -202,14 +210,14 @@ def generate_prompt_spec_multi_signal_run(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    adaptive_initial_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,
-    adaptive_initial_batch_size: int = 4,
-    adaptive_batch_increase_successes: int = 16,
+    adaptive_initial_batch_size: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     batch_size: int | None = None,
-    concurrency: int = 1,
+    concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
 ) -> MultiSignalRunResult:
@@ -293,7 +301,7 @@ def _generate_multi_signal_run(
         target_rows=target_rows,
     )
     normalized_batch_size = _validate_batch_size(batch_size)
-    _validate_positive_int(concurrency, "concurrency")
+    _validate_openrouter_concurrency(concurrency)
 
     signal_items = list(signal_counts.items())
     prompt_records_by_signal = {
@@ -418,12 +426,20 @@ def _validate_batch_size(batch_size: Any) -> int | None:
         return None
     if not isinstance(batch_size, int) or batch_size < 1:
         raise ValueError("batch_size must be a positive integer")
+    if batch_size > MAX_OPENROUTER_BATCH_SIZE:
+        raise ValueError(f"batch_size must be at most {MAX_OPENROUTER_BATCH_SIZE}")
     return batch_size
 
 
 def _validate_positive_int(value: Any, name: str) -> None:
     if not isinstance(value, int) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
+
+
+def _validate_openrouter_concurrency(value: Any) -> None:
+    _validate_positive_int(value, "concurrency")
+    if value > MAX_OPENROUTER_CONCURRENCY:
+        raise ValueError(f"concurrency must be at most {MAX_OPENROUTER_CONCURRENCY}")
 
 
 def _validate_target_rows(value: Any) -> int:
@@ -468,14 +484,14 @@ def _generate_and_materialize_signal_batches(
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
     retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = 1,
-    adaptive_initial_in_flight: int = 8,
+    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    adaptive_initial_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
     openrouter_routing_mode: str | None = None,
     openrouter_provider: str | None = None,
-    adaptive_initial_batch_size: int = 4,
-    adaptive_batch_increase_successes: int = 16,
+    adaptive_initial_batch_size: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     batch_size: int | None = None,
-    concurrency: int = 1,
+    concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     prompt_source: str = "builtin_seed",
     require_unique_prompt_text: bool = False,
     backend: StructuredTeacherBackend | None = None,
