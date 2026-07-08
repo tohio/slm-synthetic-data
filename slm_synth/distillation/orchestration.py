@@ -239,6 +239,12 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def default_batch_output_dir(output_dir: str | Path) -> Path:
+    """Return the sibling internal batch directory for a public dataset directory."""
+    public_dir = Path(output_dir)
+    return public_dir.parent / "batches"
+
+
 def _generate_and_materialize_signal_batches(
     *,
     signal: str,
@@ -295,7 +301,7 @@ def _generate_and_materialize_signal_batches(
         return generate_and_materialize_signal_batch(
             signal=signal,
             prompt_records=job["prompt_records"],
-            output_dir=output_dir,
+            output_dir=default_batch_output_dir(output_dir),
             manifest_dir=manifest_dir,
             teacher_model=teacher_model,
             generation_run=generation_run,

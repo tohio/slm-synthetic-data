@@ -198,8 +198,9 @@ def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
 
     assert result.row_count == 3
     assert result.results[0].dataset_path == tmp_path / "datasets" / "arithmetic.jsonl"
-    assert (tmp_path / "datasets" / "arithmetic.batch000001.jsonl").exists()
-    assert (tmp_path / "datasets" / "arithmetic.batch000002.jsonl").exists()
+    assert not (tmp_path / "datasets" / "arithmetic.batch000001.jsonl").exists()
+    assert (tmp_path / "batches" / "arithmetic.batch000001.jsonl").exists()
+    assert (tmp_path / "batches" / "arithmetic.batch000002.jsonl").exists()
 
     rows = [
         json.loads(line)

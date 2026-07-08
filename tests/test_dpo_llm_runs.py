@@ -72,8 +72,10 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert result.families == ("basic_arithmetic_qa",)
     assert len(result.results) == 2
     assert len(backend.calls) == 2
-    assert (tmp_path / "datasets" / "basic_arithmetic_qa.batch000001.jsonl").exists()
-    assert (tmp_path / "datasets" / "basic_arithmetic_qa.batch000002.jsonl").exists()
+    assert (tmp_path / "datasets" / "basic_arithmetic_qa.jsonl").exists()
+    assert not (tmp_path / "datasets" / "basic_arithmetic_qa.batch000001.jsonl").exists()
+    assert (tmp_path / "batches" / "basic_arithmetic_qa.batch000001.jsonl").exists()
+    assert (tmp_path / "batches" / "basic_arithmetic_qa.batch000002.jsonl").exists()
 
     manifest = json.loads(result.manifest_path.read_text())
     assert manifest["dataset_type"] == "dpo"
@@ -86,8 +88,10 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["metadata"]["adaptive_initial_in_flight"] == 8
     assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 2
     assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 24
-    assert [item["row_count"] for item in manifest["datasets"]] == [2, 1]
-    assert [item["batch_number"] for item in manifest["datasets"]] == [1, 2]
+    assert [item["row_count"] for item in manifest["datasets"]] == [3]
+    assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "basic_arithmetic_qa.jsonl")
+    assert manifest["datasets"][0]["batch_count"] == 2
+    assert len(manifest["datasets"][0]["batch_manifests"]) == 2
     batch_manifest = json.loads((tmp_path / "manifests" / "basic_arithmetic_qa.batch000001.dpo-live-run-001.manifest.json").read_text())
     assert batch_manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 12
 
@@ -110,6 +114,8 @@ def test_generate_dpo_llm_run_supports_multiple_families(tmp_path):
     assert result.row_count == 2
     assert result.families == ("basic_arithmetic_qa", "repeat_exact_n_times")
     assert len(backend.calls) == 2
+    assert (tmp_path / "datasets" / "basic_arithmetic_qa.jsonl").exists()
+    assert (tmp_path / "datasets" / "repeat_exact_n_times.jsonl").exists()
 
 
 def test_generate_dpo_llm_run_reduces_batch_size_after_failure(tmp_path):

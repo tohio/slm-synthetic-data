@@ -12,7 +12,7 @@ from typing import Any
 
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
-from slm_synth.dpo.io import write_jsonl
+from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import write_manifest, write_run_manifest
 from slm_synth.dpo.seeds import DPO_SEED_FAMILIES, build_seed_rows
 from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_specs
@@ -64,6 +64,12 @@ def default_manifest_path(*, manifest_dir: str | Path, family: str, generation_r
     if not isinstance(generation_run, str) or not generation_run.strip():
         raise ValueError("generation_run must be a non-empty string")
     return Path(manifest_dir) / f"{family}.{generation_run}.manifest.json"
+
+
+def default_batch_output_dir(output_dir: str | Path) -> Path:
+    """Return the sibling internal batch directory for a public dataset directory."""
+    public_dir = Path(output_dir)
+    return public_dir.parent / "batches"
 
 
 def materialize_seed_dataset(
@@ -314,7 +320,7 @@ def generate_llm_run(
                 "batch_number": batch_number,
                 "batch_start_index": batch_start_index,
                 "specs": batch_specs,
-                "dataset_path": Path(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
+                "dataset_path": default_batch_output_dir(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
                 "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
             }
 
@@ -390,19 +396,7 @@ def generate_llm_run(
 
     jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
     results = [job["result"] for job in jobs]
-
-    datasets: list[dict[str, Any]] = []
-    for job, result in zip(jobs, results):
-        datasets.append(
-            {
-                "family": job["family"],
-                "batch_number": job["batch_number"],
-                "batch_start_index": job["batch_start_index"],
-                "dataset_path": result.dataset_path,
-                "manifest_path": result.manifest_path,
-                "row_count": result.row_count,
-            }
-        )
+    datasets = _write_public_family_files(jobs=jobs, output_dir=output_dir)
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     _write_llm_run_manifest(
@@ -430,7 +424,7 @@ def generate_llm_run(
 
     return DPOLLMRunResult(
         results=tuple(results),
-        row_count=sum(result.row_count for result in results),
+        row_count=sum(dataset["row_count"] for dataset in datasets),
         families=resolved_families,
         generation_run=generation_run,
         manifest_path=run_manifest_path,
@@ -484,11 +478,10 @@ def _write_llm_run_manifest(
         "datasets": [
             {
                 "family": item["family"],
-                "batch_number": item["batch_number"],
-                "batch_start_index": item["batch_start_index"],
                 "dataset_path": str(Path(item["dataset_path"])),
-                "manifest_path": str(Path(item["manifest_path"])),
                 "row_count": item["row_count"],
+                "batch_count": item["batch_count"],
+                "batch_manifests": [str(Path(path)) for path in item["batch_manifests"]],
             }
             for item in datasets
         ],
@@ -499,6 +492,31 @@ def _write_llm_run_manifest(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
+
+
+def _write_public_family_files(*, jobs: list[dict[str, Any]], output_dir: str | Path) -> list[dict[str, Any]]:
+    datasets: list[dict[str, Any]] = []
+    for family in sorted({job["family"] for job in jobs}):
+        family_jobs = [job for job in jobs if job["family"] == family]
+        rows: list[dict[str, Any]] = []
+        batch_manifests: list[Path] = []
+        for job in family_jobs:
+            result = job["result"]
+            rows.extend(read_jsonl(result.dataset_path))
+            batch_manifests.append(result.manifest_path)
+
+        dataset_path = Path(output_dir) / f"{family}.jsonl"
+        row_count = write_jsonl(rows, dataset_path)
+        datasets.append(
+            {
+                "family": family,
+                "dataset_path": dataset_path,
+                "row_count": row_count,
+                "batch_count": len(family_jobs),
+                "batch_manifests": batch_manifests,
+            }
+        )
+    return datasets
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:
