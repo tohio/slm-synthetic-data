@@ -30,7 +30,7 @@ def test_materialize_teacher_batch_writes_public_dataset_and_manifest(tmp_path):
             "items": [
                 {
                     "id": "arithmetic-000001",
-                    "reasoning": ["Add 2 and 2."],
+                    "reasoning": None,
                     "response": "4",
                 }
             ]

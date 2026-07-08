@@ -69,7 +69,7 @@ def test_validate_teacher_batch_response_accepts_items_object():
             "items": [
                 {
                     "id": "database-000001",
-                    "reasoning": ["Identify the table.", "Write a filter."],
+                    "reasoning": None,
                     "response": "SELECT * FROM users WHERE active = true;",
                 }
             ]
@@ -80,10 +80,26 @@ def test_validate_teacher_batch_response_accepts_items_object():
     assert outputs == [
         {
             "id": "database-000001",
-            "reasoning": ["Identify the table.", "Write a filter."],
+            "reasoning": None,
             "response": "SELECT * FROM users WHERE active = true;",
         }
     ]
+
+
+def test_validate_teacher_batch_response_rejects_step_by_step_reasoning():
+    with pytest.raises(ValueError, match="reasoning.*null"):
+        validate_teacher_batch_response(
+            {
+                "items": [
+                    {
+                        "id": "database-000001",
+                        "reasoning": ["Identify the table.", "Write a filter."],
+                        "response": "SELECT * FROM users WHERE active = true;",
+                    }
+                ]
+            },
+            expected_count=1,
+        )
 
 
 def test_validate_teacher_batch_response_rejects_unexpected_top_level_fields():

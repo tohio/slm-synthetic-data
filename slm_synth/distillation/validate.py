@@ -14,8 +14,8 @@ TEACHER_OUTPUT_FIELDS = frozenset({"id", "reasoning", "response"})
 def validate_teacher_output(output: Mapping[str, Any]) -> dict[str, Any]:
     """Validate one teacher output record.
 
-    The teacher only returns an id for matching plus optional reasoning and the
-    final response. Local code owns prompts, signal names, and metadata.
+    The teacher only returns an id for matching, reasoning fixed to null, and
+    the final response. Local code owns prompts, signal names, and metadata.
     """
     if not isinstance(output, Mapping):
         raise TypeError("teacher output must be a mapping")
@@ -39,10 +39,7 @@ def validate_teacher_output(output: Mapping[str, Any]) -> dict[str, Any]:
 
     reasoning = output["reasoning"]
     if reasoning is not None:
-        if not isinstance(reasoning, list):
-            raise ValueError("teacher output field 'reasoning' must be null or list[str]")
-        if not all(isinstance(step, str) and step.strip() for step in reasoning):
-            raise ValueError("teacher output field 'reasoning' must be null or list[str]")
+        raise ValueError("teacher output field 'reasoning' must be null")
 
     return {"id": record_id, "reasoning": reasoning, "response": response}
 

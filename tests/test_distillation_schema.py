@@ -79,12 +79,23 @@ def test_teacher_output_contract_is_id_reasoning_response_only():
     output = validate_teacher_output(
         {
             "id": "planning-000001",
-            "reasoning": ["Identify constraints.", "Choose a sequence."],
+            "reasoning": None,
             "response": "Plan complete.",
         }
     )
 
-    assert output["id"] == "planning-000001"
+    assert output == {"id": "planning-000001", "reasoning": None, "response": "Plan complete."}
+
+
+def test_teacher_output_rejects_step_by_step_reasoning():
+    with pytest.raises(ValueError, match="reasoning.*null"):
+        validate_teacher_output(
+            {
+                "id": "planning-000001",
+                "reasoning": ["Identify constraints.", "Choose a sequence."],
+                "response": "Plan complete.",
+            }
+        )
 
 
 def test_teacher_output_rejects_unexpected_prompt_or_metadata():
@@ -128,7 +139,27 @@ def test_merge_teacher_outputs_returns_public_rows_only():
     ]
 
 
-def test_merge_teacher_outputs_drops_teacher_reasoning():
+def test_merge_teacher_outputs_rejects_teacher_reasoning():
+    with pytest.raises(ValueError, match="reasoning.*null"):
+        merge_teacher_outputs(
+            [
+                {
+                    "id": "arithmetic-000001",
+                    "prompt": "What is 2 + 2?",
+                    "signal": "arithmetic",
+                }
+            ],
+            [
+                {
+                    "id": "arithmetic-000001",
+                    "reasoning": ["Add 2 and 2."],
+                    "response": "4",
+                }
+            ],
+        )
+
+
+def test_merge_teacher_outputs_writes_null_public_reasoning():
     rows = merge_teacher_outputs(
         [
             {
@@ -140,7 +171,7 @@ def test_merge_teacher_outputs_drops_teacher_reasoning():
         [
             {
                 "id": "arithmetic-000001",
-                "reasoning": ["Add 2 and 2."],
+                "reasoning": None,
                 "response": "4",
             }
         ],

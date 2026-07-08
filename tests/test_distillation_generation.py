@@ -21,14 +21,12 @@ class FakeBackend:
 
 def test_generate_teacher_batch_response_sends_only_prompt_items():
     records = build_seed_prompt_records(signal="arithmetic", count=1)
-    backend = FakeBackend(
-        {"items": [{"id": "arithmetic-000001", "reasoning": ["Add the integers."], "response": "4"}]}
-    )
+    backend = FakeBackend({"items": [{"id": "arithmetic-000001", "reasoning": None, "response": "4"}]})
 
     response = generate_teacher_batch_response(signal="arithmetic", prompt_records=records, backend=backend)
 
     assert response == {
-        "items": [{"id": "arithmetic-000001", "reasoning": ["Add the integers."], "response": "4"}]
+        "items": [{"id": "arithmetic-000001", "reasoning": None, "response": "4"}]
     }
     rendered = backend.calls[0]["prompt"]
     assert '"id": "arithmetic-000001"' in rendered
@@ -53,7 +51,7 @@ def test_generate_and_materialize_signal_batch_writes_public_dataset_and_manifes
             "items": [
                 {
                     "id": "planning-000001",
-                    "reasoning": ["List dependencies before sequencing work."],
+                    "reasoning": None,
                     "response": "Start by identifying dependencies, then order tasks by risk and unblockers.",
                 }
             ]

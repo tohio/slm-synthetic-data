@@ -16,9 +16,9 @@ Pretraining records are targeted synthetic signals for a broader pretraining or 
 
 Pretraining records are not SFT, DPO, or response-distillation rows. They are intended to be mixed with broader raw or curated pretraining data downstream.
 
-## Response Distillation Data
+## Distillation SFT Data
 
-Distillation records are prompt-response examples generated from local prompts and teacher responses.
+Distillation SFT records are prompt-response examples generated from local prompts and teacher responses.
 
 Public distillation rows use this schema:
 
@@ -26,7 +26,7 @@ Public distillation rows use this schema:
 {"id": "string", "prompt": "string", "reasoning": null, "response": "string"}
 ```
 
-`reasoning` may also be a list of strings when step-by-step supervision is useful.
+`reasoning` is always null in public distillation SFT rows.
 
 Teacher model, provider, generation run, signal, token target, difficulty, and internal metadata are excluded from public rows. Those details are stored in local manifests and dataset cards.
 
