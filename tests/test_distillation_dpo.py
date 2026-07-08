@@ -12,7 +12,8 @@ from slm_synth.distillation_dpo.push_hf import (
     repo_id_for_family,
 )
 from slm_synth.distillation_dpo.report import build_coverage_report
-from slm_synth.distillation_dpo.runs import materialize_seed_run
+from slm_synth.distillation_dpo.pair_quality import filter_pairs_by_quality
+from slm_synth.distillation_dpo.runs import materialize_production_run, materialize_seed_run, normalize_family_pair_counts
 from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
 
 
@@ -62,10 +63,69 @@ def test_materialize_seed_run_writes_isolated_manifest_and_public_rows(tmp_path)
     manifest = json.loads(result.manifest_path.read_text())
     assert manifest["dataset_type"] == "distillation-dpo"
     assert manifest["chosen_source"] == "teacher"
-    assert manifest["rejected_source"] == "student_or_controlled_weak"
+    assert manifest["rejected_source"] == "controlled_weak"
     assert manifest["teacher_model"] == "deepseek/deepseek-v4-flash"
     assert manifest["target_consumer"] == "slm-distillation"
     assert manifest["datasets"][0]["dataset_path"] == str(dataset_path)
+
+
+def test_materialize_production_run_uses_target_pairs_and_controlled_weak_contract(tmp_path):
+    result = materialize_production_run(
+        families=["teacher_response_preference"],
+        target_pairs=12,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="deepseek/deepseek-v4-flash",
+        generation_run="distillation-dpo-target-001",
+    )
+
+    dataset_path = tmp_path / "datasets" / "teacher_response_preference.jsonl"
+    rows = read_jsonl(dataset_path)
+    manifest = json.loads(result.manifest_path.read_text())
+
+    assert result.target_pairs == 12
+    assert result.planned_pairs == 12
+    assert result.accepted_pairs == 12
+    assert result.rejected_pairs == 0
+    assert len(rows) == 12
+    assert manifest["dataset_type"] == "distillation-dpo"
+    assert manifest["chosen_source"] == "teacher"
+    assert manifest["rejected_source"] == "controlled_weak"
+    assert manifest["target_consumer"] == "slm-distillation"
+    assert manifest["metadata"]["generation_mode"] == "production_controlled_weak_run"
+    assert manifest["metadata"]["target_pairs"] == 12
+    assert manifest["metadata"]["planned_pairs"] == 12
+    assert manifest["metadata"]["accepted_pairs"] == 12
+    assert manifest["metadata"]["rejected_pairs"] == 0
+    assert manifest["metadata"]["source_contract"]["rejected_source"] == "controlled_weak"
+    assert "teacher_model" not in rows[0]
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_distillation_dpo_pair_quality_rejects_bad_pairs():
+    identical = _row("identical")
+    identical["rejected"] = list(identical["chosen"])
+    prompt_copy = _row("prompt-copy")
+    prompt_copy["chosen"] = [{"role": "assistant", "content": "What is 2 + 2?"}]
+
+    accepted, summary = filter_pairs_by_quality(
+        family="teacher_response_preference",
+        rows=[_row("good"), identical, prompt_copy],
+    )
+
+    assert [row["id"] for row in accepted] == ["good"]
+    assert summary.accepted_pairs == 1
+    assert summary.rejected_pairs == 2
+    assert summary.rejection_reasons["malformed_row"] == 1
+    assert summary.rejection_reasons["prompt_copy_pair"] == 1
+
+
+def test_normalize_family_pair_counts_requires_target_for_each_family():
+    assert normalize_family_pair_counts(families=["teacher_response_preference"], target_pairs=3) == {
+        "teacher_response_preference": 3
+    }
+    with pytest.raises(ValueError, match="target_pairs must be a positive integer"):
+        normalize_family_pair_counts(families=["teacher_response_preference"], target_pairs=0)
 
 
 def test_distillation_dpo_report_and_card(tmp_path):
@@ -90,7 +150,8 @@ def test_distillation_dpo_report_and_card(tmp_path):
     )
     card_text = card_path.read_text()
     assert "Distillation-DPO" in card_text
-    assert "student_or_controlled_weak" in card_text
+    assert "controlled_weak" in card_text
+    assert "Target pairs" in card_text
 
 
 def test_distillation_dpo_push_discovers_public_files_only(tmp_path):
@@ -157,4 +218,6 @@ def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():
     block = makefile.split("distillation-dpo-smoke:", 1)[1].split("sft-smoke:", 1)[0]
 
     assert "slm_synth.distillation_dpo" in block
+    assert "materialize-production-run" in block
+    assert "--target-pairs $(DISTILLATION_DPO_TARGET_PAIRS)" in block
     assert "slm_synth.dpo" not in block

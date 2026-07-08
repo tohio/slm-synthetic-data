@@ -149,7 +149,7 @@ Useful variables:
 
 ## Distillation DPO
 
-Distillation DPO data is preference data for aligning distilled models. It is isolated from generic DPO data.
+Distillation DPO data is preference data for aligning distilled models. It is isolated from generic DPO data. Target runs use teacher-quality chosen responses and controlled-weak rejected responses; student-model sampling is not part of this repo.
 
 Public row schema:
 
@@ -181,7 +181,7 @@ Target run:
 ```bash
 make distillation-dpo-generate \
   DISTILLATION_DPO_TARGET_RUN=distillation-dpo-target-001 \
-  DISTILLATION_DPO_COUNT_PER_FAMILY=1000
+  DISTILLATION_DPO_TARGET_PAIRS=50000
 
 make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-target-001
 ```
@@ -191,7 +191,7 @@ Useful variables:
 | Variable | Default | Purpose |
 |---|---:|---|
 | `DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
-| `DISTILLATION_DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family |
+| `DISTILLATION_DPO_TARGET_PAIRS` | `50000` | Target accepted preference pairs |
 | `DISTILLATION_DPO_FAMILIES` | `all` | Target family list |
 | `DISTILLATION_DPO_RUN_ROOT` | `data/distillation-dpo/runs` | Run output root |
 | `DISTILLATION_DPO_INSPECT_RUN` | `$(DISTILLATION_DPO_REPORT_RUN)` | Run inspected by `distillation-dpo-inspect` |

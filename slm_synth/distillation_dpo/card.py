@@ -44,6 +44,11 @@ def render_dataset_card(
             f"- `{dataset['family']}`: `{dataset['row_count']}` rows, `{dataset['dataset_path']}`"
         )
 
+    metadata = manifest.get("metadata", {})
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    planning_lines = _planning_lines(metadata)
+
     sections = [
         "\n".join(front_matter),
         f"# {clean_dataset_name}",
@@ -65,6 +70,8 @@ def render_dataset_card(
                 f"- Total rows: `{manifest['total_rows']}`",
             ]
         ),
+        "## Pair Planning",
+        "\n".join(planning_lines),
         "## Families",
         "\n".join(rows),
         "## Row Schema",
@@ -106,6 +113,22 @@ def write_dataset_card(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _planning_lines(metadata: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for key, label in (
+        ("generation_mode", "Generation mode"),
+        ("target_pairs", "Target pairs"),
+        ("planned_pairs", "Planned pairs"),
+        ("accepted_pairs", "Accepted pairs"),
+        ("rejected_pairs", "Rejected pairs"),
+    ):
+        if metadata.get(key) is not None:
+            lines.append(f"- {label}: `{metadata[key]}`")
+    if not lines:
+        lines.append("- Pair planning metadata was not provided in the run manifest.")
+    return lines
 
 
 def _validate_run_manifest(run_manifest: Mapping[str, Any]) -> dict[str, Any]:

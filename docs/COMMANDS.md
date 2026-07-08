@@ -132,7 +132,7 @@ Generate target data:
 ```bash
 make distillation-dpo-generate \
   DISTILLATION_DPO_TARGET_RUN=distillation-dpo-target-001 \
-  DISTILLATION_DPO_COUNT_PER_FAMILY=1000
+  DISTILLATION_DPO_TARGET_PAIRS=50000
 
 make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-target-001
 ```
@@ -146,7 +146,7 @@ Useful variables:
 | `DISTILLATION_DPO_SMOKE_FAMILIES` | `teacher_response_preference` | Smoke family list. |
 | `DISTILLATION_DPO_FAMILIES` | `all` | Target family list. |
 | `DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
-| `DISTILLATION_DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family. |
+| `DISTILLATION_DPO_TARGET_PAIRS` | `50000` | Target accepted preference pairs. |
 | `DISTILLATION_DPO_RUN_ROOT` | `data/distillation-dpo/runs` | Run output root. |
 | `DISTILLATION_DPO_REPORT_RUN` | `$(DISTILLATION_DPO_RUN)` | Run used by `distillation-dpo-report`. |
 | `DISTILLATION_DPO_INSPECT_RUN` | `$(DISTILLATION_DPO_REPORT_RUN)` | Run inspected by `distillation-dpo-inspect`. |

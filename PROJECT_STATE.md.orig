@@ -1,0 +1,127 @@
+# Project State
+
+Internal handoff file. Keep this file local; do not publish it to GitHub.
+
+`slm-synthetic-data` generates and publishes synthetic datasets for the SLM stack. The repo owns data creation, validation, naming, splitting, manifests, coverage reports, dataset cards, and Hugging Face publishing.
+
+## Scope
+
+In scope:
+
+- Pretraining synthetic data.
+- Generic SFT datasets.
+- Generic DPO preference datasets.
+- Response-distillation teacher datasets for `slm-distillation`.
+- Distillation DPO preference datasets for `slm-distillation`.
+
+Out of scope:
+
+- Model training.
+- Evaluation gates for trained models.
+- Checkpoint naming.
+- Model export policy.
+- Logits artifacts. Logits are derived by `slm-distillation`.
+
+## Current Architecture
+
+| Area | Package | Public Rows |
+|---|---|---|
+| Pretraining | `slm_synth/pretrain/` | Grounded text artifacts under `data/runs/<run>/deduped` |
+| Distillation SFT | `slm_synth/distillation/` | `{"id": "string", "prompt": "string", "reasoning": null, "response": "string"}` |
+| SFT | `slm_synth/sft/` | `{"id": "string", "messages": [...], "metadata": {...}}` |
+| DPO | `slm_synth/dpo/` | `{"id": "string", "prompt": [...], "chosen": [...], "rejected": [...], "metadata": {...}}` |
+
+OpenRouter is the only supported live provider. Unsupported providers should fail fast.
+
+Shared provider calls, retry behavior, adaptive request admission, and structured-output handling live in `slm_synth/llm.py`. Adaptive batch sizing lives in `slm_synth/adaptive_batch.py`.
+
+## Validated Generation State
+
+Current tested model candidate:
+
+```text
+deepseek/deepseek-v4-flash
+```
+
+Recent validated run settings:
+
+```text
+batch size: 80
+initial batch size: 80
+concurrency: 16
+initial concurrency: 8
+max tokens: 24576
+```
+
+Recent validation evidence:
+
+| Dataset | Run Shape | Result |
+|---|---:|---|
+| SFT | 14 families, 1000 rows per family | 14,000 rows generated; deterministic answer audit passed with `bad=0` |
+| DPO | 14 families, 1000 pairs per family | 14,000 pairs generated; chosen/rejected audit passed with no equal pairs and no rejected exact matches |
+| Distillation SFT | 10 signals, 1000 rows per signal | 10,000 merged public rows; schema audit passed with `reasoning: null` and `bad=0` |
+
+Distillation writes merged public signal files in `datasets/` and live batch shards in sibling `batches/`.
+
+## Production Data Targets
+
+Generic 1B training data targets:
+
+```text
+SFT: 2,500,000 records across all SFT categories
+DPO:   600,000 pairs across all DPO categories
+```
+
+Immediate downstream consumption target:
+
+```text
+SFT consumed by training: 1,000,000 records
+DPO consumed by training:   250,000 pairs
+```
+
+Distillation SFT production v1 target:
+
+```text
+target rows: 100,000
+artifact shape: per-signal public JSONL files
+split policy: slm-distillation combines and splits downstream
+teacher: deepseek/deepseek-v4-flash through OpenRouter
+```
+
+## Distillation Handoff Boundary
+
+`slm-synthetic-data` must publish clean Hugging Face artifacts that `slm-distillation` can consume directly from config.
+
+Required artifact names:
+
+```text
+distillation-sft-*   teacher response datasets for response distillation
+distillation-dpo-*   preference datasets for post-distillation DPO alignment
+```
+
+`distillation-dpo-*` must be separate from generic `dpo-*` and carry lineage metadata:
+
+```yaml
+dataset_type: distillation-dpo
+chosen_source: teacher
+rejected_source: student_or_controlled_weak
+teacher_model: deepseek/deepseek-v4-flash
+target_consumer: slm-distillation
+```
+
+Public rows must not contain teacher, provider, run, retry, cost, or internal metadata. Those details belong in manifests, coverage reports, and dataset cards.
+
+## Known Gaps
+
+- Distillation run-level aggregate telemetry still needs verification so cost, request tokens, retries, and batch counts match per-signal totals.
+- OpenRouter fallback routing is disabled, but provider pinning is not exposed as a runtime knob.
+- Generic SFT/DPO production runs still need scale-up validation from representative all-family runs.
+- Public docs still need final naming-convention cleanup after the P0 artifact surfaces are settled.
+
+## Current Priority
+
+Fix only what is needed for `slm-distillation` to consume clean HF artifacts:
+
+1. Publish clean `distillation-sft-*` datasets.
+2. Publish clean `distillation-dpo-*` datasets.
+3. Keep training, eval, checkpoint, export, and logits policy out of this repo.

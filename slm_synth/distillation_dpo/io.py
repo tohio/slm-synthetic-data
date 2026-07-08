@@ -13,7 +13,7 @@ from slm_synth.distillation_dpo.seeds import validate_family
 
 DATASET_TYPE = "distillation-dpo"
 CHOSEN_SOURCE = "teacher"
-REJECTED_SOURCE = "student_or_controlled_weak"
+REJECTED_SOURCE = "controlled_weak"
 TARGET_CONSUMER = "slm-distillation"
 
 

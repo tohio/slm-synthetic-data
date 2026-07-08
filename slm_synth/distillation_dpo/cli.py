@@ -7,7 +7,7 @@ import json
 
 from slm_synth.distillation_dpo.card import write_dataset_card
 from slm_synth.distillation_dpo.report import build_coverage_report, write_coverage_report
-from slm_synth.distillation_dpo.runs import materialize_seed_dataset, materialize_seed_run
+from slm_synth.distillation_dpo.runs import materialize_production_run, materialize_seed_dataset, materialize_seed_run
 from slm_synth.distillation_dpo.seeds import DISTILLATION_DPO_FAMILIES
 
 
@@ -49,6 +49,27 @@ def cmd_materialize_seed_run(args: argparse.Namespace) -> int:
     print(
         "materialized "
         f"{result.row_count} distillation-DPO row(s) across {len(result.families)} family/families "
+        f"for run {result.generation_run}; run manifest: {result.manifest_path}"
+    )
+    return 0
+
+
+def cmd_materialize_production_run(args: argparse.Namespace) -> int:
+    result = materialize_production_run(
+        families=args.families,
+        target_pairs=args.target_pairs,
+        output_dir=args.output_dir,
+        manifest_dir=args.manifest_dir,
+        teacher_model=args.teacher_model,
+        teacher_provider=args.teacher_provider,
+        generation_run=args.generation_run,
+        start_index=args.start_index,
+        run_manifest_filename=args.run_manifest_filename,
+    )
+    print(
+        "materialized "
+        f"{result.accepted_pairs} accepted distillation-DPO pair(s) "
+        f"from {result.planned_pairs} planned pair(s) across {len(result.families)} family/families "
         f"for run {result.generation_run}; run manifest: {result.manifest_path}"
     )
     return 0
@@ -116,6 +137,24 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--start-index", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
     seed_run_parser.set_defaults(func=cmd_materialize_seed_run)
+
+    production_run_parser = subparsers.add_parser("materialize-production-run")
+    production_run_parser.add_argument(
+        "--families",
+        nargs="+",
+        default=["all"],
+        choices=["all", *family_choices],
+        help="Distillation-DPO families to materialize, or 'all'.",
+    )
+    production_run_parser.add_argument("--target-pairs", required=True, type=int)
+    production_run_parser.add_argument("--output-dir", required=True)
+    production_run_parser.add_argument("--manifest-dir", required=True)
+    production_run_parser.add_argument("--teacher-model", required=True)
+    production_run_parser.add_argument("--generation-run", required=True)
+    production_run_parser.add_argument("--teacher-provider", default="openrouter")
+    production_run_parser.add_argument("--start-index", type=int, default=1)
+    production_run_parser.add_argument("--run-manifest-filename", default=None)
+    production_run_parser.set_defaults(func=cmd_materialize_production_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument("--input", nargs="+", required=True)
