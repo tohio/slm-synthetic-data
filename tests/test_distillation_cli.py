@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +18,21 @@ def test_build_seed_prompts_cli_writes_internal_prompt_records(tmp_path, capsys)
 
     captured = capsys.readouterr()
     assert "wrote 2 arithmetic prompt record" in captured.out
+
+
+def test_build_prompt_specs_cli_writes_production_prompt_records(tmp_path, capsys):
+    output = tmp_path / "prompt_specs.jsonl"
+
+    assert main(["build-prompt-specs", "--signal", "arithmetic", "--count", "3", "--output", str(output)]) == 0
+
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert [row["id"] for row in rows] == ["arithmetic-000001", "arithmetic-000002", "arithmetic-000003"]
+    assert all(row["signal"] == "arithmetic" for row in rows)
+    assert all(row["metadata"]["prompt_source"] == "production_spec" for row in rows)
+    assert all("seed_source" not in row["metadata"] for row in rows)
+
+    captured = capsys.readouterr()
+    assert "wrote 3 arithmetic production prompt spec record" in captured.out
 
 
 def test_render_teacher_prompt_cli_writes_prompt_with_only_teacher_request_items(tmp_path):
@@ -257,7 +273,7 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
     assert calls[0]["adaptive_batch_increase_successes"] == 4
     assert calls[0]["run_manifest_filename"] == "smoke-001.manifest.json"
     captured = capsys.readouterr()
-    assert "generated and materialized 4 row(s) across 2 signal(s): cloud, database" in captured.out
+    assert "generated and materialized 4 smoke seed row(s) across 2 signal(s): cloud, database" in captured.out
     assert "run manifest:" in captured.out
 
 
@@ -285,12 +301,12 @@ def test_plan_token_target_cli_prints_json_plan(capsys):
     assert payload["counts_by_signal"] == {"cloud": 2, "database": 2}
 
 
-def test_generate_seed_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
+def test_generate_production_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
     output_dir = tmp_path / "datasets"
     manifest_dir = tmp_path / "manifests"
     calls = []
 
-    def fake_generate_seed_multi_signal_run(**kwargs):
+    def fake_generate_prompt_spec_multi_signal_run(**kwargs):
         calls.append(kwargs)
 
         class Result:
@@ -303,15 +319,15 @@ def test_generate_seed_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
         return Result()
 
     monkeypatch.setattr(
-        "slm_synth.distillation.cli.generate_seed_multi_signal_run",
-        fake_generate_seed_multi_signal_run,
+        "slm_synth.distillation.cli.generate_prompt_spec_multi_signal_run",
+        fake_generate_prompt_spec_multi_signal_run,
     )
     monkeypatch.setattr("slm_synth.distillation.cli.print_distillation_run_summary", lambda manifest_path: None)
 
     assert (
         main(
             [
-                "generate-seed-run",
+                "generate-production-run",
                 "--signals",
                 "cloud",
                 "database",
@@ -337,7 +353,6 @@ def test_generate_seed_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
     assert calls[0]["count_per_signal"] is None
     assert calls[0]["counts_by_signal"] == {"cloud": 2, "database": 2}
     assert calls[0]["token_target"] == "100K"
-
 
 def test_build_dataset_card_cli_writes_markdown(tmp_path, capsys):
     run_manifest = tmp_path / "smoke-001.manifest.json"
@@ -451,3 +466,10 @@ def test_report_coverage_cli_writes_json(tmp_path, capsys):
 
     assert json.loads(output.read_text(encoding="utf-8"))["signals"] == {"cloud": 1}
     assert "wrote distillation coverage report" in capsys.readouterr().out
+
+def test_distillation_sft_generate_make_target_uses_production_prompt_specs():
+    makefile = Path("Makefile").read_text()
+    block = makefile.split("distillation-sft-generate:", 1)[1].split("distillation-sft-report:", 1)[0]
+
+    assert "generate-production-run" in block
+    assert "generate-seed-run" not in block

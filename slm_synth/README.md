@@ -37,10 +37,11 @@ Implementation lives under `slm_synth.distillation`.
 | `distillation/schema.py` | Public row and teacher-output validation. |
 | `distillation/signals.py` | Supported distillation signal names. |
 | `distillation/prompts.py` | Local prompt-record validation. |
-| `distillation/seeds.py` | Built-in seed prompts. |
+| `distillation/seeds.py` | Built-in smoke seed prompts. |
+| `distillation/spec_builders.py` | Production prompt-spec builders. |
 | `distillation/batches.py` | Teacher batch prompt and response formatting. |
 | `distillation/generation.py` | OpenRouter teacher generation for one signal batch. |
-| `distillation/orchestration.py` | Multi-signal seed-run orchestration. |
+| `distillation/orchestration.py` | Multi-signal smoke and production orchestration. |
 | `distillation/io.py` | Public JSONL, per-signal manifest, and run-manifest writers. |
 | `distillation/budget.py` | Token-target planning. |
 | `distillation/card.py` | Dataset-card generation from run manifests. |

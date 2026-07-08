@@ -255,7 +255,7 @@ distillation-sft-smoke:
 > $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_RUN)
 
 distillation-sft-generate:
-> $(PYTHON) -m slm_synth.distillation.cli generate-seed-run \
+> $(PYTHON) -m slm_synth.distillation.cli generate-production-run \
 >   $(DISTILLATION_SFT_SIGNALS_ARG) \
 >   --target-preset $(DISTILLATION_SFT_TARGET_SIZE) \
 >   --estimated-tokens-per-row $(DISTILLATION_SFT_ESTIMATED_TOKENS_PER_ROW) \

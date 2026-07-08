@@ -93,7 +93,7 @@ Useful variables:
 
 ## Distillation SFT
 
-Distillation SFT data is teacher prompt/response supervision.
+Distillation SFT data is teacher prompt/response supervision. Smoke runs use tiny built-in seeds; target runs use deterministic production prompt specs.
 
 Public row schema:
 
@@ -138,7 +138,7 @@ Useful variables:
 | Variable | Default | Purpose |
 |---|---:|---|
 | `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
-| `DISTILLATION_SFT_TARGET_SIZE` | `pilot` | Target preset |
+| `DISTILLATION_SFT_TARGET_SIZE` | `pilot` | Target prompt-spec preset |
 | `DISTILLATION_SFT_BATCH_SIZE` | `5` | Maximum prompts per teacher request |
 | `DISTILLATION_SFT_CONCURRENCY` | `1` | Parallel teacher requests |
 | `DISTILLATION_SFT_RUN_ROOT` | `data/distillation/runs` | Run output root |

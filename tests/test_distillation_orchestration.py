@@ -4,6 +4,7 @@ import re
 import pytest
 
 from slm_synth.distillation.orchestration import (
+    generate_prompt_spec_multi_signal_run,
     generate_seed_multi_signal_run,
     normalize_signal_counts,
     normalize_signal_sequence,
@@ -151,9 +152,37 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert run_manifest["metadata"]["concurrency"] == 2
     assert run_manifest["metadata"]["adaptive_maximum_in_flight"] == 2
     assert run_manifest["metadata"]["adaptive_initial_in_flight"] == 8
+    assert run_manifest["metadata"]["prompt_source"] == "builtin_seed"
+    assert cloud_manifest["metadata"]["prompt_source"] == "builtin_seed"
 
     assert backends["cloud"].calls[0]["schema_name"] == "cloud_distillation_batch"
     assert backends["database"].calls[0]["schema_name"] == "database_distillation_batch"
+
+
+def test_generate_prompt_spec_multi_signal_run_uses_production_prompt_specs(tmp_path):
+    result = generate_prompt_spec_multi_signal_run(
+        signals=["arithmetic"],
+        count_per_signal=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="target-001",
+        max_tokens=512,
+        backend_factory=lambda signal: PromptIdBackend(),
+    )
+
+    assert result.row_count == 2
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "datasets" / "arithmetic.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["id"] for row in rows] == ["arithmetic-000001", "arithmetic-000002"]
+    assert "Answer with only the integer result" in rows[0]["prompt"]
+
+    signal_manifest = json.loads((tmp_path / "manifests" / "arithmetic.target-001.manifest.json").read_text())
+    run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
+    assert signal_manifest["metadata"]["prompt_source"] == "production_spec"
+    assert run_manifest["metadata"]["prompt_source"] == "production_spec"
 
 
 def test_generate_seed_multi_signal_run_rejects_missing_count_strategy(tmp_path):

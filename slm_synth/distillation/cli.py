@@ -13,10 +13,11 @@ from slm_synth.distillation.budget import DEFAULT_ESTIMATED_TOKENS_PER_ROW, buil
 from slm_synth.distillation.card import write_dataset_card
 from slm_synth.distillation.prompts import validate_prompt_record
 from slm_synth.distillation.generation import generate_and_materialize_signal_batch
-from slm_synth.distillation.orchestration import generate_seed_multi_signal_run
+from slm_synth.distillation.orchestration import generate_prompt_spec_multi_signal_run, generate_seed_multi_signal_run
 from slm_synth.distillation.report import build_coverage_report, write_coverage_report
 from slm_synth.distillation.runs import materialize_teacher_batch
 from slm_synth.distillation.seeds import build_seed_prompt_records
+from slm_synth.distillation.spec_builders import build_prompt_spec_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
 from slm_synth.run_summary import print_distillation_run_summary
 
@@ -59,6 +60,14 @@ def cmd_build_seed_prompts(args: argparse.Namespace) -> int:
     records = build_seed_prompt_records(signal=signal, count=args.count, start_index=args.start_index)
     count = _write_jsonl_unvalidated(records, args.output)
     print(f"wrote {count} {signal} prompt record(s) to {args.output}")
+    return 0
+
+
+def cmd_build_prompt_specs(args: argparse.Namespace) -> int:
+    signal = validate_signal(args.signal)
+    records = build_prompt_spec_records(signal=signal, count=args.count, start_index=args.start_index)
+    count = _write_jsonl_unvalidated(records, args.output)
+    print(f"wrote {count} {signal} production prompt spec record(s) to {args.output}")
     return 0
 
 
@@ -144,7 +153,7 @@ def cmd_plan_token_target(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_generate_seed_run(args: argparse.Namespace) -> int:
+def _planned_counts_from_args(args: argparse.Namespace) -> tuple[dict[str, int] | None, str | int | None]:
     signals = args.signals if args.signals else None
     counts_by_signal = None
     token_target = args.token_target
@@ -157,8 +166,50 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         counts_by_signal = plan.counts_by_signal
         if token_target is None:
             token_target = plan.target_label
+    return counts_by_signal, token_target
 
+
+def cmd_generate_seed_run(args: argparse.Namespace) -> int:
+    signals = args.signals if args.signals else None
     result = generate_seed_multi_signal_run(
+        signals=signals,
+        count_per_signal=args.count_per_signal,
+        output_dir=args.output_dir,
+        manifest_dir=args.manifest_dir,
+        teacher_model=args.teacher_model,
+        generation_run=args.generation_run,
+        max_tokens=args.max_tokens,
+        token_target=args.token_target,
+        start_index=args.start_index,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        request_timeout=args.request_timeout,
+        max_request_retries=args.max_request_retries,
+        max_retryable_request_attempts=args.max_retryable_request_attempts,
+        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=args.concurrency,
+        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        adaptive_initial_batch_size=args.adaptive_initial_batch_size,
+        adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
+        batch_size=args.batch_size,
+        concurrency=args.concurrency,
+        run_manifest_filename=args.run_manifest_filename,
+    )
+    signals_text = ", ".join(result.signals)
+    print(
+        "generated and materialized "
+        f"{result.row_count} smoke seed row(s) across {len(result.results)} signal(s): {signals_text}; "
+        f"run manifest: {result.manifest_path}"
+    )
+    print_distillation_run_summary(result.manifest_path)
+    return 0
+
+
+def cmd_generate_production_run(args: argparse.Namespace) -> int:
+    signals = args.signals if args.signals else None
+    counts_by_signal, token_target = _planned_counts_from_args(args)
+
+    result = generate_prompt_spec_multi_signal_run(
         signals=signals,
         count_per_signal=args.count_per_signal,
         counts_by_signal=counts_by_signal,
@@ -186,7 +237,7 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
     signals_text = ", ".join(result.signals)
     print(
         "generated and materialized "
-        f"{result.row_count} row(s) across {len(result.results)} signal(s): {signals_text}; "
+        f"{result.row_count} production prompt-spec row(s) across {len(result.results)} signal(s): {signals_text}; "
         f"run manifest: {result.manifest_path}"
     )
     print_distillation_run_summary(result.manifest_path)
@@ -230,6 +281,13 @@ def build_parser() -> argparse.ArgumentParser:
     seed_parser.add_argument("--output", required=True)
     seed_parser.add_argument("--start-index", type=int, default=1)
     seed_parser.set_defaults(func=cmd_build_seed_prompts)
+
+    spec_parser = subparsers.add_parser("build-prompt-specs")
+    spec_parser.add_argument("--signal", required=True, choices=signal_choices)
+    spec_parser.add_argument("--count", required=True, type=int)
+    spec_parser.add_argument("--output", required=True)
+    spec_parser.add_argument("--start-index", type=int, default=1)
+    spec_parser.set_defaults(func=cmd_build_prompt_specs)
 
     render_parser = subparsers.add_parser("render-teacher-prompt")
     render_parser.add_argument("--signal", required=True, choices=signal_choices)
@@ -283,8 +341,6 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser = subparsers.add_parser("generate-seed-run")
     seed_run_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
     seed_run_parser.add_argument("--count-per-signal", type=int, default=None)
-    seed_run_parser.add_argument("--target-preset", default=None)
-    seed_run_parser.add_argument("--estimated-tokens-per-row", type=int, default=DEFAULT_ESTIMATED_TOKENS_PER_ROW)
     seed_run_parser.add_argument("--output-dir", required=True)
     seed_run_parser.add_argument("--manifest-dir", required=True)
     seed_run_parser.add_argument("--teacher-model", required=True)
@@ -306,6 +362,33 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--concurrency", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
     seed_run_parser.set_defaults(func=cmd_generate_seed_run)
+
+    production_run_parser = subparsers.add_parser("generate-production-run")
+    production_run_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
+    production_run_parser.add_argument("--count-per-signal", type=int, default=None)
+    production_run_parser.add_argument("--target-preset", default=None)
+    production_run_parser.add_argument("--estimated-tokens-per-row", type=int, default=DEFAULT_ESTIMATED_TOKENS_PER_ROW)
+    production_run_parser.add_argument("--output-dir", required=True)
+    production_run_parser.add_argument("--manifest-dir", required=True)
+    production_run_parser.add_argument("--teacher-model", required=True)
+    production_run_parser.add_argument("--generation-run", required=True)
+    production_run_parser.add_argument("--max-tokens", type=int, required=True)
+    production_run_parser.add_argument("--token-target", default=None)
+    production_run_parser.add_argument("--start-index", type=int, default=1)
+    production_run_parser.add_argument("--temperature", type=float, default=0.2)
+    production_run_parser.add_argument("--top-p", type=float, default=0.95)
+    production_run_parser.add_argument("--request-timeout", type=float, default=None)
+    production_run_parser.add_argument("--max-request-retries", type=int, default=3)
+    production_run_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
+    production_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
+    production_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
+    production_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
+    production_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=4)
+    production_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=16)
+    production_run_parser.add_argument("--batch-size", type=int, default=None)
+    production_run_parser.add_argument("--concurrency", type=int, default=1)
+    production_run_parser.add_argument("--run-manifest-filename", default=None)
+    production_run_parser.set_defaults(func=cmd_generate_production_run)
 
     card_parser = subparsers.add_parser("build-dataset-card")
     card_parser.add_argument("--run-manifest", required=True)

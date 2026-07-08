@@ -76,6 +76,8 @@ make pretrain-push HF_REPO=<namespace>/<repo>
 
 ## Distillation SFT
 
+Smoke runs use tiny built-in seeds. Target runs use deterministic production prompt specs.
+
 Generate a small run:
 
 ```bash
@@ -99,7 +101,7 @@ Useful variables:
 |---|---:|---|
 | `DISTILLATION_SFT_RUN` | `distillation-sft-smoke-001` | Smoke run id. |
 | `DISTILLATION_SFT_TARGET_RUN` | `distillation-sft-target-001` | Target run id. |
-| `DISTILLATION_SFT_TARGET_SIZE` | `pilot` | Target preset for `distillation-sft-generate`. |
+| `DISTILLATION_SFT_TARGET_SIZE` | `pilot` | Target prompt-spec preset for `distillation-sft-generate`. |
 | `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal. |
 | `DISTILLATION_SFT_BATCH_SIZE` | `5` | Maximum prompts per teacher request. |
 | `DISTILLATION_SFT_CONCURRENCY` | `1` | Parallel teacher requests. |

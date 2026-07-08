@@ -19,6 +19,7 @@ from slm_synth.distillation.generation import (
 from slm_synth.distillation.io import write_jsonl, write_manifest, write_run_manifest
 from slm_synth.distillation.runs import DistillationRunResult
 from slm_synth.distillation.seeds import build_seed_prompt_records
+from slm_synth.distillation.spec_builders import build_prompt_spec_records
 from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
 from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
 from slm_synth.run_summary import print_batch_failure, print_batch_progress
@@ -125,7 +126,124 @@ def generate_seed_multi_signal_run(
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
 ) -> MultiSignalRunResult:
-    """Generate seed prompts across signals and materialize public datasets."""
+    """Generate smoke seed prompts across signals and materialize public datasets."""
+    return _generate_multi_signal_run(
+        output_dir=output_dir,
+        manifest_dir=manifest_dir,
+        teacher_model=teacher_model,
+        generation_run=generation_run,
+        max_tokens=max_tokens,
+        count_per_signal=count_per_signal,
+        counts_by_signal=counts_by_signal,
+        signals=signals,
+        token_target=token_target,
+        start_index=start_index,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+        adaptive_initial_batch_size=adaptive_initial_batch_size,
+        adaptive_batch_increase_successes=adaptive_batch_increase_successes,
+        batch_size=batch_size,
+        concurrency=concurrency,
+        run_manifest_filename=run_manifest_filename,
+        backend_factory=backend_factory,
+        prompt_record_builder=build_seed_prompt_records,
+        prompt_source="builtin_seed",
+    )
+
+
+def generate_prompt_spec_multi_signal_run(
+    *,
+    output_dir: str | Path,
+    manifest_dir: str | Path,
+    teacher_model: str,
+    generation_run: str,
+    max_tokens: int,
+    count_per_signal: int | None = None,
+    counts_by_signal: Mapping[str, int] | None = None,
+    signals: Sequence[str] | None = None,
+    token_target: str | int | None = None,
+    start_index: int = 1,
+    temperature: float = 0.2,
+    top_p: float = 0.95,
+    request_timeout: float | None = None,
+    max_request_retries: int = 3,
+    max_retryable_request_attempts: int = 20,
+    retry_max_elapsed_seconds: float = 1800.0,
+    adaptive_maximum_in_flight: int = 1,
+    adaptive_initial_in_flight: int = 8,
+    adaptive_initial_batch_size: int = 4,
+    adaptive_batch_increase_successes: int = 16,
+    batch_size: int | None = None,
+    concurrency: int = 1,
+    run_manifest_filename: str | None = None,
+    backend_factory: BackendFactory | None = None,
+) -> MultiSignalRunResult:
+    """Generate production prompt specs across signals and materialize public datasets."""
+    return _generate_multi_signal_run(
+        output_dir=output_dir,
+        manifest_dir=manifest_dir,
+        teacher_model=teacher_model,
+        generation_run=generation_run,
+        max_tokens=max_tokens,
+        count_per_signal=count_per_signal,
+        counts_by_signal=counts_by_signal,
+        signals=signals,
+        token_target=token_target,
+        start_index=start_index,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+        adaptive_initial_batch_size=adaptive_initial_batch_size,
+        adaptive_batch_increase_successes=adaptive_batch_increase_successes,
+        batch_size=batch_size,
+        concurrency=concurrency,
+        run_manifest_filename=run_manifest_filename,
+        backend_factory=backend_factory,
+        prompt_record_builder=build_prompt_spec_records,
+        prompt_source="production_spec",
+    )
+
+
+def _generate_multi_signal_run(
+    *,
+    output_dir: str | Path,
+    manifest_dir: str | Path,
+    teacher_model: str,
+    generation_run: str,
+    max_tokens: int,
+    count_per_signal: int | None,
+    counts_by_signal: Mapping[str, int] | None,
+    signals: Sequence[str] | None,
+    token_target: str | int | None,
+    start_index: int,
+    temperature: float,
+    top_p: float,
+    request_timeout: float | None,
+    max_request_retries: int,
+    max_retryable_request_attempts: int,
+    retry_max_elapsed_seconds: float,
+    adaptive_maximum_in_flight: int,
+    adaptive_initial_in_flight: int,
+    adaptive_initial_batch_size: int,
+    adaptive_batch_increase_successes: int,
+    batch_size: int | None,
+    concurrency: int,
+    run_manifest_filename: str | None,
+    backend_factory: BackendFactory | None,
+    prompt_record_builder: Callable[..., list[dict[str, Any]]],
+    prompt_source: str,
+) -> MultiSignalRunResult:
     if not isinstance(generation_run, str) or not generation_run.strip():
         raise ValueError("generation_run must be a non-empty string")
     if not isinstance(start_index, int) or start_index < 1:
@@ -143,7 +261,7 @@ def generate_seed_multi_signal_run(
 
     def run_signal(item: tuple[str, int]) -> DistillationRunResult:
         signal, count = item
-        prompt_records = build_seed_prompt_records(signal=signal, count=count, start_index=start_index)
+        prompt_records = prompt_record_builder(signal=signal, count=count, start_index=start_index)
         backend = backend_factory(signal) if backend_factory is not None else None
         return _generate_and_materialize_signal_batches(
             signal=signal,
@@ -166,6 +284,7 @@ def generate_seed_multi_signal_run(
             adaptive_batch_increase_successes=adaptive_batch_increase_successes,
             batch_size=normalized_batch_size,
             concurrency=concurrency,
+            prompt_source=prompt_source,
             backend=backend,
         )
 
@@ -196,6 +315,7 @@ def generate_seed_multi_signal_run(
             "adaptive_initial_in_flight": adaptive_initial_in_flight,
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
+            "prompt_source": prompt_source,
         },
     )
 
@@ -267,6 +387,7 @@ def _generate_and_materialize_signal_batches(
     adaptive_batch_increase_successes: int = 16,
     batch_size: int | None = None,
     concurrency: int = 1,
+    prompt_source: str = "builtin_seed",
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
     prompt_records = list(prompt_records)
@@ -412,6 +533,7 @@ def _generate_and_materialize_signal_batches(
             "batch_count": len(batch_results),
             "batch_size": maximum_batch_size,
             "concurrency": concurrency,
+            "prompt_source": prompt_source,
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             **batch_controller.snapshot(),
