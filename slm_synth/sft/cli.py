@@ -13,6 +13,15 @@ from slm_synth.sft.seeds import SFT_SEED_FAMILIES
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_and_write_specs
 
 
+def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None]:
+    kwargs: dict[str, str | None] = {}
+    if getattr(args, "openrouter_routing_mode", None) is not None:
+        kwargs["openrouter_routing_mode"] = args.openrouter_routing_mode
+    if getattr(args, "openrouter_provider", None) is not None:
+        kwargs["openrouter_provider"] = args.openrouter_provider
+    return kwargs
+
+
 def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
     result = materialize_seed_dataset(
         family=args.family,
@@ -88,6 +97,7 @@ def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
         retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        **_openrouter_routing_kwargs(args),
     )
     print(
         "generated "
@@ -121,6 +131,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
+        **_openrouter_routing_kwargs(args),
     )
     print(
         "generated "
@@ -221,6 +232,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
     generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
     generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
+    generate_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
+    generate_parser.add_argument("--openrouter-provider", default=None)
     generate_parser.set_defaults(func=cmd_generate_llm_batch)
 
     generate_run_parser = subparsers.add_parser("generate-llm-run")
@@ -252,6 +265,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=16)
     generate_run_parser.add_argument("--concurrency", type=int, default=1)
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
+    generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
+    generate_run_parser.add_argument("--openrouter-provider", default=None)
     generate_run_parser.set_defaults(func=cmd_generate_llm_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")

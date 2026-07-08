@@ -10,6 +10,10 @@ PYTHON ?= python
 # Shared defaults
 MODEL ?= openai/gpt-4.1-mini
 MAX_TOKENS ?= 4096
+OPENROUTER_ROUTING_MODE ?= auto
+OPENROUTER_PROVIDER ?=
+OPENROUTER_PROVIDER_ARG := $(if $(OPENROUTER_PROVIDER),--openrouter-provider $(OPENROUTER_PROVIDER),)
+OPENROUTER_ROUTING_ARGS := --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE) $(OPENROUTER_PROVIDER_ARG)
 
 # Pretraining
 CONFIG_FILE ?= configs/synthetic.yaml
@@ -171,6 +175,8 @@ help:
 > @echo ""
 > @echo "Common variables:"
 > @echo "  MODEL=$(MODEL)"
+> @echo "  OPENROUTER_ROUTING_MODE=$(OPENROUTER_ROUTING_MODE)"
+> @echo "  OPENROUTER_PROVIDER=$(OPENROUTER_PROVIDER)"
 > @echo "  PRETRAIN_TOKENS=$(PRETRAIN_TOKENS)"
 > @echo "  PRETRAIN_TARGET_TOKENS=$(PRETRAIN_TARGET_TOKENS)"
 > @echo "  DISTILLATION_SFT_TARGET_ROWS=$(DISTILLATION_SFT_TARGET_ROWS)"
@@ -244,6 +250,7 @@ distillation-sft-smoke:
 >   --teacher-model $(DISTILLATION_SFT_MODEL) \
 >   --generation-run $(DISTILLATION_SFT_RUN) \
 >   --max-tokens $(DISTILLATION_SFT_MAX_TOKENS) \
+>   $(OPENROUTER_ROUTING_ARGS) \
 >   --batch-size $(DISTILLATION_SFT_BATCH_SIZE) \
 >   --concurrency $(DISTILLATION_SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
@@ -260,6 +267,7 @@ distillation-sft-generate:
 >   --teacher-model $(DISTILLATION_SFT_MODEL) \
 >   --generation-run $(DISTILLATION_SFT_TARGET_RUN) \
 >   --max-tokens $(DISTILLATION_SFT_MAX_TOKENS) \
+>   $(OPENROUTER_ROUTING_ARGS) \
 >   --batch-size $(DISTILLATION_SFT_BATCH_SIZE) \
 >   --concurrency $(DISTILLATION_SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
@@ -341,6 +349,7 @@ sft-smoke:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
+>   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
@@ -357,6 +366,7 @@ sft-generate:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_TARGET_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
+>   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
@@ -391,6 +401,7 @@ dpo-smoke:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
+>   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
@@ -407,6 +418,7 @@ dpo-generate:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_TARGET_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
+>   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \

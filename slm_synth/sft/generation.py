@@ -62,6 +62,8 @@ def build_openrouter_backend(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    openrouter_routing_mode: str | None = None,
+    openrouter_provider: str | None = None,
 ) -> "LLMBackend":
     """Create the supported production SFT teacher backend."""
     from slm_synth.llm import LLMBackend
@@ -79,6 +81,8 @@ def build_openrouter_backend(
         retry_max_elapsed_seconds=retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
     )
 
 
@@ -156,6 +160,8 @@ def generate_llm_batch(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    openrouter_routing_mode: str | None = None,
+    openrouter_provider: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
@@ -177,6 +183,8 @@ def generate_llm_batch(
         retry_max_elapsed_seconds=retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
     )
     teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
         specs=validated_specs,
@@ -217,6 +225,8 @@ def generate_llm_batch_from_files(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    openrouter_routing_mode: str | None = None,
+    openrouter_provider: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
@@ -238,6 +248,8 @@ def generate_llm_batch_from_files(
         retry_max_elapsed_seconds=retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
         metadata=metadata,
         holdout_registry=holdout_registry,
         backend=backend,

@@ -471,5 +471,6 @@ def test_distillation_sft_generate_make_target_uses_production_prompt_specs():
 
     assert "generate-production-run" in block
     assert "--target-rows $(DISTILLATION_SFT_TARGET_ROWS)" in block
+    assert "$(OPENROUTER_ROUTING_ARGS)" in block
     assert "--target-preset" not in block
     assert "generate-seed-run" not in block

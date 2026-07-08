@@ -22,6 +22,15 @@ from slm_synth.distillation.signals import DISTILLATION_SIGNALS, validate_signal
 from slm_synth.run_summary import print_distillation_run_summary
 
 
+def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None]:
+    kwargs: dict[str, str | None] = {}
+    if getattr(args, "openrouter_routing_mode", None) is not None:
+        kwargs["openrouter_routing_mode"] = args.openrouter_routing_mode
+    if getattr(args, "openrouter_provider", None) is not None:
+        kwargs["openrouter_provider"] = args.openrouter_provider
+    return kwargs
+
+
 def _read_json(path: str | Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -133,6 +142,7 @@ def cmd_generate_batch(args: argparse.Namespace) -> int:
         retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        **_openrouter_routing_kwargs(args),
     )
     print(
         "generated and materialized "
@@ -178,6 +188,7 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
+        **_openrouter_routing_kwargs(args),
     )
     signals_text = ", ".join(result.signals)
     print(
@@ -216,6 +227,7 @@ def cmd_generate_production_run(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
+        **_openrouter_routing_kwargs(args),
     )
     signals_text = ", ".join(result.signals)
     print(
@@ -312,6 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
     generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
     generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
+    generate_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
+    generate_parser.add_argument("--openrouter-provider", default=None)
     generate_parser.set_defaults(func=cmd_generate_batch)
 
 
@@ -344,6 +358,8 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--batch-size", type=int, default=None)
     seed_run_parser.add_argument("--concurrency", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
+    seed_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
+    seed_run_parser.add_argument("--openrouter-provider", default=None)
     seed_run_parser.set_defaults(func=cmd_generate_seed_run)
 
     production_run_parser = subparsers.add_parser("generate-production-run")
@@ -370,6 +386,8 @@ def build_parser() -> argparse.ArgumentParser:
     production_run_parser.add_argument("--batch-size", type=int, default=None)
     production_run_parser.add_argument("--concurrency", type=int, default=1)
     production_run_parser.add_argument("--run-manifest-filename", default=None)
+    production_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
+    production_run_parser.add_argument("--openrouter-provider", default=None)
     production_run_parser.set_defaults(func=cmd_generate_production_run)
 
     card_parser = subparsers.add_parser("build-dataset-card")

@@ -367,6 +367,8 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "retry_max_elapsed_seconds": 1800.0,
             "adaptive_maximum_in_flight": 2,
             "adaptive_initial_in_flight": 8,
+            "adaptive_initial_batch_size": 4,
+            "adaptive_batch_increase_successes": 16,
             "concurrency": 2,
             "run_manifest_filename": "custom.manifest.json",
         }

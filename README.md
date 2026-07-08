@@ -19,6 +19,13 @@ Generation commands use the same throughput rules:
 | `*_CONCURRENCY` | Maximum simultaneous provider requests. Adaptive request admission may run below this cap when the provider throttles. |
 | `*_BATCH_SIZE` | Maximum rows, prompts, or specs per provider request. Adaptive batch sizing halves failing batches and slowly increases after successful batches. |
 
+OpenRouter routing defaults to `auto`. Use `prefer` to try one provider first while allowing fallback, or `strict` to require one provider. `prefer` and `strict` require `OPENROUTER_PROVIDER`.
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `OPENROUTER_ROUTING_MODE` | `auto` | Routing policy: `auto`, `prefer`, or `strict` |
+| `OPENROUTER_PROVIDER` | unset | Provider slug used by `prefer` or `strict` routing |
+
 ## Setup
 
 ```bash

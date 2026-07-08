@@ -233,6 +233,8 @@ def generate_llm_run(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    openrouter_routing_mode: str | None = None,
+    openrouter_provider: str | None = None,
     adaptive_initial_batch_size: int = 4,
     adaptive_batch_increase_successes: int = 16,
     concurrency: int = 1,
@@ -262,6 +264,8 @@ def generate_llm_run(
         retry_max_elapsed_seconds=retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
     )
 
     def run_job(job: dict[str, Any]) -> Any:

@@ -40,6 +40,8 @@ def build_openrouter_backend(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    openrouter_routing_mode: str | None = None,
+    openrouter_provider: str | None = None,
 ) -> "LLMBackend":
     """Create the supported production teacher backend.
 
@@ -60,6 +62,8 @@ def build_openrouter_backend(
         retry_max_elapsed_seconds=retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
     )
 
 
@@ -123,6 +127,8 @@ def generate_and_materialize_signal_batch(
     retry_max_elapsed_seconds: float = 1800.0,
     adaptive_maximum_in_flight: int = 1,
     adaptive_initial_in_flight: int = 8,
+    openrouter_routing_mode: str | None = None,
+    openrouter_provider: str | None = None,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
     """Generate one signal batch with OpenRouter and write dataset + manifest."""
@@ -143,6 +149,8 @@ def generate_and_materialize_signal_batch(
         retry_max_elapsed_seconds=retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=adaptive_maximum_in_flight,
         adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
     )
     teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
         signal=normalized_signal,

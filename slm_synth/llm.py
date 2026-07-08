@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 import random
 import re
 import threading
@@ -232,6 +233,85 @@ class AdaptiveRequestController:
 
 
 SUPPORTED_PROVIDERS = {"openrouter"}
+SUPPORTED_OPENROUTER_ROUTING_MODES = frozenset({"auto", "prefer", "strict"})
+
+
+def _clean_optional_env_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
+
+
+@dataclass(frozen=True)
+class OpenRouterRoutingPolicy:
+    """Validated OpenRouter provider routing request policy."""
+
+    mode: str = "auto"
+    requested_provider: str | None = None
+
+    def provider_preferences(self, *, require_parameters: bool, allow_fallbacks: bool) -> dict[str, Any]:
+        preferences: dict[str, Any] = {
+            "require_parameters": bool(require_parameters),
+        }
+        if self.mode == "auto":
+            preferences["allow_fallbacks"] = bool(allow_fallbacks)
+        elif self.mode == "prefer":
+            assert self.requested_provider is not None
+            preferences.update(
+                {
+                    "order": [self.requested_provider],
+                    "allow_fallbacks": True,
+                }
+            )
+        elif self.mode == "strict":
+            assert self.requested_provider is not None
+            preferences.update(
+                {
+                    "only": [self.requested_provider],
+                    "allow_fallbacks": False,
+                }
+            )
+        else:  # pragma: no cover - construction validates this.
+            raise ValueError(f"Unsupported OpenRouter routing mode: {self.mode}")
+        return preferences
+
+    def metadata(self, *, allow_fallbacks: bool) -> dict[str, Any]:
+        return {
+            "routing_mode": self.mode,
+            "requested_provider": self.requested_provider,
+            "allow_fallbacks": bool(allow_fallbacks),
+        }
+
+
+def resolve_openrouter_routing_policy(
+    *,
+    mode: str | None = None,
+    provider: str | None = None,
+) -> OpenRouterRoutingPolicy:
+    """Resolve OpenRouter routing policy from explicit values or environment."""
+    raw_mode = _clean_optional_env_string(mode)
+    if raw_mode is None:
+        raw_mode = _clean_optional_env_string(os.environ.get("OPENROUTER_ROUTING_MODE")) or "auto"
+    normalized_mode = raw_mode.lower()
+    if normalized_mode not in SUPPORTED_OPENROUTER_ROUTING_MODES:
+        supported = ", ".join(sorted(SUPPORTED_OPENROUTER_ROUTING_MODES))
+        raise ValueError(
+            f"Unsupported OPENROUTER_ROUTING_MODE '{raw_mode}'. Supported values: {supported}"
+        )
+
+    requested_provider = _clean_optional_env_string(
+        provider if provider is not None else os.environ.get("OPENROUTER_PROVIDER")
+    )
+    if normalized_mode in {"prefer", "strict"} and requested_provider is None:
+        raise ValueError(
+            f"OPENROUTER_PROVIDER is required when OPENROUTER_ROUTING_MODE={normalized_mode}"
+        )
+    if normalized_mode == "auto" and requested_provider is not None:
+        raise ValueError(
+            "OPENROUTER_PROVIDER requires OPENROUTER_ROUTING_MODE=prefer or OPENROUTER_ROUTING_MODE=strict"
+        )
+    return OpenRouterRoutingPolicy(mode=normalized_mode, requested_provider=requested_provider)
 
 
 class LLMBackend:
@@ -277,7 +357,9 @@ class LLMBackend:
         adaptive_cooldown_max_seconds: float = 60.0,
         adaptive_cooldown_multiplier: float = 2.0,
         require_parameters: bool = True,
-        allow_fallbacks: bool = False,
+        allow_fallbacks: bool = True,
+        openrouter_routing_mode: str | None = None,
+        openrouter_provider: str | None = None,
     ):
         provider = str(provider).lower().strip()
         if provider not in SUPPORTED_PROVIDERS:
@@ -330,6 +412,10 @@ class LLMBackend:
         )
         self.require_parameters = bool(require_parameters)
         self.allow_fallbacks = bool(allow_fallbacks)
+        self.openrouter_routing_policy = resolve_openrouter_routing_policy(
+            mode=openrouter_routing_mode,
+            provider=openrouter_provider,
+        )
 
         self.client = OpenAI(
             api_key=api_key,
@@ -383,6 +469,8 @@ class LLMBackend:
             adaptive_cooldown_multiplier=self.adaptive_controller.cooldown_multiplier,
             require_parameters=self.require_parameters,
             allow_fallbacks=self.allow_fallbacks,
+            openrouter_routing_mode=self.openrouter_routing_policy.mode,
+            openrouter_provider=self.openrouter_routing_policy.requested_provider,
         )
         clone.adaptive_controller = self.adaptive_controller
         return clone
@@ -434,10 +522,29 @@ class LLMBackend:
             "top_p": self.top_p,
         }
 
+    def _provider_extra_body(self) -> dict[str, Any]:
+        return {
+            "provider": self.openrouter_routing_policy.provider_preferences(
+                require_parameters=self.require_parameters,
+                allow_fallbacks=self.allow_fallbacks,
+            )
+        }
+
+    def _routing_metadata(self) -> dict[str, Any]:
+        policy = getattr(self, "openrouter_routing_policy", None)
+        if not isinstance(policy, OpenRouterRoutingPolicy):
+            return {}
+        preferences = policy.provider_preferences(
+            require_parameters=getattr(self, "require_parameters", True),
+            allow_fallbacks=getattr(self, "allow_fallbacks", True),
+        )
+        return policy.metadata(allow_fallbacks=bool(preferences.get("allow_fallbacks", False)))
+
     def _create_completion(self, prompt: str):
         kwargs = self._base_kwargs(prompt)
         if self.json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        kwargs["extra_body"] = self._provider_extra_body()
         return self.client.chat.completions.create(**kwargs)
 
     def _create_structured_completion(self, prompt: str, schema: dict[str, Any], schema_name: str):
@@ -448,12 +555,7 @@ class LLMBackend:
             "type": "json_schema",
             "json_schema": {"name": schema_name, "strict": True, "schema": schema},
         }
-        kwargs["extra_body"] = {
-            "provider": {
-                "require_parameters": self.require_parameters,
-                "allow_fallbacks": self.allow_fallbacks,
-            }
-        }
+        kwargs["extra_body"] = self._provider_extra_body()
         return self.client.chat.completions.create(**kwargs)
 
     @staticmethod
@@ -659,6 +761,7 @@ class LLMBackend:
                         "retry_count": attempt - 1,
                         "retryable_provider_retries": retryable_provider_retries,
                         "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+                        **self._routing_metadata(),
                         "adaptive_window_increases": adaptive_window_increases,
                         "adaptive_window_decreases": adaptive_window_decreases,
                         "adaptive_admission_wait_seconds": round(adaptive_admission_wait_seconds, 3),
@@ -691,6 +794,7 @@ class LLMBackend:
             "retry_count": attempt - 1,
             "retryable_provider_retries": retryable_provider_retries,
             "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+            **self._routing_metadata(),
             "adaptive_window_increases": adaptive_window_increases,
             "adaptive_window_decreases": adaptive_window_decreases,
             "adaptive_admission_wait_seconds": round(adaptive_admission_wait_seconds, 3),

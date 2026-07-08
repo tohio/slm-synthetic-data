@@ -59,7 +59,7 @@ def aggregate_llm_telemetry(telemetry_items: Sequence[Mapping[str, Any]]) -> dic
     }
 
     first = telemetry_items[0]
-    for key in ("model", "provider"):
+    for key in ("model", "provider", "routing_mode", "requested_provider", "allow_fallbacks"):
         if key in first:
             merged[key] = first[key]
     return merged

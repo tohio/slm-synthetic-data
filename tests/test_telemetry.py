@@ -10,6 +10,9 @@ def test_aggregate_llm_telemetry_sums_nested_batch_counts():
                 "retry_count": 1,
                 "retryable_provider_retries": 2,
                 "elapsed_seconds": 4.0,
+                "routing_mode": "prefer",
+                "requested_provider": "deepinfra",
+                "allow_fallbacks": True,
             },
             {
                 "batch_count": 3,
@@ -31,6 +34,9 @@ def test_aggregate_llm_telemetry_sums_nested_batch_counts():
     assert telemetry["retry_count"] == 5
     assert telemetry["retryable_provider_retries"] == 7
     assert telemetry["elapsed_seconds"] == 10.0
+    assert telemetry["routing_mode"] == "prefer"
+    assert telemetry["requested_provider"] == "deepinfra"
+    assert telemetry["allow_fallbacks"] is True
 
 
 def test_aggregate_llm_telemetry_counts_raw_items_as_single_batches():
