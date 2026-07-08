@@ -1,4 +1,4 @@
-from slm_synth.record_quality import validate_record
+from slm_synth.pretrain.record_quality import validate_record
 
 
 def test_math_mcq_derives_answer_index_and_strips_verification_metadata():
