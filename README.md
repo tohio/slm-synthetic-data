@@ -5,7 +5,7 @@ Synthetic dataset generation for the SLM training stack.
 | Dataset | Smoke Run | Target Run | Public Output |
 |---|---|---|---|
 | Pretraining synthetic data | `make pretrain-smoke` | `make pretrain-generate` | `data/runs/<run>/deduped` |
-| Response distillation | `make distill-smoke` | `make distill-generate` | `data/distillation/runs/<run>/datasets` |
+| Distillation SFT | `make distillation-sft-smoke` | `make distillation-sft-generate` | `data/distillation/runs/<run>/datasets` |
 | SFT | `make sft-smoke` | `make sft-generate` | `data/sft/runs/<run>/datasets` |
 | DPO | `make dpo-smoke` | `make dpo-generate` | `data/dpo/runs/<run>/datasets` |
 
@@ -90,9 +90,9 @@ Useful variables:
 | `PRETRAIN_MODEL` | `$(MODEL)` | Pretraining model |
 | `PRETRAIN_SIGNAL` | unset | Optional single-signal filter |
 
-## Response Distillation
+## Distillation SFT
 
-Distillation data is teacher prompt/response supervision.
+Distillation SFT data is teacher prompt/response supervision.
 
 Public row schema:
 
@@ -118,33 +118,33 @@ planning
 Small run:
 
 ```bash
-make distill-smoke
-make distill-inspect
+make distillation-sft-smoke
+make distillation-sft-inspect
 ```
 
 Target run:
 
 ```bash
-make distill-generate \
-  DISTILL_TARGET_SIZE=pilot \
-  DISTILL_TARGET_RUN=distill-pilot-001
+make distillation-sft-generate \
+  DISTILLATION_SFT_TARGET_SIZE=pilot \
+  DISTILLATION_SFT_TARGET_RUN=distillation-sft-pilot-001
 
-make distill-inspect DISTILL_INSPECT_RUN=distill-pilot-001
+make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-pilot-001
 ```
 
 Useful variables:
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `DISTILL_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
-| `DISTILL_TARGET_SIZE` | `pilot` | Target preset |
-| `DISTILL_BATCH_SIZE` | `5` | Maximum prompts per teacher request |
-| `DISTILL_CONCURRENCY` | `1` | Parallel teacher requests |
-| `DISTILL_RUN_ROOT` | `data/distillation/runs` | Run output root |
-| `DISTILL_INSPECT_RUN` | `$(DISTILL_REPORT_RUN)` | Run inspected by `distill-inspect` |
-| `DISTILL_SIGNALS` | unset | Optional signal list |
-| `DISTILL_MODEL` | `$(MODEL)` | Teacher model |
-| `DISTILL_MAX_TOKENS` | `4096` | Teacher response max tokens |
+| `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
+| `DISTILLATION_SFT_TARGET_SIZE` | `pilot` | Target preset |
+| `DISTILLATION_SFT_BATCH_SIZE` | `5` | Maximum prompts per teacher request |
+| `DISTILLATION_SFT_CONCURRENCY` | `1` | Parallel teacher requests |
+| `DISTILLATION_SFT_RUN_ROOT` | `data/distillation/runs` | Run output root |
+| `DISTILLATION_SFT_INSPECT_RUN` | `$(DISTILLATION_SFT_REPORT_RUN)` | Run inspected by `distillation-sft-inspect` |
+| `DISTILLATION_SFT_SIGNALS` | unset | Optional signal list |
+| `DISTILLATION_SFT_MODEL` | `$(MODEL)` | Teacher model |
+| `DISTILLATION_SFT_MAX_TOKENS` | `4096` | Teacher response max tokens |
 
 ## SFT
 
@@ -266,7 +266,7 @@ Smoke and target generation commands build their reports automatically. Rebuild 
 
 ```bash
 make pretrain-report PRETRAIN_REPORT_RUN=<run-id>
-make distill-report DISTILL_REPORT_RUN=<run-id>
+make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=<run-id>
 make sft-report SFT_REPORT_RUN=<run-id>
 make dpo-report DPO_REPORT_RUN=<run-id>
 ```

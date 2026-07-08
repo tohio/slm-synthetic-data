@@ -33,28 +33,28 @@ HF_NAMESPACE ?= tohio
 HF_PRIVATE ?=
 HF_PRIVATE_ARG := $(if $(filter true yes 1,$(HF_PRIVATE)),--private,)
 
-# Distillation
-DISTILL_RUN ?= distill-smoke-001
-DISTILL_TARGET_RUN ?= distill-target-001
-DISTILL_REPORT_RUN ?= $(DISTILL_RUN)
-DISTILL_INSPECT_RUN ?= $(DISTILL_REPORT_RUN)
-DISTILL_TARGET ?= smoke
-DISTILL_TARGET_SIZE ?= pilot
-DISTILL_SMOKE_COUNT_PER_SIGNAL ?= 2
-DISTILL_BATCH_SIZE ?= 5
-DISTILL_CONCURRENCY ?= 1
-DISTILL_SIGNALS ?=
-DISTILL_SIGNALS_ARG := $(if $(filter all,$(DISTILL_SIGNALS)),,$(if $(DISTILL_SIGNALS),--signals $(DISTILL_SIGNALS),))
-DISTILL_INITIAL_CONCURRENCY ?= 8
-DISTILL_INITIAL_BATCH_SIZE ?= 4
-DISTILL_BATCH_INCREASE_SUCCESSES ?= 16
-DISTILL_ESTIMATED_TOKENS_PER_ROW ?= 512
-DISTILL_RUN_ROOT ?= data/distillation/runs
-DISTILL_MODEL ?= $(MODEL)
-DISTILL_MAX_TOKENS ?= 4096
-DISTILL_DATASET_NAME ?= SLM Synthetic Distillation
-DISTILL_PUSH_RUN ?= $(DISTILL_REPORT_RUN)
-DISTILL_HF_REPO ?= $(HF_REPO)
+# Distillation SFT
+DISTILLATION_SFT_RUN ?= distillation-sft-smoke-001
+DISTILLATION_SFT_TARGET_RUN ?= distillation-sft-target-001
+DISTILLATION_SFT_REPORT_RUN ?= $(DISTILLATION_SFT_RUN)
+DISTILLATION_SFT_INSPECT_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
+DISTILLATION_SFT_TARGET ?= smoke
+DISTILLATION_SFT_TARGET_SIZE ?= pilot
+DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL ?= 2
+DISTILLATION_SFT_BATCH_SIZE ?= 5
+DISTILLATION_SFT_CONCURRENCY ?= 1
+DISTILLATION_SFT_SIGNALS ?=
+DISTILLATION_SFT_SIGNALS_ARG := $(if $(filter all,$(DISTILLATION_SFT_SIGNALS)),,$(if $(DISTILLATION_SFT_SIGNALS),--signals $(DISTILLATION_SFT_SIGNALS),))
+DISTILLATION_SFT_INITIAL_CONCURRENCY ?= 8
+DISTILLATION_SFT_INITIAL_BATCH_SIZE ?= 4
+DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES ?= 16
+DISTILLATION_SFT_ESTIMATED_TOKENS_PER_ROW ?= 512
+DISTILLATION_SFT_RUN_ROOT ?= data/distillation/runs
+DISTILLATION_SFT_MODEL ?= $(MODEL)
+DISTILLATION_SFT_MAX_TOKENS ?= 4096
+DISTILLATION_SFT_DATASET_NAME ?= SLM Synthetic Distillation
+DISTILLATION_SFT_PUSH_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
+DISTILLATION_SFT_HF_REPO ?= $(HF_REPO)
 
 # SFT
 SFT_RUN ?= sft-smoke-001
@@ -106,7 +106,8 @@ DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES
 
 .PHONY: help \
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
-	distill-smoke distill-generate distill-report distill-inspect distill-push \
+	distillation-sft-smoke distillation-sft-generate \
+	distillation-sft-report distillation-sft-inspect distillation-sft-push \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
 	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
 	test clean
@@ -119,8 +120,8 @@ help:
 > @echo "Generate datasets:"
 > @echo "  make pretrain-smoke      Small pretraining generation run"
 > @echo "  make pretrain-generate   Target pretraining generation run"
-> @echo "  make distill-smoke       Small response distillation run"
-> @echo "  make distill-generate    Target response distillation run"
+> @echo "  make distillation-sft-smoke       Small distillation SFT run"
+> @echo "  make distillation-sft-generate    Target distillation SFT run"
 > @echo "  make sft-smoke           Small SFT run"
 > @echo "  make sft-generate        Target SFT run"
 > @echo "  make dpo-smoke           Small DPO run"
@@ -128,17 +129,17 @@ help:
 > @echo ""
 > @echo "Inspect and report:"
 > @echo "  make pretrain-inspect    Show pretraining files and sample rows"
-> @echo "  make distill-inspect     Show distillation files and sample rows"
+> @echo "  make distillation-sft-inspect     Show distillation SFT files and sample rows"
 > @echo "  make sft-inspect         Show SFT files and sample rows"
 > @echo "  make dpo-inspect         Show DPO files and sample rows"
 > @echo "  make pretrain-report     Rebuild pretraining reports"
-> @echo "  make distill-report      Rebuild distillation reports and dataset card"
+> @echo "  make distillation-sft-report      Rebuild distillation SFT reports and dataset card"
 > @echo "  make sft-report          Rebuild SFT coverage"
 > @echo "  make dpo-report          Rebuild DPO coverage"
 > @echo ""
 > @echo "Push to Hugging Face:"
 > @echo "  make pretrain-push       Push pretraining deduped data"
-> @echo "  make distill-push        Push a distillation run"
+> @echo "  make distillation-sft-push        Push a distillation SFT run"
 > @echo "  make sft-push            Push SFT families to slm-sft-* repos"
 > @echo "  make dpo-push            Push DPO families to slm-dpo-* repos"
 > @echo ""
@@ -150,10 +151,10 @@ help:
 > @echo "  MODEL=$(MODEL)"
 > @echo "  PRETRAIN_TOKENS=$(PRETRAIN_TOKENS)"
 > @echo "  PRETRAIN_TARGET_TOKENS=$(PRETRAIN_TARGET_TOKENS)"
-> @echo "  DISTILL_TARGET=$(DISTILL_TARGET)"
-> @echo "  DISTILL_TARGET_SIZE=$(DISTILL_TARGET_SIZE)"
-> @echo "  DISTILL_CONCURRENCY=$(DISTILL_CONCURRENCY)"
-> @echo "  DISTILL_HF_REPO=$(DISTILL_HF_REPO)"
+> @echo "  DISTILLATION_SFT_TARGET=$(DISTILLATION_SFT_TARGET)"
+> @echo "  DISTILLATION_SFT_TARGET_SIZE=$(DISTILLATION_SFT_TARGET_SIZE)"
+> @echo "  DISTILLATION_SFT_CONCURRENCY=$(DISTILLATION_SFT_CONCURRENCY)"
+> @echo "  DISTILLATION_SFT_HF_REPO=$(DISTILLATION_SFT_HF_REPO)"
 > @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
 > @echo "  SFT_HF_NAMESPACE=$(SFT_HF_NAMESPACE)"
 > @echo "  SFT_HF_PREFIX=$(SFT_HF_PREFIX)"
@@ -210,60 +211,60 @@ pretrain-inspect:
 pretrain-push:
 > $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 
-distill-smoke:
+distillation-sft-smoke:
 > $(PYTHON) -m slm_synth.distillation.cli generate-seed-run \
->   $(DISTILL_SIGNALS_ARG) \
->   --count-per-signal $(DISTILL_SMOKE_COUNT_PER_SIGNAL) \
->   --output-dir $(DISTILL_RUN_ROOT)/$(DISTILL_RUN)/datasets \
->   --manifest-dir $(DISTILL_RUN_ROOT)/$(DISTILL_RUN)/manifests \
->   --teacher-model $(DISTILL_MODEL) \
->   --generation-run $(DISTILL_RUN) \
->   --max-tokens $(DISTILL_MAX_TOKENS) \
->   --batch-size $(DISTILL_BATCH_SIZE) \
->   --concurrency $(DISTILL_CONCURRENCY) \
->   --adaptive-initial-in-flight $(DISTILL_INITIAL_CONCURRENCY) \
->   --adaptive-initial-batch-size $(DISTILL_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DISTILL_BATCH_INCREASE_SUCCESSES)
-> $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_RUN)
+>   $(DISTILLATION_SFT_SIGNALS_ARG) \
+>   --count-per-signal $(DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL) \
+>   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_RUN)/datasets \
+>   --manifest-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_RUN)/manifests \
+>   --teacher-model $(DISTILLATION_SFT_MODEL) \
+>   --generation-run $(DISTILLATION_SFT_RUN) \
+>   --max-tokens $(DISTILLATION_SFT_MAX_TOKENS) \
+>   --batch-size $(DISTILLATION_SFT_BATCH_SIZE) \
+>   --concurrency $(DISTILLATION_SFT_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES)
+> $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_RUN)
 
-distill-generate:
+distillation-sft-generate:
 > $(PYTHON) -m slm_synth.distillation.cli generate-seed-run \
->   $(DISTILL_SIGNALS_ARG) \
->   --target-preset $(DISTILL_TARGET_SIZE) \
->   --estimated-tokens-per-row $(DISTILL_ESTIMATED_TOKENS_PER_ROW) \
->   --output-dir $(DISTILL_RUN_ROOT)/$(DISTILL_TARGET_RUN)/datasets \
->   --manifest-dir $(DISTILL_RUN_ROOT)/$(DISTILL_TARGET_RUN)/manifests \
->   --teacher-model $(DISTILL_MODEL) \
->   --generation-run $(DISTILL_TARGET_RUN) \
->   --max-tokens $(DISTILL_MAX_TOKENS) \
->   --batch-size $(DISTILL_BATCH_SIZE) \
->   --concurrency $(DISTILL_CONCURRENCY) \
->   --adaptive-initial-in-flight $(DISTILL_INITIAL_CONCURRENCY) \
->   --adaptive-initial-batch-size $(DISTILL_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DISTILL_BATCH_INCREASE_SUCCESSES)
-> $(MAKE) distill-report DISTILL_REPORT_RUN=$(DISTILL_TARGET_RUN)
+>   $(DISTILLATION_SFT_SIGNALS_ARG) \
+>   --target-preset $(DISTILLATION_SFT_TARGET_SIZE) \
+>   --estimated-tokens-per-row $(DISTILLATION_SFT_ESTIMATED_TOKENS_PER_ROW) \
+>   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_TARGET_RUN)/datasets \
+>   --manifest-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_TARGET_RUN)/manifests \
+>   --teacher-model $(DISTILLATION_SFT_MODEL) \
+>   --generation-run $(DISTILLATION_SFT_TARGET_RUN) \
+>   --max-tokens $(DISTILLATION_SFT_MAX_TOKENS) \
+>   --batch-size $(DISTILLATION_SFT_BATCH_SIZE) \
+>   --concurrency $(DISTILLATION_SFT_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES)
+> $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_TARGET_RUN)
 
-distill-report:
+distillation-sft-report:
 > $(PYTHON) -m slm_synth.distillation.cli report-coverage \
->   --run-manifest $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/manifests/$(DISTILL_REPORT_RUN).manifest.json \
->   --output $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/coverage.json
+>   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
+>   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.distillation.cli build-dataset-card \
->   --run-manifest $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/manifests/$(DISTILL_REPORT_RUN).manifest.json \
->   --output $(DISTILL_RUN_ROOT)/$(DISTILL_REPORT_RUN)/README.md \
->   --dataset-name "$(DISTILL_DATASET_NAME)"
+>   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
+>   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/README.md \
+>   --dataset-name "$(DISTILLATION_SFT_DATASET_NAME)"
 
-distill-inspect:
+distillation-sft-inspect:
 > @echo "== distillation files =="
-> @find $(DISTILL_RUN_ROOT)/$(DISTILL_INSPECT_RUN) -type f 2>/dev/null | sort
+> @find $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_INSPECT_RUN) -type f 2>/dev/null | sort
 > @echo "== distillation sample rows =="
-> @find $(DISTILL_RUN_ROOT)/$(DISTILL_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
+> @find $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
-distill-push:
-> test -n "$(DISTILL_HF_REPO)" || (echo "DISTILL_HF_REPO or HF_REPO is required" >&2; exit 2)
+distillation-sft-push:
+> test -n "$(DISTILLATION_SFT_HF_REPO)" || (echo "DISTILLATION_SFT_HF_REPO or HF_REPO is required" >&2; exit 2)
 > $(PYTHON) -m slm_synth.distillation.push_hf \
->   --dataset-dir $(DISTILL_RUN_ROOT)/$(DISTILL_PUSH_RUN)/datasets \
->   --run-dir $(DISTILL_RUN_ROOT)/$(DISTILL_PUSH_RUN) \
->   --repo-id $(DISTILL_HF_REPO) $(HF_PRIVATE_ARG)
+>   --dataset-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_PUSH_RUN)/datasets \
+>   --run-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_PUSH_RUN) \
+>   --repo-id $(DISTILLATION_SFT_HF_REPO) $(HF_PRIVATE_ARG)
 
 sft-smoke:
 > $(PYTHON) -m slm_synth.sft.cli generate-llm-run \

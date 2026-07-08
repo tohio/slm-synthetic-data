@@ -5,7 +5,7 @@ This repo exposes one Make surface for dataset generation:
 | Workflow | Smoke Run | Target Run | Inspect |
 |---|---|---|---|
 | Pretraining | `make pretrain-smoke` | `make pretrain-generate` | `make pretrain-inspect` |
-| Response distillation | `make distill-smoke` | `make distill-generate` | `make distill-inspect` |
+| Distillation SFT | `make distillation-sft-smoke` | `make distillation-sft-generate` | `make distillation-sft-inspect` |
 | SFT | `make sft-smoke` | `make sft-generate` | `make sft-inspect` |
 | DPO | `make dpo-smoke` | `make dpo-generate` | `make dpo-inspect` |
 
@@ -73,46 +73,46 @@ Push:
 make pretrain-push HF_REPO=<namespace>/<repo>
 ```
 
-## Response Distillation
+## Distillation SFT
 
 Generate a small run:
 
 ```bash
-make distill-smoke
-make distill-inspect
+make distillation-sft-smoke
+make distillation-sft-inspect
 ```
 
 Generate target data:
 
 ```bash
-make distill-generate \
-  DISTILL_TARGET_SIZE=pilot \
-  DISTILL_TARGET_RUN=distill-pilot-001
+make distillation-sft-generate \
+  DISTILLATION_SFT_TARGET_SIZE=pilot \
+  DISTILLATION_SFT_TARGET_RUN=distillation-sft-pilot-001
 
-make distill-inspect DISTILL_INSPECT_RUN=distill-pilot-001
+make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-pilot-001
 ```
 
 Useful variables:
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `DISTILL_RUN` | `distill-smoke-001` | Smoke run id. |
-| `DISTILL_TARGET_RUN` | `distill-target-001` | Target run id. |
-| `DISTILL_TARGET_SIZE` | `pilot` | Target preset for `distill-generate`. |
-| `DISTILL_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal. |
-| `DISTILL_BATCH_SIZE` | `5` | Maximum prompts per teacher request. |
-| `DISTILL_CONCURRENCY` | `1` | Parallel teacher requests. |
-| `DISTILL_RUN_ROOT` | `data/distillation/runs` | Run output root. |
-| `DISTILL_REPORT_RUN` | `$(DISTILL_RUN)` | Run used by `distill-report`. |
-| `DISTILL_INSPECT_RUN` | `$(DISTILL_REPORT_RUN)` | Run inspected by `distill-inspect`. |
-| `DISTILL_SIGNALS` | unset | Optional signal list. |
-| `DISTILL_MODEL` | `$(MODEL)` | Teacher model. |
-| `DISTILL_MAX_TOKENS` | `4096` | Teacher response max tokens. |
+| `DISTILLATION_SFT_RUN` | `distillation-sft-smoke-001` | Smoke run id. |
+| `DISTILLATION_SFT_TARGET_RUN` | `distillation-sft-target-001` | Target run id. |
+| `DISTILLATION_SFT_TARGET_SIZE` | `pilot` | Target preset for `distillation-sft-generate`. |
+| `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal. |
+| `DISTILLATION_SFT_BATCH_SIZE` | `5` | Maximum prompts per teacher request. |
+| `DISTILLATION_SFT_CONCURRENCY` | `1` | Parallel teacher requests. |
+| `DISTILLATION_SFT_RUN_ROOT` | `data/distillation/runs` | Run output root. |
+| `DISTILLATION_SFT_REPORT_RUN` | `$(DISTILLATION_SFT_RUN)` | Run used by `distillation-sft-report`. |
+| `DISTILLATION_SFT_INSPECT_RUN` | `$(DISTILLATION_SFT_REPORT_RUN)` | Run inspected by `distillation-sft-inspect`. |
+| `DISTILLATION_SFT_SIGNALS` | unset | Optional signal list. |
+| `DISTILLATION_SFT_MODEL` | `$(MODEL)` | Teacher model. |
+| `DISTILLATION_SFT_MAX_TOKENS` | `4096` | Teacher response max tokens. |
 
 Reports:
 
 ```bash
-make distill-report DISTILL_REPORT_RUN=<run-id>
+make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=<run-id>
 ```
 
 ## SFT
