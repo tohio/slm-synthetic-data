@@ -36,4 +36,6 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Internal handoff notes
 TODO.md
+PROJECT_STATE.md
