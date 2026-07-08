@@ -69,17 +69,22 @@ def normalize_signal_counts(
     signals: Sequence[str] | None = None,
     count_per_signal: int | None = None,
     counts_by_signal: Mapping[str, int] | None = None,
+    target_rows: int | None = None,
 ) -> dict[str, int]:
-    """Build a validated mapping of signal -> prompt count.
+    """Build a validated mapping of signal -> planned prompt count.
 
-    Use count_per_signal for fixed-size runs. counts_by_signal is available for
-    callers that already computed counts, but this module does not estimate token
-    budgets yet.
+    Production runs should use target_rows as the dataset-size planning knob.
+    count_per_signal remains available for explicit smoke/bakeoff-sized runs, and
+    counts_by_signal remains available for callers that already computed a fixed
+    per-signal plan. Exactly one planning strategy must be provided.
     """
     normalized_signals = normalize_signal_sequence(signals)
 
-    if count_per_signal is not None and counts_by_signal is not None:
-        raise ValueError("provide either count_per_signal or counts_by_signal, not both")
+    provided_strategies = sum(
+        value is not None for value in (count_per_signal, counts_by_signal, target_rows)
+    )
+    if provided_strategies > 1:
+        raise ValueError("provide only one of count_per_signal, counts_by_signal, or target_rows")
 
     if counts_by_signal is not None:
         normalized_counts: dict[str, int] = {}
@@ -93,8 +98,18 @@ def normalize_signal_counts(
             raise ValueError(f"missing count(s) for signal(s): {missing}")
         return {signal: normalized_counts[signal] for signal in normalized_signals}
 
+    if target_rows is not None:
+        target = _validate_target_rows(target_rows)
+        if target < len(normalized_signals):
+            raise ValueError("target_rows must be at least the number of requested signals")
+        base_count, remainder = divmod(target, len(normalized_signals))
+        return {
+            signal: base_count + (1 if index < remainder else 0)
+            for index, signal in enumerate(normalized_signals)
+        }
+
     if count_per_signal is None:
-        raise ValueError("count_per_signal is required when counts_by_signal is not provided")
+        raise ValueError("one of count_per_signal, counts_by_signal, or target_rows is required")
 
     count = _validate_count(count_per_signal)
     return {signal: count for signal in normalized_signals}
@@ -136,6 +151,7 @@ def generate_seed_multi_signal_run(
         max_tokens=max_tokens,
         count_per_signal=count_per_signal,
         counts_by_signal=counts_by_signal,
+        target_rows=None,
         signals=signals,
         token_target=token_target,
         start_index=start_index,
@@ -168,6 +184,7 @@ def generate_prompt_spec_multi_signal_run(
     max_tokens: int,
     count_per_signal: int | None = None,
     counts_by_signal: Mapping[str, int] | None = None,
+    target_rows: int | None = None,
     signals: Sequence[str] | None = None,
     token_target: str | int | None = None,
     start_index: int = 1,
@@ -195,6 +212,7 @@ def generate_prompt_spec_multi_signal_run(
         max_tokens=max_tokens,
         count_per_signal=count_per_signal,
         counts_by_signal=counts_by_signal,
+        target_rows=target_rows,
         signals=signals,
         token_target=token_target,
         start_index=start_index,
@@ -227,6 +245,7 @@ def _generate_multi_signal_run(
     max_tokens: int,
     count_per_signal: int | None,
     counts_by_signal: Mapping[str, int] | None,
+    target_rows: int | None,
     signals: Sequence[str] | None,
     token_target: str | int | None,
     start_index: int,
@@ -257,6 +276,7 @@ def _generate_multi_signal_run(
         signals=signals,
         count_per_signal=count_per_signal,
         counts_by_signal=counts_by_signal,
+        target_rows=target_rows,
     )
     normalized_batch_size = _validate_batch_size(batch_size)
     _validate_positive_int(concurrency, "concurrency")
@@ -302,6 +322,9 @@ def _generate_multi_signal_run(
         )
 
     results = [run_signal(item) for item in signal_items]
+    planned_prompt_rows = sum(signal_counts.values())
+    accepted_rows = sum(result.row_count for result in results)
+    rejected_rows = max(planned_prompt_rows - accepted_rows, 0)
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     write_run_manifest(
@@ -321,6 +344,12 @@ def _generate_multi_signal_run(
         ],
         metadata={
             "signal_count": len(results),
+            "signals": [signal for signal, _count in signal_items],
+            "rows_per_signal": dict(signal_counts),
+            "target_rows": target_rows,
+            "planned_prompt_rows": planned_prompt_rows,
+            "accepted_rows": accepted_rows,
+            "rejected_rows": rejected_rows,
             "start_index": start_index,
             "batch_size": normalized_batch_size,
             "concurrency": concurrency,
@@ -357,6 +386,12 @@ def _validate_batch_size(batch_size: Any) -> int | None:
 def _validate_positive_int(value: Any, name: str) -> None:
     if not isinstance(value, int) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
+
+
+def _validate_target_rows(value: Any) -> int:
+    if not isinstance(value, int) or value < 1:
+        raise ValueError("target_rows must be a positive integer")
+    return value
 
 
 def _chunks(records: Sequence[Mapping[str, Any]], batch_size: int | None) -> list[list[Mapping[str, Any]]]:
@@ -549,6 +584,9 @@ def _generate_and_materialize_signal_batches(
         token_target=token_target,
         metadata={
             "prompt_count": len(prompt_records),
+            "planned_prompt_rows": len(prompt_records),
+            "accepted_rows": row_count,
+            "rejected_rows": max(len(prompt_records) - row_count, 0),
             "batch_count": len(batch_results),
             "batch_size": maximum_batch_size,
             "concurrency": concurrency,

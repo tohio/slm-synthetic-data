@@ -39,14 +39,23 @@ def build_coverage_report(run_manifest_path: str | Path) -> dict[str, Any]:
         if manifest_path is not None:
             manifest_paths[signal] = str(Path(str(manifest_path)))
 
+    metadata = manifest.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+
     return {
         "dataset_type": "distillation",
         "generation_run": _require_non_empty_string(manifest.get("generation_run"), "generation_run"),
         "teacher_model": _require_non_empty_string(manifest.get("teacher_model"), "teacher_model"),
         "teacher_provider": _require_non_empty_string(manifest.get("teacher_provider"), "teacher_provider"),
         "token_target": manifest.get("token_target"),
+        "target_rows": metadata.get("target_rows"),
+        "planned_prompt_rows": metadata.get("planned_prompt_rows"),
+        "accepted_rows": metadata.get("accepted_rows", total_rows),
+        "rejected_rows": metadata.get("rejected_rows"),
         "row_count": total_rows,
         "signals": {signal: signal_counts[signal] for signal in sorted(signal_counts)},
+        "rows_per_signal": _sorted_mapping(metadata.get("rows_per_signal")),
         "dataset_paths": {signal: dataset_paths[signal] for signal in sorted(dataset_paths)},
         "manifest_paths": {signal: manifest_paths[signal] for signal in sorted(manifest_paths)},
     }
@@ -58,6 +67,12 @@ def write_coverage_report(*, report: dict[str, Any], path: str | Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output_path
+
+
+def _sorted_mapping(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): value[key] for key in sorted(value)}
 
 
 def _require_non_empty_string(value: Any, field_name: str) -> str:

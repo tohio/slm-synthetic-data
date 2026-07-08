@@ -127,10 +127,10 @@ Target run:
 
 ```bash
 make distillation-sft-generate \
-  DISTILLATION_SFT_TARGET_SIZE=pilot \
-  DISTILLATION_SFT_TARGET_RUN=distillation-sft-pilot-001
+  DISTILLATION_SFT_TARGET_ROWS=100000 \
+  DISTILLATION_SFT_TARGET_RUN=distillation-sft-100k-001
 
-make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-pilot-001
+make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-100k-001
 ```
 
 Useful variables:
@@ -138,7 +138,7 @@ Useful variables:
 | Variable | Default | Purpose |
 |---|---:|---|
 | `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal |
-| `DISTILLATION_SFT_TARGET_SIZE` | `pilot` | Target prompt-spec preset |
+| `DISTILLATION_SFT_TARGET_ROWS` | `100000` | Target accepted public rows for production planning |
 | `DISTILLATION_SFT_BATCH_SIZE` | `5` | Maximum prompts per teacher request |
 | `DISTILLATION_SFT_CONCURRENCY` | `1` | Parallel teacher requests |
 | `DISTILLATION_SFT_RUN_ROOT` | `data/distillation/runs` | Run output root |

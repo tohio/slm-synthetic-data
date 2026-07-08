@@ -153,22 +153,6 @@ def cmd_plan_token_target(args: argparse.Namespace) -> int:
     return 0
 
 
-def _planned_counts_from_args(args: argparse.Namespace) -> tuple[dict[str, int] | None, str | int | None]:
-    signals = args.signals if args.signals else None
-    counts_by_signal = None
-    token_target = args.token_target
-    if args.target_preset is not None:
-        plan = build_token_budget_plan(
-            target=args.target_preset,
-            signals=signals,
-            estimated_tokens_per_row=args.estimated_tokens_per_row,
-        )
-        counts_by_signal = plan.counts_by_signal
-        if token_target is None:
-            token_target = plan.target_label
-    return counts_by_signal, token_target
-
-
 def cmd_generate_seed_run(args: argparse.Namespace) -> int:
     signals = args.signals if args.signals else None
     result = generate_seed_multi_signal_run(
@@ -207,18 +191,17 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
 
 def cmd_generate_production_run(args: argparse.Namespace) -> int:
     signals = args.signals if args.signals else None
-    counts_by_signal, token_target = _planned_counts_from_args(args)
 
     result = generate_prompt_spec_multi_signal_run(
         signals=signals,
         count_per_signal=args.count_per_signal,
-        counts_by_signal=counts_by_signal,
+        target_rows=args.target_rows,
         output_dir=args.output_dir,
         manifest_dir=args.manifest_dir,
         teacher_model=args.teacher_model,
         generation_run=args.generation_run,
         max_tokens=args.max_tokens,
-        token_target=token_target,
+        token_target=args.token_target,
         start_index=args.start_index,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -366,8 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
     production_run_parser = subparsers.add_parser("generate-production-run")
     production_run_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
     production_run_parser.add_argument("--count-per-signal", type=int, default=None)
-    production_run_parser.add_argument("--target-preset", default=None)
-    production_run_parser.add_argument("--estimated-tokens-per-row", type=int, default=DEFAULT_ESTIMATED_TOKENS_PER_ROW)
+    production_run_parser.add_argument("--target-rows", type=int, default=None)
     production_run_parser.add_argument("--output-dir", required=True)
     production_run_parser.add_argument("--manifest-dir", required=True)
     production_run_parser.add_argument("--teacher-model", required=True)

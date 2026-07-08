@@ -301,7 +301,7 @@ def test_plan_token_target_cli_prints_json_plan(capsys):
     assert payload["counts_by_signal"] == {"cloud": 2, "database": 2}
 
 
-def test_generate_production_run_cli_uses_target_preset_counts(tmp_path, monkeypatch):
+def test_generate_production_run_cli_uses_target_rows(tmp_path, monkeypatch):
     output_dir = tmp_path / "datasets"
     manifest_dir = tmp_path / "manifests"
     calls = []
@@ -331,10 +331,8 @@ def test_generate_production_run_cli_uses_target_preset_counts(tmp_path, monkeyp
                 "--signals",
                 "cloud",
                 "database",
-                "--target-preset",
-                "100K",
-                "--estimated-tokens-per-row",
-                "25000",
+                "--target-rows",
+                "4",
                 "--output-dir",
                 str(output_dir),
                 "--manifest-dir",
@@ -351,8 +349,8 @@ def test_generate_production_run_cli_uses_target_preset_counts(tmp_path, monkeyp
     )
 
     assert calls[0]["count_per_signal"] is None
-    assert calls[0]["counts_by_signal"] == {"cloud": 2, "database": 2}
-    assert calls[0]["token_target"] == "100K"
+    assert calls[0]["target_rows"] == 4
+    assert calls[0]["token_target"] is None
 
 def test_build_dataset_card_cli_writes_markdown(tmp_path, capsys):
     run_manifest = tmp_path / "smoke-001.manifest.json"
@@ -472,4 +470,6 @@ def test_distillation_sft_generate_make_target_uses_production_prompt_specs():
     block = makefile.split("distillation-sft-generate:", 1)[1].split("distillation-sft-report:", 1)[0]
 
     assert "generate-production-run" in block
+    assert "--target-rows $(DISTILLATION_SFT_TARGET_ROWS)" in block
+    assert "--target-preset" not in block
     assert "generate-seed-run" not in block

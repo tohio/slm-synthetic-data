@@ -54,6 +54,26 @@ def render_dataset_card(
             )
         )
 
+    metadata = manifest.get("metadata", {})
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    generation_lines = [
+        f"- Generation run: `{manifest['generation_run']}`",
+        f"- Teacher provider: `{manifest['teacher_provider']}`",
+        f"- Teacher model: `{manifest['teacher_model']}`",
+    ]
+    if manifest.get("token_target") is not None:
+        generation_lines.append(f"- Token target: `{manifest['token_target']}`")
+    if metadata.get("target_rows") is not None:
+        generation_lines.append(f"- Target rows: `{metadata['target_rows']}`")
+    if metadata.get("planned_prompt_rows") is not None:
+        generation_lines.append(f"- Planned prompt rows: `{metadata['planned_prompt_rows']}`")
+    if metadata.get("accepted_rows") is not None:
+        generation_lines.append(f"- Accepted rows: `{metadata['accepted_rows']}`")
+    if metadata.get("rejected_rows") is not None:
+        generation_lines.append(f"- Rejected rows: `{metadata['rejected_rows']}`")
+    generation_lines.append(f"- Total rows: `{manifest['total_rows']}`")
+
     sections = [
         "\n".join(front_matter),
         f"# {clean_dataset_name}",
@@ -64,15 +84,7 @@ def render_dataset_card(
             "and `response`; `reasoning` is always null."
         ),
         "## Generation",
-        "\n".join(
-            [
-                f"- Generation run: `{manifest['generation_run']}`",
-                f"- Teacher provider: `{manifest['teacher_provider']}`",
-                f"- Teacher model: `{manifest['teacher_model']}`",
-                f"- Token target: `{manifest['token_target']}`",
-                f"- Total rows: `{manifest['total_rows']}`",
-            ]
-        ),
+        "\n".join(generation_lines),
         "## Signals",
         "\n".join(rows),
         "## Row Schema",
