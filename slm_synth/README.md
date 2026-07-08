@@ -19,7 +19,8 @@ slm_synth/
 ├── adaptive_batch.py    # adaptive batch-size controller
 ├── llm.py               # OpenRouter client, retries, telemetry, routing
 ├── planning.py          # target-count allocation helpers
-└── push_hf.py           # shared Hugging Face utilities
+├── run_summary.py       # manifest summary printing helpers
+└── throughput_defaults.py # shared OpenRouter throughput defaults
 ```
 
 ## Key Files
@@ -29,9 +30,10 @@ slm_synth/
 | `llm.py` | OpenRouter structured generation, retry handling, routing policy, and provider telemetry. |
 | `adaptive_batch.py` | Batch-size backoff/ramp behavior after provider or parse failures. |
 | `planning.py` | Even target-count allocation across selected families/signals. |
+| `throughput_defaults.py` | Shared batch/concurrency defaults for OpenRouter-backed generation. |
+| `run_summary.py` | Shared manifest summary printing helpers. |
 | `telemetry.py` | Run-level aggregation of per-batch/provider telemetry. |
 | `paths.py` | Shared path helpers. |
-| `push_hf.py` | Shared upload helpers used by dataset-specific push modules. |
 
 ## How It Fits In
 

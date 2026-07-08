@@ -1,6 +1,10 @@
 # Tests
 
-The test suite covers pretraining generation, response distillation, SFT, DPO, taxonomy, holdout behavior, manifests, reports, and CLI contracts.
+Purpose and usage notes for the repository test suite.
+
+## Purpose
+
+The test suite covers pretraining generation, SFT, DPO, distillation SFT, distillation DPO, taxonomy, holdout behavior, manifests, reports, CLI contracts, telemetry, and publishing boundaries.
 
 ## Run Tests
 
@@ -16,77 +20,46 @@ Run the full suite:
 make test
 ```
 
-Run a focused suite:
+Run focused suites while changing one surface:
 
 ```bash
-pytest -q \
-  tests/test_sft_*.py \
-  tests/test_dpo_*.py \
-  tests/test_distillation_*.py \
-  tests/test_taxonomy.py \
-  tests/test_eval_holdouts.py \
-  tests/test_pretrain_manifest.py
+pytest -q tests/test_sft_*.py
+pytest -q tests/test_dpo_*.py
+pytest -q tests/test_distillation_*.py
+pytest -q tests/test_pretrain_*.py tests/test_grounded_*.py
 ```
 
-## Live Smoke Runs
+## Run-Ladder Checks
 
-Live generation requires `OPENROUTER_API_KEY`.
+Live generation requires `OPENROUTER_API_KEY`. Start with smoke jobs:
 
 ```bash
 make pretrain-smoke
-make distillation-sft-smoke
-make distillation-dpo-smoke
 make sft-smoke
 make dpo-smoke
+make distillation-sft-smoke
+make distillation-dpo-smoke
 ```
 
-Inspect generated files:
+Then inspect public files and manifests:
 
 ```bash
 make pretrain-inspect
-make distillation-sft-inspect
-make distillation-dpo-inspect
 make sft-inspect
 make dpo-inspect
+make distillation-sft-inspect
+make distillation-dpo-inspect
 ```
 
-## Expected Public Rows
+Small-scale target overrides should be validated before any full production target.
 
-Distillation SFT rows:
+## Public Row Boundaries
 
-```text
-id
-prompt
-reasoning
-response
-```
+| Surface | Public fields |
+|---|---|
+| SFT | `id`, `messages`, `metadata` |
+| DPO | `id`, `prompt`, `chosen`, `rejected`, `metadata` |
+| Distillation SFT | `id`, `prompt`, `reasoning`, `response` |
+| Distillation DPO | `id`, `prompt`, `chosen`, `rejected`, `metadata` |
 
-Distillation DPO rows:
-
-```text
-id
-prompt
-chosen
-rejected
-metadata
-```
-
-SFT rows:
-
-```text
-id
-messages
-metadata
-```
-
-DPO rows:
-
-```text
-id
-prompt
-chosen
-rejected
-metadata
-```
-
-Teacher/provider/run/cost/retry details belong in local manifests, not public dataset rows.
+Teacher, provider, run, cost, retry, routing, and internal prompt-spec details belong in local manifests, not public dataset rows.

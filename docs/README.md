@@ -1,10 +1,8 @@
 # Documentation
 
-Start with the root `README.md` for setup and workflow overview.
+Project-level guides and references for `slm-synthetic-data`.
 
-| File | Purpose |
-|---|---|
-| `COMMANDS.md` | Makefile and CLI command reference for pretraining and distillation workflows. |
-| `DATASET_PURPOSE.md` | Dataset-family definitions, intended use, and row-schema boundaries. |
-| `DISK_SETUP.md` | Local disk and data-directory setup notes. |
-| `architecture.png` | Optional architecture diagram. |
+- `COMMANDS.md` — Makefile command reference and run ladder.
+- `DATASET_PURPOSE.md` — artifact families, public row contracts, taxonomy fields, and planning knobs.
+- `DISK_SETUP.md` — local disk and data-directory setup notes.
+- `architecture.png` — architecture diagram used by the root README.

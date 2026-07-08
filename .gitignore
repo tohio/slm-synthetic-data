@@ -1,22 +1,22 @@
-PROJECT_STATE.md
+# Internal handoff notes
 TODO.md
+PROJECT_STATE.md
+DOCUMENTATION_DIRECTIVE.md
 
-__pycache__/
-*.py[cod]
-
+# Environment / virtualenv
 .env
-.venv/
-
-data/
-# Virtual environment
+.env.local
+.env.development
+.env.production
 .venv/
 venv/
 
 # Python cache
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Dataset outputs
 data/
@@ -31,21 +31,16 @@ tmp/
 *.jsonl
 *.parquet
 
-# Environment variables (keep .env.sample)
-.env
-.env.local
-.env.development
-.env.production
+# Patch/reject leftovers
+*.patch
+*.rej
+*.orig
 
-# Jupyter (if used)
+# Jupyter
 .ipynb_checkpoints/
 
-# OS / Editor noise
+# OS / editor noise
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-
-# Internal handoff notes
-TODO.md
-PROJECT_STATE.md
