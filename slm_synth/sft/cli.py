@@ -117,6 +117,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
     result = generate_llm_run(
         families=args.families,
         count_per_family=args.count_per_family,
+        target_rows=args.target_rows,
         batch_size=args.batch_size,
         output_dir=args.output_dir,
         manifest_dir=args.manifest_dir,
@@ -250,7 +251,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["all", *sorted(SFT_SPEC_FAMILIES)],
         help="SFT spec families to generate, or 'all'.",
     )
-    generate_run_parser.add_argument("--count-per-family", required=True, type=int)
+    planning_group = generate_run_parser.add_mutually_exclusive_group(required=True)
+    planning_group.add_argument("--count-per-family", type=int)
+    planning_group.add_argument("--target-rows", type=int)
     generate_run_parser.add_argument("--batch-size", required=True, type=int)
     generate_run_parser.add_argument("--output-dir", required=True)
     generate_run_parser.add_argument("--manifest-dir", required=True)

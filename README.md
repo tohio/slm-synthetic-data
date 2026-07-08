@@ -242,8 +242,8 @@ Target run:
 make sft-generate \
   SFT_FAMILIES=all \
   SFT_TARGET_RUN=sft-target-001 \
-  SFT_COUNT_PER_FAMILY=1000 \
-  SFT_CONCURRENCY=2
+  SFT_TARGET_ROWS=14000 \
+  SFT_TARGET_CONCURRENCY=4
 
 make sft-inspect SFT_INSPECT_RUN=sft-target-001
 ```
@@ -255,7 +255,8 @@ Useful variables:
 | `SFT_SMOKE_FAMILIES` | `basic_arithmetic_qa` | Smoke family list |
 | `SFT_FAMILIES` | `all` | Target family list |
 | `SFT_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
-| `SFT_COUNT_PER_FAMILY` | `1000` | Target rows per family |
+| `SFT_TARGET_ROWS` | `14000` | Target production rows across selected families |
+| `SFT_COUNT_PER_FAMILY` | `1000` | Explicit low-level rows-per-family override |
 | `SFT_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum specs per teacher request |
 | `SFT_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests |
 | `SFT_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests |
@@ -300,8 +301,8 @@ Target run:
 make dpo-generate \
   DPO_FAMILIES=all \
   DPO_TARGET_RUN=dpo-target-001 \
-  DPO_COUNT_PER_FAMILY=1000 \
-  DPO_CONCURRENCY=2
+  DPO_TARGET_PAIRS=14000 \
+  DPO_TARGET_CONCURRENCY=4
 
 make dpo-inspect DPO_INSPECT_RUN=dpo-target-001
 ```
@@ -313,7 +314,8 @@ Useful variables:
 | `DPO_SMOKE_FAMILIES` | `basic_arithmetic_qa` | Smoke family list |
 | `DPO_FAMILIES` | `all` | Target family list |
 | `DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
-| `DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family |
+| `DPO_TARGET_PAIRS` | `14000` | Target production pairs across selected families |
+| `DPO_COUNT_PER_FAMILY` | `1000` | Explicit low-level pairs-per-family override |
 | `DPO_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum specs per teacher request |
 | `DPO_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests |
 | `DPO_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests |

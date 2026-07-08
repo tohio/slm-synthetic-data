@@ -83,6 +83,7 @@ SFT_REPORT_RUN ?= $(SFT_RUN)
 SFT_INSPECT_RUN ?= $(SFT_REPORT_RUN)
 SFT_FAMILIES ?= all
 SFT_SMOKE_FAMILIES ?= basic_arithmetic_qa
+SFT_TARGET_ROWS ?= 14000
 SFT_COUNT_PER_FAMILY ?= 1000
 SFT_SMOKE_COUNT_PER_FAMILY ?= 2
 SFT_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
@@ -108,6 +109,7 @@ DPO_REPORT_RUN ?= $(DPO_RUN)
 DPO_INSPECT_RUN ?= $(DPO_REPORT_RUN)
 DPO_FAMILIES ?= all
 DPO_SMOKE_FAMILIES ?= basic_arithmetic_qa
+DPO_TARGET_PAIRS ?= 14000
 DPO_COUNT_PER_FAMILY ?= 1000
 DPO_SMOKE_COUNT_PER_FAMILY ?= 2
 DPO_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
@@ -189,9 +191,11 @@ help:
 > @echo "  DISTILLATION_DPO_TARGET_PAIRS=$(DISTILLATION_DPO_TARGET_PAIRS)"
 > @echo "  DISTILLATION_DPO_HF_NAMESPACE=$(DISTILLATION_DPO_HF_NAMESPACE)"
 > @echo "  DISTILLATION_DPO_HF_PREFIX=$(DISTILLATION_DPO_HF_PREFIX)"
+> @echo "  SFT_TARGET_ROWS=$(SFT_TARGET_ROWS)"
 > @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
 > @echo "  SFT_HF_NAMESPACE=$(SFT_HF_NAMESPACE)"
 > @echo "  SFT_HF_PREFIX=$(SFT_HF_PREFIX)"
+> @echo "  DPO_TARGET_PAIRS=$(DPO_TARGET_PAIRS)"
 > @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
 > @echo "  DPO_HF_NAMESPACE=$(DPO_HF_NAMESPACE)"
 > @echo "  DPO_HF_PREFIX=$(DPO_HF_PREFIX)"
@@ -363,7 +367,7 @@ sft-smoke:
 sft-generate:
 > $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_FAMILIES) \
->   --count-per-family $(SFT_COUNT_PER_FAMILY) \
+>   --target-rows $(SFT_TARGET_ROWS) \
 >   --batch-size $(SFT_BATCH_SIZE) \
 >   --output-dir $(SFT_RUN_ROOT)/$(SFT_TARGET_RUN)/datasets \
 >   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_TARGET_RUN)/manifests \
@@ -415,7 +419,7 @@ dpo-smoke:
 dpo-generate:
 > $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
 >   --families $(DPO_FAMILIES) \
->   --count-per-family $(DPO_COUNT_PER_FAMILY) \
+>   --target-pairs $(DPO_TARGET_PAIRS) \
 >   --batch-size $(DPO_BATCH_SIZE) \
 >   --output-dir $(DPO_RUN_ROOT)/$(DPO_TARGET_RUN)/datasets \
 >   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_TARGET_RUN)/manifests \

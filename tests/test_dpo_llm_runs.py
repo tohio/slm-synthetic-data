@@ -174,3 +174,48 @@ def test_generate_dpo_llm_run_rejects_bad_concurrency(tmp_path):
             max_tokens=1024,
             backend=FakeDPOBackend(),
         )
+
+
+def test_generate_dpo_llm_run_accepts_target_pairs_and_records_planning(tmp_path):
+    backend = FakeDPOBackend()
+
+    result = generate_llm_run(
+        families=["basic_arithmetic_qa", "repeat_exact_n_times"],
+        target_pairs=3,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="dpo-target-run-001",
+        max_tokens=1024,
+        backend=backend,
+    )
+
+    assert result.row_count == 3
+    manifest = json.loads(result.manifest_path.read_text())
+    assert manifest["metadata"]["planning_mode"] == "target_pairs"
+    assert manifest["metadata"]["target_pairs"] == 3
+    assert manifest["metadata"]["planned_pairs"] == 3
+    assert manifest["metadata"]["accepted_pairs"] == 3
+    assert manifest["metadata"]["rejected_pairs"] == 0
+    assert manifest["metadata"]["pairs_per_family"] == {
+        "basic_arithmetic_qa": 2,
+        "repeat_exact_n_times": 1,
+    }
+    assert manifest["metadata"]["count_per_family"] is None
+
+
+def test_generate_dpo_llm_run_rejects_multiple_planning_strategies(tmp_path):
+    with pytest.raises(ValueError, match="provide exactly one"):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=1,
+            target_pairs=1,
+            batch_size=1,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="dpo-live-run-001",
+            max_tokens=1024,
+            backend=FakeDPOBackend(),
+        )

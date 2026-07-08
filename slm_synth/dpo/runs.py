@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
+from slm_synth.planning import build_count_plan
 from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
 from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import write_manifest, write_run_manifest
@@ -224,8 +225,9 @@ def resolve_seed_families(families: list[str] | tuple[str, ...] | None) -> tuple
 def generate_llm_run(
     *,
     families: list[str] | tuple[str, ...] | None,
-    count_per_family: int,
-    batch_size: int,
+    count_per_family: int | None = None,
+    target_pairs: int | None = None,
+    batch_size: int = 1,
     output_dir: str | Path,
     manifest_dir: str | Path,
     teacher_model: str,
@@ -253,7 +255,15 @@ def generate_llm_run(
 ) -> DPOLLMRunResult:
     """Build specs and generate DPO datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
-    _validate_positive_int(count_per_family, "count_per_family")
+    count_plan = build_count_plan(
+        keys=resolved_families,
+        count_per_key=count_per_family,
+        target_count=target_pairs,
+        key_name="family",
+        count_per_key_name="count_per_family",
+        target_count_name="target_pairs",
+        target_mode="target_pairs",
+    )
     _validate_openrouter_batch_size(batch_size)
     _validate_positive_int(start_index, "start_index")
     _validate_openrouter_concurrency(concurrency)
@@ -313,7 +323,8 @@ def generate_llm_run(
         increase_successes=adaptive_batch_increase_successes,
     )
     for family in resolved_families:
-        specs = build_specs(family=family, count=count_per_family, start_index=start_index)
+        family_target_pairs = count_plan.counts_by_key[family]
+        specs = build_specs(family=family, count=family_target_pairs, start_index=start_index)
         print(
             "[generate] Starting DPO family: "
             f"{family} (target_rows={len(specs)}, batch_size={batch_size}, "
@@ -409,6 +420,9 @@ def generate_llm_run(
     jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
     results = [job["result"] for job in jobs]
     datasets = _write_public_family_files(jobs=jobs, output_dir=output_dir)
+    planned_pairs = count_plan.planned_count
+    accepted_pairs = sum(dataset["row_count"] for dataset in datasets)
+    rejected_pairs = max(planned_pairs - accepted_pairs, 0)
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     _write_llm_run_manifest(
@@ -420,6 +434,12 @@ def generate_llm_run(
         teacher_provider=teacher_provider,
         metadata={
             "generation_mode": "live_llm_run",
+            "planning_mode": count_plan.planning_mode,
+            "target_pairs": target_pairs,
+            "planned_pairs": planned_pairs,
+            "accepted_pairs": accepted_pairs,
+            "rejected_pairs": rejected_pairs,
+            "pairs_per_family": dict(count_plan.counts_by_key),
             "count_per_family": count_per_family,
             "batch_size": batch_size,
             "concurrency": concurrency,
@@ -436,7 +456,7 @@ def generate_llm_run(
 
     return DPOLLMRunResult(
         results=tuple(results),
-        row_count=sum(dataset["row_count"] for dataset in datasets),
+        row_count=accepted_pairs,
         families=resolved_families,
         generation_run=generation_run,
         manifest_path=run_manifest_path,

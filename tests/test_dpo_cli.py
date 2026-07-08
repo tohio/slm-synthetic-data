@@ -351,6 +351,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
         {
             "families": ["basic_arithmetic_qa", "repeat_exact_n_times"],
             "count_per_family": 2,
+            "target_pairs": None,
             "batch_size": 1,
             "output_dir": str(tmp_path / "datasets"),
             "manifest_dir": str(tmp_path / "manifests"),
@@ -375,6 +376,53 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
     ]
     captured = capsys.readouterr()
     assert "generated 4 LLM-generated DPO row" in captured.out
+
+
+def test_dpo_generate_llm_run_cli_accepts_target_pairs(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_generate_llm_run(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            row_count = 3
+            families = ("basic_arithmetic_qa", "repeat_exact_n_times")
+            generation_run = "dpo-target-001"
+            manifest_path = tmp_path / "manifests" / "dpo-target-001.manifest.json"
+
+        return Result()
+
+    monkeypatch.setattr("slm_synth.dpo.cli.generate_llm_run", fake_generate_llm_run)
+    monkeypatch.setattr("slm_synth.dpo.cli.print_dpo_run_summary", lambda manifest_path: None)
+
+    assert (
+        main(
+            [
+                "generate-llm-run",
+                "--families",
+                "basic_arithmetic_qa",
+                "repeat_exact_n_times",
+                "--target-pairs",
+                "3",
+                "--batch-size",
+                "1",
+                "--output-dir",
+                str(tmp_path / "datasets"),
+                "--manifest-dir",
+                str(tmp_path / "manifests"),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--generation-run",
+                "dpo-target-001",
+                "--max-tokens",
+                "1024",
+            ]
+        )
+        == 0
+    )
+
+    assert calls[0]["count_per_family"] is None
+    assert calls[0]["target_pairs"] == 3
 
 
 def test_dpo_report_coverage_cli_prints_json(tmp_path, capsys):

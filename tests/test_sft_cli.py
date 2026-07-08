@@ -351,6 +351,7 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
         {
             "families": ["basic_arithmetic_qa", "repeat_exact_n_times"],
             "count_per_family": 2,
+            "target_rows": None,
             "batch_size": 1,
             "output_dir": str(tmp_path / "datasets"),
             "manifest_dir": str(tmp_path / "manifests"),
@@ -375,6 +376,53 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
     ]
     captured = capsys.readouterr()
     assert "generated 4 LLM-generated SFT row" in captured.out
+
+
+def test_sft_generate_llm_run_cli_accepts_target_rows(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_generate_llm_run(**kwargs):
+        calls.append(kwargs)
+
+        class Result:
+            row_count = 3
+            families = ("basic_arithmetic_qa", "repeat_exact_n_times")
+            generation_run = "sft-target-001"
+            manifest_path = tmp_path / "manifests" / "sft-target-001.manifest.json"
+
+        return Result()
+
+    monkeypatch.setattr("slm_synth.sft.cli.generate_llm_run", fake_generate_llm_run)
+    monkeypatch.setattr("slm_synth.sft.cli.print_sft_run_summary", lambda manifest_path: None)
+
+    assert (
+        main(
+            [
+                "generate-llm-run",
+                "--families",
+                "basic_arithmetic_qa",
+                "repeat_exact_n_times",
+                "--target-rows",
+                "3",
+                "--batch-size",
+                "1",
+                "--output-dir",
+                str(tmp_path / "datasets"),
+                "--manifest-dir",
+                str(tmp_path / "manifests"),
+                "--teacher-model",
+                "openai/gpt-4.1-mini",
+                "--generation-run",
+                "sft-target-001",
+                "--max-tokens",
+                "1024",
+            ]
+        )
+        == 0
+    )
+
+    assert calls[0]["count_per_family"] is None
+    assert calls[0]["target_rows"] == 3
 
 
 def test_sft_report_coverage_cli_prints_json(tmp_path, capsys):
