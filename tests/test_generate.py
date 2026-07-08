@@ -205,6 +205,13 @@ class RetryableProviderError(RuntimeError):
         self.response = SimpleNamespace(headers=headers)
 
 
+class StatusCodeProviderError(RuntimeError):
+    def __init__(self, status_code: int, message: str = "provider request failed"):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response = SimpleNamespace(status_code=status_code, headers={})
+
+
 def _backend_for_retry_test():
     backend = LLMBackend.__new__(LLMBackend)
     backend.model = "deepseek/deepseek-v4-flash"
@@ -227,6 +234,64 @@ def _structured_response():
         model_extra={"provider": "DeepInfra"},
         usage=None,
     )
+
+
+def test_status_code_429_retries_without_message_marker(monkeypatch):
+    backend = _backend_for_retry_test()
+    calls = []
+    sleeps = []
+
+    def create(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise StatusCodeProviderError(429, "provider overloaded")
+        return _structured_response()
+
+    backend._create_structured_completion = create
+    monkeypatch.setattr(llm_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = backend.generate_structured_object_with_metadata(
+        prompt="prompt", schema={}, schema_name="schema"
+    )
+
+    assert len(calls) == 2
+    assert sleeps == [2.0]
+    assert result["telemetry"]["retry_count"] == 1
+    assert result["telemetry"]["retryable_provider_retries"] == 1
+
+
+def test_response_status_code_503_is_transient_without_message_marker():
+    backend = _backend_for_retry_test()
+    exc = RuntimeError("upstream failed")
+    exc.response = SimpleNamespace(status_code=503, headers={})
+
+    assert backend._is_transient_transport_error(exc) is True
+    assert backend._is_retryable_provider_error(exc) is True
+
+
+def test_typed_timeout_and_connection_errors_are_retryable():
+    backend = _backend_for_retry_test()
+    APITimeoutError = type("APITimeoutError", (RuntimeError,), {})
+    APIConnectionError = type("APIConnectionError", (RuntimeError,), {})
+
+    assert backend._is_transient_transport_error(APITimeoutError("request exceeded deadline")) is True
+    assert backend._is_transient_transport_error(APIConnectionError("socket closed")) is True
+
+
+def test_status_code_400_blocks_substring_retry_fallback():
+    backend = _backend_for_retry_test()
+    exc = StatusCodeProviderError(400, "rate limit timeout error code: 503")
+
+    assert backend._is_capacity_or_rate_error(exc) is False
+    assert backend._is_transient_transport_error(exc) is False
+    assert backend._is_retryable_provider_error(exc) is False
+
+
+def test_legacy_substring_retry_fallback_still_works_without_status():
+    backend = _backend_for_retry_test()
+
+    assert backend._is_capacity_or_rate_error(RetryableProviderError()) is True
+    assert backend._is_transient_transport_error(RuntimeError("connection reset by peer")) is True
 
 
 def test_structured_generation_extends_retry_budget_for_rate_limits(monkeypatch):

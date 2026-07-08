@@ -562,7 +562,44 @@ class LLMBackend:
     def _error_text(exc: Exception) -> str:
         return str(exc).lower()
 
+    @staticmethod
+    def _exception_class_names(exc: Exception) -> set[str]:
+        return {cls.__name__.lower() for cls in type(exc).__mro__ if cls is not object}
+
+    @staticmethod
+    def _coerce_status_code(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _provider_status_code(cls, exc: Exception) -> int | None:
+        for value in (getattr(exc, "status_code", None), getattr(exc, "http_status", None)):
+            status_code = cls._coerce_status_code(value)
+            if status_code is not None:
+                return status_code
+
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+        for value in (getattr(response, "status_code", None), getattr(response, "status", None)):
+            status_code = cls._coerce_status_code(value)
+            if status_code is not None:
+                return status_code
+        return None
+
     def _is_capacity_or_rate_error(self, exc: Exception) -> bool:
+        class_names = self._exception_class_names(exc)
+        if "ratelimiterror" in class_names:
+            return True
+
+        status_code = self._provider_status_code(exc)
+        if status_code is not None:
+            return status_code in {429, 498}
+
         text = self._error_text(exc)
         return any(marker in text for marker in (
             "capacity_exceeded", "rate_limit", "rate limit", "too many requests",
@@ -570,6 +607,14 @@ class LLMBackend:
         ))
 
     def _is_transient_transport_error(self, exc: Exception) -> bool:
+        class_names = self._exception_class_names(exc)
+        if class_names.intersection({"apitimeouterror", "apiconnectionerror", "internalservererror"}):
+            return True
+
+        status_code = self._provider_status_code(exc)
+        if status_code is not None:
+            return status_code in {500, 502, 503, 504}
+
         text = self._error_text(exc)
         return any(marker in text for marker in (
             "timeout", "timed out", "temporarily unavailable", "connection error",
