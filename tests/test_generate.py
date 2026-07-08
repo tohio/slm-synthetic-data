@@ -236,6 +236,15 @@ def _structured_response():
     )
 
 
+def _batch_response():
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"items": [{"ok": true}]}'))],
+        model="deepseek/deepseek-v4-flash",
+        model_extra={"provider": "DeepInfra"},
+        usage=None,
+    )
+
+
 def test_status_code_429_retries_without_message_marker(monkeypatch):
     backend = _backend_for_retry_test()
     calls = []
@@ -420,6 +429,121 @@ def test_initial_admission_wait_does_not_consume_provider_retry_budget(monkeypat
     assert len(calls) == 2
     assert sleeps == [2.0]
     assert result["telemetry"]["retryable_provider_retries"] == 1
+
+
+def test_later_admission_wait_after_provider_failure_does_not_consume_retry_budget(monkeypatch):
+    backend = _backend_for_retry_test()
+    backend.max_retryable_request_attempts = 3
+    backend.retry_max_elapsed_seconds = 5.0
+    calls = []
+    acquire_calls = []
+    sleeps = []
+    clock = {"now": 0.0}
+    waits = [0.0, 100.0, 0.0]
+
+    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
+
+    def acquire():
+        wait = waits[len(acquire_calls)]
+        acquire_calls.append(wait)
+        clock["now"] += wait
+        return wait, 0
+
+    backend._acquire_provider_slot = acquire
+    backend._release_provider_slot = lambda: None
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(llm_module.time, "sleep", sleep)
+
+    def create(*args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            raise RetryableProviderError()
+        return _structured_response()
+
+    backend._create_structured_completion = create
+    result = backend.generate_structured_object_with_metadata(prompt="prompt", schema={}, schema_name="schema")
+
+    assert len(calls) == 3
+    assert sleeps == [2.0, 3.0]
+    assert result["telemetry"]["retryable_provider_retries"] == 2
+    assert result["telemetry"]["adaptive_admission_wait_seconds"] == 100.0
+
+
+def test_retry_backoff_sleep_consumes_provider_retry_budget(monkeypatch):
+    backend = _backend_for_retry_test()
+    backend.max_retryable_request_attempts = 20
+    backend.retry_max_elapsed_seconds = 3.0
+    calls = []
+    sleeps = []
+    clock = {"now": 0.0}
+
+    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
+    backend._acquire_provider_slot = lambda: (0.0, 0)
+    backend._release_provider_slot = lambda: None
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(llm_module.time, "sleep", sleep)
+
+    def create(*args, **kwargs):
+        calls.append(1)
+        raise RetryableProviderError()
+
+    backend._create_structured_completion = create
+    with pytest.raises(RetryableProviderExhaustedError, match="after 3 attempts") as exc_info:
+        backend.generate_structured_object_with_metadata(prompt="prompt", schema={}, schema_name="schema")
+
+    assert len(calls) == 3
+    assert sleeps == [2.0, 1.0]
+    assert exc_info.value.telemetry["retry_sleep_seconds"] == 3.0
+    assert exc_info.value.telemetry["retryable_provider_retries"] == 2
+
+
+def test_generate_batch_excludes_later_admission_wait_from_retry_budget(monkeypatch):
+    backend = _backend_for_retry_test()
+    backend.max_retryable_request_attempts = 3
+    backend.retry_max_elapsed_seconds = 5.0
+    calls = []
+    acquire_calls = []
+    sleeps = []
+    clock = {"now": 0.0}
+    waits = [0.0, 100.0, 0.0]
+
+    monkeypatch.setattr(llm_module, "monotonic", lambda: clock["now"])
+
+    def acquire():
+        wait = waits[len(acquire_calls)]
+        acquire_calls.append(wait)
+        clock["now"] += wait
+        return wait, 0
+
+    backend._acquire_provider_slot = acquire
+    backend._release_provider_slot = lambda: None
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(llm_module.time, "sleep", sleep)
+
+    def create(prompt):
+        calls.append(1)
+        if len(calls) < 3:
+            raise RetryableProviderError()
+        return _batch_response()
+
+    backend._create_completion = create
+    rows = backend.generate_batch("prompt", batch_size=1)
+
+    assert rows == [{"ok": True}]
+    assert len(calls) == 3
+    assert sleeps == [2.0, 3.0]
 
 
 def test_adaptive_controller_slow_start_doubles_after_a_successful_window():

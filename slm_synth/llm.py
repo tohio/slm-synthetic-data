@@ -650,16 +650,36 @@ class LLMBackend:
     def _release_provider_slot(self) -> None:
         self.adaptive_controller.release()
 
-    def _can_retry(self, attempt: int, started: float, exc: Exception) -> bool:
+    @staticmethod
+    def _provider_retry_elapsed_seconds(*, started: float, admission_wait_seconds: float) -> float:
+        """Return retry-budget elapsed time, excluding local adaptive admission waits."""
+        return max(0.0, monotonic() - started - max(0.0, admission_wait_seconds))
+
+    def _can_retry(
+        self,
+        attempt: int,
+        started: float,
+        exc: Exception,
+        *,
+        admission_wait_seconds: float = 0.0,
+    ) -> bool:
         if self._is_retryable_provider_error(exc):
             return (
                 attempt < self.max_retryable_request_attempts
-                and monotonic() - started < self.retry_max_elapsed_seconds
+                and self._provider_retry_elapsed_seconds(
+                    started=started, admission_wait_seconds=admission_wait_seconds
+                ) < self.retry_max_elapsed_seconds
             )
         return attempt < self.max_request_retries
 
     def _sleep_before_retry(
-        self, attempt: int, exc: Exception, *, started: float, admission_generation: int | None = None
+        self,
+        attempt: int,
+        exc: Exception,
+        *,
+        started: float,
+        admission_wait_seconds: float = 0.0,
+        admission_generation: int | None = None,
     ) -> tuple[float, int, float]:
         adaptive_window_decreases = 0
         max_adaptive_cooldown_seconds = 0.0
@@ -680,7 +700,10 @@ class LLMBackend:
                     self.retry_backoff_initial_seconds * (self.retry_backoff_multiplier ** max(0, attempt - 1)),
                 )
                 delay = base_delay + base_delay * max(0.0, self.retry_jitter_ratio) * random.random()
-            remaining = max(0.0, self.retry_max_elapsed_seconds - (monotonic() - started))
+            retry_elapsed_seconds = self._provider_retry_elapsed_seconds(
+                started=started, admission_wait_seconds=admission_wait_seconds
+            )
+            remaining = max(0.0, self.retry_max_elapsed_seconds - retry_elapsed_seconds)
             delay = min(delay, remaining)
             print(
                 f"[llm] Retryable provider failure: model={self.model} attempt={attempt}/"
@@ -695,13 +718,14 @@ class LLMBackend:
     def generate_batch(self, prompt: str, batch_size: int) -> List[Dict[str, Any]]:
         last_error: Optional[Exception] = None
         retry_started: float | None = None
+        admission_wait_seconds = 0.0
         attempt = 0
         while True:
             attempt += 1
-            _admission_wait, admission_generation = self._acquire_provider_slot()
             if retry_started is None:
-                # Admission queue time is observable latency, not provider retry time.
                 retry_started = monotonic()
+            admission_wait, admission_generation = self._acquire_provider_slot()
+            admission_wait_seconds += max(0.0, admission_wait)
             try:
                 response = self._create_completion(prompt)
             except Exception as exc:
@@ -716,10 +740,16 @@ class LLMBackend:
             finally:
                 self._release_provider_slot()
             assert retry_started is not None
-            if not self._can_retry(attempt, retry_started, last_error):
+            if not self._can_retry(
+                attempt, retry_started, last_error, admission_wait_seconds=admission_wait_seconds
+            ):
                 break
             self._sleep_before_retry(
-                attempt, last_error, started=retry_started, admission_generation=admission_generation
+                attempt,
+                last_error,
+                started=retry_started,
+                admission_wait_seconds=admission_wait_seconds,
+                admission_generation=admission_generation,
             )
         raise RuntimeError(f"LLM batch failed after {attempt} attempts: {last_error}")
 
@@ -775,11 +805,10 @@ class LLMBackend:
         last_failure_was_rendered_response = False
         while True:
             attempt += 1
-            admission_wait, admission_generation = self._acquire_provider_slot()
-            adaptive_admission_wait_seconds += admission_wait
             if retry_started is None:
-                # Do not let a long adaptive admission queue consume the provider retry budget.
                 retry_started = monotonic()
+            admission_wait, admission_generation = self._acquire_provider_slot()
+            adaptive_admission_wait_seconds += max(0.0, admission_wait)
             response: Any | None = None
             try:
                 response = self._create_structured_completion(prompt, schema, schema_name)
@@ -821,12 +850,21 @@ class LLMBackend:
             finally:
                 self._release_provider_slot()
             assert retry_started is not None
-            if not self._can_retry(attempt, retry_started, last_error):
+            if not self._can_retry(
+                attempt,
+                retry_started,
+                last_error,
+                admission_wait_seconds=adaptive_admission_wait_seconds,
+            ):
                 break
             if self._is_retryable_provider_error(last_error):
                 retryable_provider_retries += 1
             delay, decreases, cooldown = self._sleep_before_retry(
-                attempt, last_error, started=retry_started, admission_generation=admission_generation
+                attempt,
+                last_error,
+                started=retry_started,
+                admission_wait_seconds=adaptive_admission_wait_seconds,
+                admission_generation=admission_generation,
             )
             retry_sleep_seconds += delay
             adaptive_window_decreases += decreases
