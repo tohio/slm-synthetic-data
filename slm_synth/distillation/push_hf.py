@@ -86,9 +86,9 @@ def count_and_validate_jsonl(path: str | Path) -> int:
     return count
 
 
-def upload_optional_file(api: HfApi, *, repo_id: str, path: Path, path_in_repo: str) -> None:
-    if not path.exists():
-        return
+def upload_required_file(api: HfApi, *, repo_id: str, path: Path, path_in_repo: str) -> None:
+    if not path.is_file():
+        raise FileNotFoundError(f"required distillation public file is missing: {path}")
     print(f"[push_hf] uploading {path} -> {repo_id}/{path_in_repo}")
     api.upload_file(
         path_or_fileobj=str(path),
@@ -96,6 +96,41 @@ def upload_optional_file(api: HfApi, *, repo_id: str, path: Path, path_in_repo: 
         repo_id=repo_id,
         repo_type="dataset",
     )
+
+
+def discover_run_manifest(run_dir: str | Path) -> Path:
+    root = Path(run_dir)
+    manifest_dir = root / "manifests"
+    if not manifest_dir.exists():
+        raise FileNotFoundError(f"distillation manifest directory does not exist: {manifest_dir}")
+
+    expected = manifest_dir / f"{root.name}.manifest.json"
+    if expected.is_file():
+        return expected
+
+    run_manifests: list[Path] = []
+    for manifest_path in sorted(manifest_dir.glob("*.manifest.json")):
+        if _is_run_manifest(manifest_path):
+            run_manifests.append(manifest_path)
+
+    if len(run_manifests) == 1:
+        return run_manifests[0]
+    if not run_manifests:
+        raise FileNotFoundError(
+            f"No distillation run manifest found in {manifest_dir}; expected {expected.name}"
+        )
+    names = ", ".join(path.name for path in run_manifests)
+    raise ValueError(f"Multiple distillation run manifests found in {manifest_dir}: {names}")
+
+
+def _is_run_manifest(path: Path) -> bool:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid distillation manifest JSON in {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"distillation manifest must contain a JSON object: {path}")
+    return isinstance(value.get("datasets"), list)
 
 
 def push_distillation_run(
@@ -136,17 +171,16 @@ def push_distillation_run(
 
     if run_dir is not None:
         root = Path(run_dir)
-        upload_optional_file(api, repo_id=repo_id, path=root / "README.md", path_in_repo="README.md")
-        upload_optional_file(api, repo_id=repo_id, path=root / "coverage.json", path_in_repo="coverage.json")
+        upload_required_file(api, repo_id=repo_id, path=root / "README.md", path_in_repo="README.md")
+        upload_required_file(api, repo_id=repo_id, path=root / "coverage.json", path_in_repo="coverage.json")
         if not skip_manifests:
-            manifests = sorted((root / "manifests").glob("*.json")) if (root / "manifests").exists() else []
-            for manifest_path in manifests:
-                upload_optional_file(
-                    api,
-                    repo_id=repo_id,
-                    path=manifest_path,
-                    path_in_repo=f"manifests/{manifest_path.name}",
-                )
+            manifest_path = discover_run_manifest(root)
+            upload_required_file(
+                api,
+                repo_id=repo_id,
+                path=manifest_path,
+                path_in_repo=f"manifests/{manifest_path.name}",
+            )
 
     result = {"repo_id": repo_id, "files": uploaded_files, "rows": total_rows}
     print(f"[push_hf] Completed distillation push repo={repo_id} files={len(uploaded_files)} rows={total_rows}")
