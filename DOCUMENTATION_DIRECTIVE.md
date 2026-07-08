@@ -31,21 +31,6 @@ release notes), not inside a README skeleton. Decision history specifically
 belongs in ADRs (see Section 2D), which are separate from README files for
 exactly this reason.
 
-**READMEs describe current state, not history.** Do not add changelog-style
-entries, dated "added X / fixed Y" notes, or append-only decision logs to
-any README. That kind of content is out of scope for this directive — if a
-project wants a changelog, it is tracked separately, not inside a README
-skeleton. Decision history specifically belongs in ADRs, which are separate
-from README files for exactly this reason.
-
-**READMEs describe current state, not history.** Do not add changelog-style
-entries, dated "added X / fixed Y" notes, or append-only decision logs to
-any README. That kind of content is out of scope for this directive — if a
-project wants a changelog, it's tracked separately (e.g. commit history or
-release notes), not inside a README skeleton. Decision history specifically
-belongs in ADRs (see Section 2D), which are separate from README files for
-exactly this reason.
-
 ### A. Root `README.md`
 Audience: newcomers/evaluators deciding whether to use the project.
 Section order:
