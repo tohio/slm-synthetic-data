@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -18,6 +18,10 @@ from slm_synth.distillation.generation import (
 )
 from slm_synth.distillation.io import write_jsonl, write_manifest, write_run_manifest
 from slm_synth.distillation.prompt_quality import validate_prompt_preflight
+from slm_synth.distillation.response_quality import (
+    RESPONSE_QUALITY_CHECKS,
+    aggregate_rejection_reasons,
+)
 from slm_synth.distillation.runs import DistillationRunResult
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.spec_builders import build_prompt_spec_records
@@ -325,6 +329,9 @@ def _generate_multi_signal_run(
     planned_prompt_rows = sum(signal_counts.values())
     accepted_rows = sum(result.row_count for result in results)
     rejected_rows = max(planned_prompt_rows - accepted_rows, 0)
+    rejection_reasons = _aggregate_rejection_reasons_from_manifests(
+        result.manifest_path for result in results
+    )
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     write_run_manifest(
@@ -350,6 +357,14 @@ def _generate_multi_signal_run(
             "planned_prompt_rows": planned_prompt_rows,
             "accepted_rows": accepted_rows,
             "rejected_rows": rejected_rows,
+            "rejection_reasons": rejection_reasons,
+            "response_quality": {
+                "checked_rows": planned_prompt_rows,
+                "accepted_rows": accepted_rows,
+                "rejected_rows": rejected_rows,
+                "rejection_reasons": rejection_reasons,
+                "checks": list(RESPONSE_QUALITY_CHECKS),
+            },
             "start_index": start_index,
             "batch_size": normalized_batch_size,
             "concurrency": concurrency,
@@ -367,6 +382,16 @@ def _generate_multi_signal_run(
         results=tuple(results),
         manifest_path=run_manifest_path,
     )
+
+
+def _aggregate_rejection_reasons_from_manifests(manifest_paths: Iterable[Path]) -> dict[str, int]:
+    summaries: list[dict[str, Any]] = []
+    for manifest_path in manifest_paths:
+        manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        metadata = manifest.get("metadata", {})
+        if isinstance(metadata, Mapping):
+            summaries.append(dict(metadata))
+    return aggregate_rejection_reasons(summaries)
 
 
 def _validate_count(count: Any) -> int:
@@ -569,6 +594,9 @@ def _generate_and_materialize_signal_batches(
     public_rows: list[dict[str, Any]] = []
     for batch_result in batch_results:
         public_rows.extend(_read_jsonl(batch_result.dataset_path))
+    rejection_reasons = _aggregate_rejection_reasons_from_manifests(
+        result.manifest_path for result in batch_results
+    )
 
     dataset_path = Path(output_dir) / f"{signal}.jsonl"
     row_count = write_jsonl(public_rows, dataset_path)
@@ -587,6 +615,14 @@ def _generate_and_materialize_signal_batches(
             "planned_prompt_rows": len(prompt_records),
             "accepted_rows": row_count,
             "rejected_rows": max(len(prompt_records) - row_count, 0),
+            "rejection_reasons": rejection_reasons,
+            "response_quality": {
+                "checked_rows": len(prompt_records),
+                "accepted_rows": row_count,
+                "rejected_rows": max(len(prompt_records) - row_count, 0),
+                "rejection_reasons": rejection_reasons,
+                "checks": list(RESPONSE_QUALITY_CHECKS),
+            },
             "batch_count": len(batch_results),
             "batch_size": maximum_batch_size,
             "concurrency": concurrency,

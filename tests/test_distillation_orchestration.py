@@ -19,13 +19,16 @@ class SignalAwareBackend:
 
     def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
         self.calls.append({"prompt": prompt, "schema": schema, "schema_name": schema_name})
+        response = f"Response for {self.signal}."
+        if self.signal == "database":
+            response = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id."
         return {
             "data": {
                 "items": [
                     {
                         "id": f"{self.signal}-000001",
                         "reasoning": None,
-                        "response": f"Response for {self.signal}.",
+                        "response": response,
                     }
                 ]
             },
@@ -35,16 +38,17 @@ class SignalAwareBackend:
 
 class PromptIdBackend:
     def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        ids = re.findall(r'"id": "([^"]+)"', prompt)
+        items = self._request_items(prompt)
+        ids = [item["id"] for item in items]
         return {
             "data": {
                 "items": [
                     {
-                        "id": item_id,
+                        "id": item["id"],
                         "reasoning": None,
-                        "response": f"Response for {item_id}.",
+                        "response": self._response_for(item),
                     }
-                    for item_id in ids
+                    for item in items
                 ]
             },
             "telemetry": {
@@ -57,25 +61,56 @@ class PromptIdBackend:
             },
         }
 
+    def _request_items(self, prompt):
+        request_json = prompt.split("Input items:\n", 1)[1]
+        return json.loads(request_json)["items"]
+
+    def _response_for(self, item):
+        item_id = item["id"]
+        item_prompt = item["prompt"]
+        if item_id.startswith("arithmetic-"):
+            match = re.search(r"(-?\d+)\s*([+\-*/])\s*(-?\d+)", item_prompt)
+            if match:
+                left = int(match.group(1))
+                right = int(match.group(3))
+                op = match.group(2)
+                if op == "+":
+                    return str(left + right)
+                if op == "-":
+                    return str(left - right)
+                if op == "*":
+                    return str(left * right)
+                if op == "/" and right:
+                    return str(left // right)
+            if "96 pencils" in item_prompt:
+                return "8"
+        if item_id.startswith("code-"):
+            return "def generated(value):\n    return value"
+        if item_id.startswith("database-") and "query" in item_prompt.casefold():
+            return "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id;"
+        if item_id.startswith("factual_restraint-"):
+            return "I cannot verify that, so I should not invent a specific answer."
+        return f"Response for {item_id}."
+
 
 class SplitOnLargePromptIdBackend(PromptIdBackend):
     def __init__(self):
         self.calls: list[int] = []
 
     def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        ids = re.findall(r'"id": "([^"]+)"', prompt)
-        self.calls.append(len(ids))
-        if len(ids) > 1:
+        items = self._request_items(prompt)
+        self.calls.append(len(items))
+        if len(items) > 1:
             raise ValueError("batch too large")
         return {
             "data": {
                 "items": [
                     {
-                        "id": item_id,
+                        "id": item["id"],
                         "reasoning": None,
-                        "response": f"Response for {item_id}.",
+                        "response": self._response_for(item),
                     }
-                    for item_id in ids
+                    for item in items
                 ]
             }
         }
@@ -148,7 +183,7 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert cloud_row["id"] == "cloud-000001"
     assert cloud_row["response"] == "Response for cloud."
     assert database_row["id"] == "database-000001"
-    assert database_row["response"] == "Response for database."
+    assert database_row["response"] == "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id."
     assert "signal" not in cloud_row
     assert "metadata" not in cloud_row
 
@@ -204,11 +239,15 @@ def test_generate_prompt_spec_multi_signal_run_uses_production_prompt_specs(tmp_
     assert signal_manifest["metadata"]["planned_prompt_rows"] == 2
     assert signal_manifest["metadata"]["accepted_rows"] == 2
     assert signal_manifest["metadata"]["rejected_rows"] == 0
+    assert signal_manifest["metadata"]["rejection_reasons"] == {}
+    assert signal_manifest["metadata"]["response_quality"]["accepted_rows"] == 2
     assert run_manifest["metadata"]["prompt_source"] == "production_spec"
     assert run_manifest["metadata"]["target_rows"] == 2
     assert run_manifest["metadata"]["planned_prompt_rows"] == 2
     assert run_manifest["metadata"]["accepted_rows"] == 2
     assert run_manifest["metadata"]["rejected_rows"] == 0
+    assert run_manifest["metadata"]["rejection_reasons"] == {}
+    assert run_manifest["metadata"]["response_quality"]["accepted_rows"] == 2
     assert run_manifest["metadata"]["rows_per_signal"] == {"arithmetic": 2}
     assert run_manifest["metadata"]["signals"] == ["arithmetic"]
     assert run_manifest["metadata"]["prompt_preflight"]["prompt_count"] == 2
@@ -330,3 +369,41 @@ def test_generate_seed_multi_signal_run_reduces_batch_size_after_failure(tmp_pat
     manifest = json.loads((tmp_path / "manifests" / "arithmetic.smoke-001.manifest.json").read_text())
     assert manifest["metadata"]["adaptive_batch_size_observed_minimum"] == 1
     assert manifest["metadata"]["adaptive_batch_size_decreases"] == 1
+
+
+class OneRejectedCloudBackend(PromptIdBackend):
+    def _response_for(self, item):
+        if item["id"].endswith("000002"):
+            return "ok"
+        return "Use autoscaling to add capacity during traffic spikes."
+
+
+def test_generate_prompt_spec_multi_signal_run_records_response_rejections(tmp_path):
+    result = generate_prompt_spec_multi_signal_run(
+        signals=["cloud"],
+        target_rows=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="target-001",
+        max_tokens=512,
+        backend_factory=lambda signal: OneRejectedCloudBackend(),
+    )
+
+    assert result.row_count == 1
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "datasets" / "cloud.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["id"] for row in rows] == ["cloud-000001"]
+
+    signal_manifest = json.loads((tmp_path / "manifests" / "cloud.target-001.manifest.json").read_text())
+    run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
+    assert signal_manifest["metadata"]["planned_prompt_rows"] == 2
+    assert signal_manifest["metadata"]["accepted_rows"] == 1
+    assert signal_manifest["metadata"]["rejected_rows"] == 1
+    assert signal_manifest["metadata"]["rejection_reasons"] == {"too_short_response": 1}
+    assert signal_manifest["metadata"]["response_quality"]["checked_rows"] == 2
+    assert run_manifest["metadata"]["accepted_rows"] == 1
+    assert run_manifest["metadata"]["rejected_rows"] == 1
+    assert run_manifest["metadata"]["rejection_reasons"] == {"too_short_response": 1}

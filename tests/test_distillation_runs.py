@@ -68,7 +68,13 @@ def test_materialize_teacher_batch_writes_public_dataset_and_manifest(tmp_path):
     assert manifest["teacher_provider"] == "openrouter"
     assert manifest["generation_run"] == "smoke-001"
     assert manifest["token_target"] == "100K"
-    assert manifest["metadata"] == {"prompt_count": 1, "batch_size": 1}
+    assert manifest["metadata"]["batch_size"] == 1
+    assert manifest["metadata"]["prompt_count"] == 1
+    assert manifest["metadata"]["planned_prompt_rows"] == 1
+    assert manifest["metadata"]["accepted_rows"] == 1
+    assert manifest["metadata"]["rejected_rows"] == 0
+    assert manifest["metadata"]["rejection_reasons"] == {}
+    assert manifest["metadata"]["response_quality"]["accepted_rows"] == 1
 
 
 def test_materialize_teacher_batch_rejects_prompt_signal_mismatch(tmp_path):
@@ -109,3 +115,44 @@ def test_materialize_teacher_batch_rejects_non_openrouter_provider(tmp_path):
             teacher_provider="groq",
             generation_run="smoke-001",
         )
+
+
+def test_materialize_teacher_batch_filters_bad_responses_and_records_rejections(tmp_path):
+    result = materialize_teacher_batch(
+        signal="cloud",
+        prompt_records=[
+            {"id": "cloud-000001", "prompt": "Explain autoscaling.", "signal": "cloud"},
+            {"id": "cloud-000002", "prompt": "Explain object storage.", "signal": "cloud"},
+            {"id": "cloud-000003", "prompt": "Explain cloud backups.", "signal": "cloud"},
+        ],
+        teacher_response={
+            "items": [
+                {
+                    "id": "cloud-000001",
+                    "reasoning": None,
+                    "response": "Use autoscaling to add capacity during traffic spikes.",
+                },
+                {"id": "cloud-000002", "reasoning": None, "response": "ok"},
+                {"id": "cloud-000003", "reasoning": None, "response": "I cannot provide that information."},
+            ]
+        },
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="smoke-001",
+    )
+
+    assert result.row_count == 1
+    rows = [json.loads(line) for line in result.dataset_path.read_text(encoding="utf-8").splitlines()]
+    assert [row["id"] for row in rows] == ["cloud-000001"]
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["row_count"] == 1
+    assert manifest["metadata"]["planned_prompt_rows"] == 3
+    assert manifest["metadata"]["accepted_rows"] == 1
+    assert manifest["metadata"]["rejected_rows"] == 2
+    assert manifest["metadata"]["rejection_reasons"] == {
+        "too_short_response": 1,
+        "unexpected_refusal": 1,
+    }
+    assert manifest["metadata"]["response_quality"]["checked_rows"] == 3

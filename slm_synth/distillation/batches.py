@@ -31,7 +31,7 @@ TEACHER_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "id": {"type": "string", "minLength": 1},
                     "reasoning": {"type": "null"},
-                    "response": {"type": "string", "minLength": 1},
+                    "response": {"type": "string"},
                 },
             },
         }

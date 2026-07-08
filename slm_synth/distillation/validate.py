@@ -34,8 +34,8 @@ def validate_teacher_output(output: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("teacher output field 'id' must be a non-empty string")
 
     response = output["response"]
-    if not isinstance(response, str) or not response.strip():
-        raise ValueError("teacher output field 'response' must be a non-empty string")
+    if not isinstance(response, str):
+        raise ValueError("teacher output field 'response' must be a string")
 
     reasoning = output["reasoning"]
     if reasoning is not None:

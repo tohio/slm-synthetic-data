@@ -15,6 +15,7 @@ from typing import Any
 from slm_synth.distillation.batches import validate_teacher_batch_response
 from slm_synth.distillation.io import write_manifest, write_signal_dataset
 from slm_synth.distillation.prompts import validate_prompt_record
+from slm_synth.distillation.response_quality import filter_public_rows_by_response_quality
 from slm_synth.distillation.signals import validate_signal
 from slm_synth.distillation.validate import merge_teacher_outputs
 
@@ -83,10 +84,14 @@ def materialize_teacher_batch(
     records = _validate_prompt_records_for_signal(signal=normalized_signal, prompt_records=prompt_records)
     teacher_outputs = validate_teacher_batch_response(teacher_response, expected_count=len(records))
     public_rows = merge_teacher_outputs(records, teacher_outputs)
+    accepted_rows, response_quality = filter_public_rows_by_response_quality(
+        signal=normalized_signal,
+        rows=public_rows,
+    )
 
     dataset_path = write_signal_dataset(
         signal=normalized_signal,
-        rows=public_rows,
+        rows=accepted_rows,
         output_dir=output_dir,
         filename=dataset_filename,
     )
@@ -104,14 +109,19 @@ def materialize_teacher_batch(
         manifest_path=manifest_path,
         signal=normalized_signal,
         dataset_path=dataset_path,
-        row_count=len(public_rows),
+        row_count=len(accepted_rows),
         teacher_model=teacher_model,
         teacher_provider=teacher_provider,
         generation_run=generation_run,
         token_target=token_target,
         metadata={
-            "prompt_count": len(records),
             **dict(metadata or {}),
+            "prompt_count": len(records),
+            "planned_prompt_rows": len(records),
+            "accepted_rows": len(accepted_rows),
+            "rejected_rows": response_quality.rejected_rows,
+            "rejection_reasons": response_quality.rejection_reasons,
+            "response_quality": response_quality.to_dict(),
         },
     )
 
@@ -119,5 +129,5 @@ def materialize_teacher_batch(
         signal=normalized_signal,
         dataset_path=dataset_path,
         manifest_path=manifest_path,
-        row_count=len(public_rows),
+        row_count=len(accepted_rows),
     )
