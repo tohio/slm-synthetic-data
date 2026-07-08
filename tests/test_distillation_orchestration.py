@@ -36,6 +36,41 @@ class SignalAwareBackend:
         }
 
 
+class SignalTelemetryBackend(SignalAwareBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        result = super().generate_structured_object_with_metadata(prompt=prompt, schema=schema, schema_name=schema_name)
+        if self.signal == "cloud":
+            result["data"]["items"][0]["response"] = "Use autoscaling to add capacity during traffic spikes."
+            result["telemetry"] = {
+                "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3, "cost": 0.01},
+                "retry_count": 1,
+                "retryable_provider_retries": 2,
+                "retry_sleep_seconds": 1.25,
+                "adaptive_window_increases": 1,
+                "adaptive_window_decreases": 0,
+                "adaptive_admission_wait_seconds": 0.5,
+                "adaptive_peak_in_flight_limit": 8,
+                "adaptive_min_in_flight_limit": 4,
+                "max_adaptive_cooldown_seconds": 0.25,
+                "elapsed_seconds": 2.5,
+            }
+        else:
+            result["telemetry"] = {
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cost": 0.02},
+                "retry_count": 3,
+                "retryable_provider_retries": 4,
+                "retry_sleep_seconds": 2.75,
+                "adaptive_window_increases": 2,
+                "adaptive_window_decreases": 1,
+                "adaptive_admission_wait_seconds": 1.5,
+                "adaptive_peak_in_flight_limit": 16,
+                "adaptive_min_in_flight_limit": 2,
+                "max_adaptive_cooldown_seconds": 0.75,
+                "elapsed_seconds": 4.5,
+            }
+        return result
+
+
 class PromptIdBackend:
     def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
         items = self._request_items(prompt)
@@ -207,8 +242,46 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert run_manifest["metadata"]["prompt_source"] == "builtin_seed"
     assert cloud_manifest["metadata"]["prompt_source"] == "builtin_seed"
 
+    run_telemetry = run_manifest["metadata"]["llm_telemetry"]
+    assert run_telemetry["batch_count"] == 2
+    assert run_telemetry["adaptive_peak_in_flight_limit"] == 2
+
     assert backends["cloud"].calls[0]["schema_name"] == "cloud_distillation_batch"
     assert backends["database"].calls[0]["schema_name"] == "database_distillation_batch"
+
+
+def test_generate_seed_multi_signal_run_aggregates_llm_telemetry_across_signals(tmp_path):
+    result = generate_seed_multi_signal_run(
+        signals=["cloud", "database"],
+        count_per_signal=1,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="smoke-001",
+        max_tokens=512,
+        backend_factory=lambda signal: SignalTelemetryBackend(signal),
+    )
+
+    assert result.row_count == 2
+    run_manifest = json.loads((tmp_path / "manifests" / "smoke-001.manifest.json").read_text())
+    telemetry = run_manifest["metadata"]["llm_telemetry"]
+    assert telemetry["batch_count"] == 2
+    assert telemetry["usage"] == {
+        "prompt_tokens": 11,
+        "completion_tokens": 22,
+        "total_tokens": 33,
+        "cost": 0.03,
+    }
+    assert telemetry["retry_count"] == 4
+    assert telemetry["retryable_provider_retries"] == 6
+    assert telemetry["retry_sleep_seconds"] == 4.0
+    assert telemetry["adaptive_window_increases"] == 3
+    assert telemetry["adaptive_window_decreases"] == 1
+    assert telemetry["adaptive_admission_wait_seconds"] == 2.0
+    assert telemetry["adaptive_peak_in_flight_limit"] == 16
+    assert telemetry["adaptive_min_in_flight_limit"] == 2
+    assert telemetry["max_adaptive_cooldown_seconds"] == 0.75
+    assert telemetry["elapsed_seconds"] == 7.0
 
 
 def test_generate_prompt_spec_multi_signal_run_uses_production_prompt_specs(tmp_path):
@@ -339,6 +412,7 @@ def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
     assert [row["id"] for row in rows] == ["arithmetic-000001", "arithmetic-000002", "arithmetic-000003"]
 
     manifest = json.loads((tmp_path / "manifests" / "arithmetic.smoke-001.manifest.json").read_text())
+    run_manifest = json.loads((tmp_path / "manifests" / "smoke-001.manifest.json").read_text())
     assert manifest["row_count"] == 3
     assert manifest["metadata"]["batch_count"] == 2
     assert manifest["metadata"]["batch_size"] == 2
@@ -347,6 +421,10 @@ def test_generate_seed_multi_signal_run_splits_large_signal_batches(tmp_path):
     assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 6
     assert manifest["metadata"]["llm_telemetry"]["retryable_provider_retries"] == 3
     assert manifest["metadata"]["llm_telemetry"]["adaptive_peak_in_flight_limit"] == 16
+    assert run_manifest["metadata"]["llm_telemetry"]["batch_count"] == 2
+    assert run_manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 6
+    assert run_manifest["metadata"]["llm_telemetry"]["retryable_provider_retries"] == 3
+    assert run_manifest["metadata"]["llm_telemetry"]["adaptive_peak_in_flight_limit"] == 16
 
 
 def test_generate_seed_multi_signal_run_reduces_batch_size_after_failure(tmp_path):

@@ -329,9 +329,9 @@ def _generate_multi_signal_run(
     planned_prompt_rows = sum(signal_counts.values())
     accepted_rows = sum(result.row_count for result in results)
     rejected_rows = max(planned_prompt_rows - accepted_rows, 0)
-    rejection_reasons = _aggregate_rejection_reasons_from_manifests(
-        result.manifest_path for result in results
-    )
+    signal_manifest_paths = [result.manifest_path for result in results]
+    rejection_reasons = _aggregate_rejection_reasons_from_manifests(signal_manifest_paths)
+    llm_telemetry = aggregate_llm_telemetry_from_manifests(signal_manifest_paths)
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     write_run_manifest(
@@ -374,6 +374,7 @@ def _generate_multi_signal_run(
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             "prompt_source": prompt_source,
             "prompt_preflight": prompt_preflight.to_dict(),
+            "llm_telemetry": llm_telemetry,
         },
     )
 

@@ -25,7 +25,7 @@ def aggregate_llm_telemetry(telemetry_items: Sequence[Mapping[str, Any]]) -> dic
         return {}
 
     merged: dict[str, Any] = {
-        "batch_count": len(telemetry_items),
+        "batch_count": sum(_telemetry_batch_count(item) for item in telemetry_items),
         "usage": _sum_usage(telemetry_items),
         "retry_count": sum(int(item.get("retry_count", 0) or 0) for item in telemetry_items),
         "retryable_provider_retries": sum(
@@ -93,3 +93,16 @@ def _sum_usage(telemetry_items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 def _min_positive(values: Iterable[int]) -> int:
     positive_values = [value for value in values if value > 0]
     return min(positive_values) if positive_values else 0
+
+
+def _telemetry_batch_count(item: Mapping[str, Any]) -> int:
+    """Return the represented request/batch count for raw or nested telemetry.
+
+    Raw provider-call telemetry normally has no batch_count and represents one
+    request. Aggregated signal-level telemetry carries batch_count and represents
+    that many lower-level requests.
+    """
+    value = item.get("batch_count")
+    if isinstance(value, int) and value > 0:
+        return value
+    return 1
