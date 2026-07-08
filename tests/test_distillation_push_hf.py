@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.distillation.push_hf import count_and_validate_jsonl, push_distillation_run
+from slm_synth.distillation.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_distillation_run
 
 
 def _distillation_row(row_id="distill-1"):
@@ -22,6 +22,33 @@ def test_count_and_validate_distillation_jsonl_rejects_bad_public_row(tmp_path):
 
     with pytest.raises(ValueError, match="unexpected field"):
         count_and_validate_jsonl(dataset)
+
+
+def test_discover_distillation_jsonl_prefers_final_files_over_batch_shards(tmp_path):
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    final_path = dataset_dir / "arithmetic.jsonl"
+    batch_path = dataset_dir / "arithmetic.batch000001.jsonl"
+    final_path.write_text(json.dumps(_distillation_row("distill-1")) + "\n", encoding="utf-8")
+    batch_path.write_text(json.dumps(_distillation_row("distill-2")) + "\n", encoding="utf-8")
+
+    assert discover_jsonl_files(dataset_dir) == [final_path]
+
+
+@pytest.mark.parametrize(
+    "dirname",
+    ["scratch", "batches", "partials", "partial", "rejected", "retries", "retry", "provider", "provider_internal", "tmp"],
+)
+def test_discover_distillation_jsonl_ignores_internal_dirs(tmp_path, dirname):
+    dataset_dir = tmp_path / "datasets"
+    internal_dir = dataset_dir / dirname
+    internal_dir.mkdir(parents=True)
+    public_path = dataset_dir / "arithmetic.jsonl"
+    internal_path = internal_dir / "arithmetic.jsonl"
+    public_path.write_text(json.dumps(_distillation_row("distill-1")) + "\n", encoding="utf-8")
+    internal_path.write_text(json.dumps(_distillation_row("distill-2")) + "\n", encoding="utf-8")
+
+    assert discover_jsonl_files(dataset_dir) == [public_path]
 
 
 def test_push_distillation_run_uploads_dataset_and_run_files(tmp_path, monkeypatch):

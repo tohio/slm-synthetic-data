@@ -14,6 +14,20 @@ from huggingface_hub import HfApi, create_repo
 from slm_synth.dpo.schema import validate_dpo_row
 
 
+INTERNAL_DATASET_DIR_NAMES = {
+    "batches",
+    "partial",
+    "partials",
+    "provider",
+    "provider_internal",
+    "rejected",
+    "retries",
+    "retry",
+    "scratch",
+    "tmp",
+}
+
+
 def get_hf_token() -> str:
     token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
     if not token:
@@ -25,10 +39,31 @@ def discover_jsonl_files(dataset_dir: str | Path) -> list[Path]:
     root = Path(dataset_dir)
     if not root.exists():
         raise FileNotFoundError(f"DPO dataset directory does not exist: {root}")
-    files = sorted(path for path in root.rglob("*.jsonl") if path.is_file())
+    candidates = sorted(
+        path
+        for path in root.rglob("*.jsonl")
+        if path.is_file() and not _is_internal_dataset_path(path.relative_to(root))
+    )
+    files = _prefer_final_public_files(candidates)
     if not files:
         raise FileNotFoundError(f"No DPO JSONL files found in {root}")
     return files
+
+
+def _is_internal_dataset_path(relative_path: Path) -> bool:
+    return any(part in INTERNAL_DATASET_DIR_NAMES for part in relative_path.parts[:-1])
+
+
+def _prefer_final_public_files(paths: list[Path]) -> list[Path]:
+    files_by_family: dict[str, list[Path]] = {}
+    for path in paths:
+        files_by_family.setdefault(family_from_dataset_path(path), []).append(path)
+
+    files: list[Path] = []
+    for family_paths in files_by_family.values():
+        final_files = [path for path in family_paths if ".batch" not in path.stem]
+        files.extend(final_files or family_paths)
+    return sorted(files)
 
 
 def count_and_validate_jsonl(path: str | Path) -> int:

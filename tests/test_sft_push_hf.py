@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.sft.push_hf import count_and_validate_jsonl, push_sft_run, repo_id_for_family
+from slm_synth.sft.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_sft_run, repo_id_for_family
 
 
 def _sft_row(row_id="sft-1"):
@@ -36,6 +36,42 @@ def test_repo_id_for_sft_family_uses_slm_sft_prefix():
         repo_id_for_family(repo_owner="tohio", repo_prefix="slm-sft", family="basic_arithmetic_qa")
         == "tohio/slm-sft-basic-arithmetic-qa"
     )
+
+
+def test_discover_sft_jsonl_prefers_final_files_over_stale_batches(tmp_path):
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    final_path = dataset_dir / "basic_arithmetic_qa.jsonl"
+    stale_batch_path = dataset_dir / "basic_arithmetic_qa.batch000001.jsonl"
+    final_path.write_text(json.dumps(_sft_row("sft-1")) + "\n", encoding="utf-8")
+    stale_batch_path.write_text(json.dumps(_sft_row("sft-2")) + "\n", encoding="utf-8")
+
+    assert discover_jsonl_files(dataset_dir) == [final_path]
+
+
+def test_discover_sft_jsonl_keeps_batch_shards_without_final_file(tmp_path):
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    batch_path = dataset_dir / "basic_arithmetic_qa.batch000001.jsonl"
+    batch_path.write_text(json.dumps(_sft_row("sft-1")) + "\n", encoding="utf-8")
+
+    assert discover_jsonl_files(dataset_dir) == [batch_path]
+
+
+@pytest.mark.parametrize(
+    "dirname",
+    ["scratch", "batches", "partials", "partial", "rejected", "retries", "retry", "provider", "provider_internal", "tmp"],
+)
+def test_discover_sft_jsonl_ignores_internal_dirs(tmp_path, dirname):
+    dataset_dir = tmp_path / "datasets"
+    internal_dir = dataset_dir / dirname
+    internal_dir.mkdir(parents=True)
+    public_path = dataset_dir / "basic_arithmetic_qa.jsonl"
+    internal_path = internal_dir / "basic_arithmetic_qa.jsonl"
+    public_path.write_text(json.dumps(_sft_row("sft-1")) + "\n", encoding="utf-8")
+    internal_path.write_text(json.dumps(_sft_row("sft-2")) + "\n", encoding="utf-8")
+
+    assert discover_jsonl_files(dataset_dir) == [public_path]
 
 
 def test_push_sft_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
