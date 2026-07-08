@@ -56,6 +56,23 @@ DISTILLATION_SFT_DATASET_NAME ?= SLM Synthetic Distillation
 DISTILLATION_SFT_PUSH_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
 DISTILLATION_SFT_HF_REPO ?= $(HF_REPO)
 
+# Distillation DPO
+DISTILLATION_DPO_RUN ?= distillation-dpo-smoke-001
+DISTILLATION_DPO_TARGET_RUN ?= distillation-dpo-target-001
+DISTILLATION_DPO_REPORT_RUN ?= $(DISTILLATION_DPO_RUN)
+DISTILLATION_DPO_INSPECT_RUN ?= $(DISTILLATION_DPO_REPORT_RUN)
+DISTILLATION_DPO_FAMILIES ?= all
+DISTILLATION_DPO_SMOKE_FAMILIES ?= teacher_response_preference
+DISTILLATION_DPO_COUNT_PER_FAMILY ?= 1000
+DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY ?= 2
+DISTILLATION_DPO_RUN_ROOT ?= data/distillation-dpo/runs
+DISTILLATION_DPO_MODEL ?= $(MODEL)
+DISTILLATION_DPO_DATASET_NAME ?= SLM Synthetic Distillation DPO
+DISTILLATION_DPO_PUSH_RUN ?= $(DISTILLATION_DPO_REPORT_RUN)
+DISTILLATION_DPO_HF_NAMESPACE ?= $(HF_NAMESPACE)
+DISTILLATION_DPO_HF_PREFIX ?= distillation-dpo
+DISTILLATION_DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DISTILLATION_DPO_FAMILIES)),$(DISTILLATION_DPO_FAMILIES),$(DISTILLATION_DPO_SMOKE_FAMILIES))
+
 # SFT
 SFT_RUN ?= sft-smoke-001
 SFT_TARGET_RUN ?= sft-target-001
@@ -108,6 +125,8 @@ DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
 	distillation-sft-smoke distillation-sft-generate \
 	distillation-sft-report distillation-sft-inspect distillation-sft-push \
+	distillation-dpo-smoke distillation-dpo-generate \
+	distillation-dpo-report distillation-dpo-inspect distillation-dpo-push \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
 	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
 	test clean
@@ -122,6 +141,8 @@ help:
 > @echo "  make pretrain-generate   Target pretraining generation run"
 > @echo "  make distillation-sft-smoke       Small distillation SFT run"
 > @echo "  make distillation-sft-generate    Target distillation SFT run"
+> @echo "  make distillation-dpo-smoke       Small distillation DPO run"
+> @echo "  make distillation-dpo-generate    Target distillation DPO run"
 > @echo "  make sft-smoke           Small SFT run"
 > @echo "  make sft-generate        Target SFT run"
 > @echo "  make dpo-smoke           Small DPO run"
@@ -130,16 +151,19 @@ help:
 > @echo "Inspect and report:"
 > @echo "  make pretrain-inspect    Show pretraining files and sample rows"
 > @echo "  make distillation-sft-inspect     Show distillation SFT files and sample rows"
+> @echo "  make distillation-dpo-inspect     Show distillation DPO files and sample rows"
 > @echo "  make sft-inspect         Show SFT files and sample rows"
 > @echo "  make dpo-inspect         Show DPO files and sample rows"
 > @echo "  make pretrain-report     Rebuild pretraining reports"
 > @echo "  make distillation-sft-report      Rebuild distillation SFT reports and dataset card"
+> @echo "  make distillation-dpo-report      Rebuild distillation DPO reports and dataset card"
 > @echo "  make sft-report          Rebuild SFT coverage"
 > @echo "  make dpo-report          Rebuild DPO coverage"
 > @echo ""
 > @echo "Push to Hugging Face:"
 > @echo "  make pretrain-push       Push pretraining deduped data"
 > @echo "  make distillation-sft-push        Push a distillation SFT run"
+> @echo "  make distillation-dpo-push        Push distillation DPO families"
 > @echo "  make sft-push            Push SFT families to slm-sft-* repos"
 > @echo "  make dpo-push            Push DPO families to slm-dpo-* repos"
 > @echo ""
@@ -155,6 +179,9 @@ help:
 > @echo "  DISTILLATION_SFT_TARGET_SIZE=$(DISTILLATION_SFT_TARGET_SIZE)"
 > @echo "  DISTILLATION_SFT_CONCURRENCY=$(DISTILLATION_SFT_CONCURRENCY)"
 > @echo "  DISTILLATION_SFT_HF_REPO=$(DISTILLATION_SFT_HF_REPO)"
+> @echo "  DISTILLATION_DPO_COUNT_PER_FAMILY=$(DISTILLATION_DPO_COUNT_PER_FAMILY)"
+> @echo "  DISTILLATION_DPO_HF_NAMESPACE=$(DISTILLATION_DPO_HF_NAMESPACE)"
+> @echo "  DISTILLATION_DPO_HF_PREFIX=$(DISTILLATION_DPO_HF_PREFIX)"
 > @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
 > @echo "  SFT_HF_NAMESPACE=$(SFT_HF_NAMESPACE)"
 > @echo "  SFT_HF_PREFIX=$(SFT_HF_PREFIX)"
@@ -265,6 +292,48 @@ distillation-sft-push:
 >   --dataset-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_PUSH_RUN)/datasets \
 >   --run-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_PUSH_RUN) \
 >   --repo-id $(DISTILLATION_SFT_HF_REPO) $(HF_PRIVATE_ARG)
+
+distillation-dpo-smoke:
+> $(PYTHON) -m slm_synth.distillation_dpo.cli materialize-seed-run \
+>   --families $(DISTILLATION_DPO_SMOKE_FAMILIES_EFFECTIVE) \
+>   --count-per-family $(DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY) \
+>   --output-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_RUN)/datasets \
+>   --manifest-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_RUN)/manifests \
+>   --teacher-model $(DISTILLATION_DPO_MODEL) \
+>   --generation-run $(DISTILLATION_DPO_RUN)
+> $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_RUN)
+
+distillation-dpo-generate:
+> $(PYTHON) -m slm_synth.distillation_dpo.cli materialize-seed-run \
+>   --families $(DISTILLATION_DPO_FAMILIES) \
+>   --count-per-family $(DISTILLATION_DPO_COUNT_PER_FAMILY) \
+>   --output-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_TARGET_RUN)/datasets \
+>   --manifest-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_TARGET_RUN)/manifests \
+>   --teacher-model $(DISTILLATION_DPO_MODEL) \
+>   --generation-run $(DISTILLATION_DPO_TARGET_RUN)
+> $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_TARGET_RUN)
+
+distillation-dpo-report:
+> $(PYTHON) -m slm_synth.distillation_dpo.cli report-coverage \
+>   --input $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/datasets \
+>   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/coverage.json
+> $(PYTHON) -m slm_synth.distillation_dpo.cli build-dataset-card \
+>   --run-manifest $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/manifests/$(DISTILLATION_DPO_REPORT_RUN).manifest.json \
+>   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/README.md \
+>   --dataset-name "$(DISTILLATION_DPO_DATASET_NAME)"
+
+distillation-dpo-inspect:
+> @echo "== distillation DPO files =="
+> @find $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_INSPECT_RUN) -type f 2>/dev/null | sort
+> @echo "== distillation DPO sample rows =="
+> @find $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
+
+distillation-dpo-push:
+> $(PYTHON) -m slm_synth.distillation_dpo.push_hf \
+>   --dataset-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_PUSH_RUN)/datasets \
+>   --run-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_PUSH_RUN) \
+>   --repo-owner $(DISTILLATION_DPO_HF_NAMESPACE) \
+>   --repo-prefix $(DISTILLATION_DPO_HF_PREFIX) $(HF_PRIVATE_ARG)
 
 sft-smoke:
 > $(PYTHON) -m slm_synth.sft.cli generate-llm-run \

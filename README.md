@@ -6,6 +6,7 @@ Synthetic dataset generation for the SLM training stack.
 |---|---|---|---|
 | Pretraining synthetic data | `make pretrain-smoke` | `make pretrain-generate` | `data/runs/<run>/deduped` |
 | Distillation SFT | `make distillation-sft-smoke` | `make distillation-sft-generate` | `data/distillation/runs/<run>/datasets` |
+| Distillation DPO | `make distillation-dpo-smoke` | `make distillation-dpo-generate` | `data/distillation-dpo/runs/<run>/datasets` |
 | SFT | `make sft-smoke` | `make sft-generate` | `data/sft/runs/<run>/datasets` |
 | DPO | `make dpo-smoke` | `make dpo-generate` | `data/dpo/runs/<run>/datasets` |
 
@@ -145,6 +146,58 @@ Useful variables:
 | `DISTILLATION_SFT_SIGNALS` | unset | Optional signal list |
 | `DISTILLATION_SFT_MODEL` | `$(MODEL)` | Teacher model |
 | `DISTILLATION_SFT_MAX_TOKENS` | `4096` | Teacher response max tokens |
+
+## Distillation DPO
+
+Distillation DPO data is preference data for aligning distilled models. It is isolated from generic DPO data.
+
+Public row schema:
+
+```json
+{
+  "id": "string",
+  "prompt": [{"role": "user", "content": "string"}],
+  "chosen": [{"role": "assistant", "content": "string"}],
+  "rejected": [{"role": "assistant", "content": "string"}],
+  "metadata": {
+    "category": "string",
+    "difficulty": 1,
+    "template_family": "string",
+    "eval_family": "string | null",
+    "failure_mode": "string"
+  }
+}
+```
+
+Small run:
+
+```bash
+make distillation-dpo-smoke
+make distillation-dpo-inspect
+```
+
+Target run:
+
+```bash
+make distillation-dpo-generate \
+  DISTILLATION_DPO_TARGET_RUN=distillation-dpo-target-001 \
+  DISTILLATION_DPO_COUNT_PER_FAMILY=1000
+
+make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-target-001
+```
+
+Useful variables:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family |
+| `DISTILLATION_DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family |
+| `DISTILLATION_DPO_FAMILIES` | `all` | Target family list |
+| `DISTILLATION_DPO_RUN_ROOT` | `data/distillation-dpo/runs` | Run output root |
+| `DISTILLATION_DPO_INSPECT_RUN` | `$(DISTILLATION_DPO_REPORT_RUN)` | Run inspected by `distillation-dpo-inspect` |
+| `DISTILLATION_DPO_MODEL` | `$(MODEL)` | Teacher lineage model recorded in manifests |
+| `DISTILLATION_DPO_HF_NAMESPACE` | `$(HF_NAMESPACE)` | Hugging Face owner for push |
+| `DISTILLATION_DPO_HF_PREFIX` | `distillation-dpo` | Hugging Face repo prefix |
 
 ## SFT
 

@@ -35,6 +35,7 @@ Live generation requires `OPENROUTER_API_KEY`.
 ```bash
 make pretrain-smoke
 make distillation-sft-smoke
+make distillation-dpo-smoke
 make sft-smoke
 make dpo-smoke
 ```
@@ -44,19 +45,30 @@ Inspect generated files:
 ```bash
 make pretrain-inspect
 make distillation-sft-inspect
+make distillation-dpo-inspect
 make sft-inspect
 make dpo-inspect
 ```
 
 ## Expected Public Rows
 
-Distillation rows:
+Distillation SFT rows:
 
 ```text
 id
 prompt
 reasoning
 response
+```
+
+Distillation DPO rows:
+
+```text
+id
+prompt
+chosen
+rejected
+metadata
 ```
 
 SFT rows:

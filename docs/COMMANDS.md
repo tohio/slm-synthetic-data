@@ -6,6 +6,7 @@ This repo exposes one Make surface for dataset generation:
 |---|---|---|---|
 | Pretraining | `make pretrain-smoke` | `make pretrain-generate` | `make pretrain-inspect` |
 | Distillation SFT | `make distillation-sft-smoke` | `make distillation-sft-generate` | `make distillation-sft-inspect` |
+| Distillation DPO | `make distillation-dpo-smoke` | `make distillation-dpo-generate` | `make distillation-dpo-inspect` |
 | SFT | `make sft-smoke` | `make sft-generate` | `make sft-inspect` |
 | DPO | `make dpo-smoke` | `make dpo-generate` | `make dpo-inspect` |
 
@@ -113,6 +114,47 @@ Reports:
 
 ```bash
 make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=<run-id>
+```
+
+## Distillation DPO
+
+Generate a small run:
+
+```bash
+make distillation-dpo-smoke
+make distillation-dpo-inspect
+```
+
+Generate target data:
+
+```bash
+make distillation-dpo-generate \
+  DISTILLATION_DPO_TARGET_RUN=distillation-dpo-target-001 \
+  DISTILLATION_DPO_COUNT_PER_FAMILY=1000
+
+make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-target-001
+```
+
+Useful variables:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `DISTILLATION_DPO_RUN` | `distillation-dpo-smoke-001` | Smoke run id. |
+| `DISTILLATION_DPO_TARGET_RUN` | `distillation-dpo-target-001` | Target run id. |
+| `DISTILLATION_DPO_SMOKE_FAMILIES` | `teacher_response_preference` | Smoke family list. |
+| `DISTILLATION_DPO_FAMILIES` | `all` | Target family list. |
+| `DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
+| `DISTILLATION_DPO_COUNT_PER_FAMILY` | `1000` | Target rows per family. |
+| `DISTILLATION_DPO_RUN_ROOT` | `data/distillation-dpo/runs` | Run output root. |
+| `DISTILLATION_DPO_REPORT_RUN` | `$(DISTILLATION_DPO_RUN)` | Run used by `distillation-dpo-report`. |
+| `DISTILLATION_DPO_INSPECT_RUN` | `$(DISTILLATION_DPO_REPORT_RUN)` | Run inspected by `distillation-dpo-inspect`. |
+| `DISTILLATION_DPO_HF_NAMESPACE` | `$(HF_NAMESPACE)` | Hugging Face owner for push. |
+| `DISTILLATION_DPO_HF_PREFIX` | `distillation-dpo` | Hugging Face repo prefix. |
+
+Reports:
+
+```bash
+make distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=<run-id>
 ```
 
 ## SFT
