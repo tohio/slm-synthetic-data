@@ -17,6 +17,7 @@ from slm_synth.distillation.generation import (
     generate_and_materialize_signal_batch,
 )
 from slm_synth.distillation.io import write_jsonl, write_manifest, write_run_manifest
+from slm_synth.distillation.prompt_quality import validate_prompt_preflight
 from slm_synth.distillation.runs import DistillationRunResult
 from slm_synth.distillation.seeds import build_seed_prompt_records
 from slm_synth.distillation.spec_builders import build_prompt_spec_records
@@ -154,6 +155,7 @@ def generate_seed_multi_signal_run(
         backend_factory=backend_factory,
         prompt_record_builder=build_seed_prompt_records,
         prompt_source="builtin_seed",
+        require_unique_prompt_text=False,
     )
 
 
@@ -212,6 +214,7 @@ def generate_prompt_spec_multi_signal_run(
         backend_factory=backend_factory,
         prompt_record_builder=build_prompt_spec_records,
         prompt_source="production_spec",
+        require_unique_prompt_text=True,
     )
 
 
@@ -243,6 +246,7 @@ def _generate_multi_signal_run(
     backend_factory: BackendFactory | None,
     prompt_record_builder: Callable[..., list[dict[str, Any]]],
     prompt_source: str,
+    require_unique_prompt_text: bool,
 ) -> MultiSignalRunResult:
     if not isinstance(generation_run, str) or not generation_run.strip():
         raise ValueError("generation_run must be a non-empty string")
@@ -258,10 +262,18 @@ def _generate_multi_signal_run(
     _validate_positive_int(concurrency, "concurrency")
 
     signal_items = list(signal_counts.items())
+    prompt_records_by_signal = {
+        signal: prompt_record_builder(signal=signal, count=count, start_index=start_index)
+        for signal, count in signal_items
+    }
+    prompt_preflight = validate_prompt_preflight(
+        [record for records in prompt_records_by_signal.values() for record in records],
+        require_unique_prompt_text=require_unique_prompt_text,
+    )
 
     def run_signal(item: tuple[str, int]) -> DistillationRunResult:
-        signal, count = item
-        prompt_records = prompt_record_builder(signal=signal, count=count, start_index=start_index)
+        signal, _count = item
+        prompt_records = prompt_records_by_signal[signal]
         backend = backend_factory(signal) if backend_factory is not None else None
         return _generate_and_materialize_signal_batches(
             signal=signal,
@@ -285,6 +297,7 @@ def _generate_multi_signal_run(
             batch_size=normalized_batch_size,
             concurrency=concurrency,
             prompt_source=prompt_source,
+            require_unique_prompt_text=require_unique_prompt_text,
             backend=backend,
         )
 
@@ -316,6 +329,7 @@ def _generate_multi_signal_run(
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             "prompt_source": prompt_source,
+            "prompt_preflight": prompt_preflight.to_dict(),
         },
     )
 
@@ -388,9 +402,14 @@ def _generate_and_materialize_signal_batches(
     batch_size: int | None = None,
     concurrency: int = 1,
     prompt_source: str = "builtin_seed",
+    require_unique_prompt_text: bool = False,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
     prompt_records = list(prompt_records)
+    prompt_preflight = validate_prompt_preflight(
+        prompt_records,
+        require_unique_prompt_text=require_unique_prompt_text,
+    )
     maximum_batch_size = batch_size or len(prompt_records)
     batch_controller = AdaptiveBatchSizeController(
         maximum=maximum_batch_size,
@@ -534,6 +553,7 @@ def _generate_and_materialize_signal_batches(
             "batch_size": maximum_batch_size,
             "concurrency": concurrency,
             "prompt_source": prompt_source,
+            "prompt_preflight": prompt_preflight.to_dict(),
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             **batch_controller.snapshot(),

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from slm_synth.distillation.batches import TEACHER_BATCH_RESPONSE_SCHEMA, render_teacher_batch_prompt
+from slm_synth.distillation.prompt_quality import validate_prompt_preflight
 from slm_synth.distillation.runs import DistillationRunResult, materialize_teacher_batch
 from slm_synth.distillation.signals import validate_signal
 
@@ -126,6 +127,11 @@ def generate_and_materialize_signal_batch(
 ) -> DistillationRunResult:
     """Generate one signal batch with OpenRouter and write dataset + manifest."""
     normalized_signal = validate_signal(signal)
+    prompt_records = list(prompt_records)
+    prompt_preflight = validate_prompt_preflight(
+        prompt_records,
+        require_unique_prompt_text=False,
+    )
     active_backend = backend or build_openrouter_backend(
         model=teacher_model,
         max_tokens=max_tokens,
@@ -157,6 +163,7 @@ def generate_and_materialize_signal_batch(
         manifest_filename=manifest_filename,
         metadata={
             "prompt_count": len(prompt_records),
+            "prompt_preflight": prompt_preflight.to_dict(),
             "llm_telemetry": telemetry,
         },
     )

@@ -9,6 +9,7 @@ from slm_synth.distillation.orchestration import (
     normalize_signal_counts,
     normalize_signal_sequence,
 )
+from slm_synth.distillation.prompts import build_prompt_record
 
 
 class SignalAwareBackend:
@@ -182,7 +183,43 @@ def test_generate_prompt_spec_multi_signal_run_uses_production_prompt_specs(tmp_
     signal_manifest = json.loads((tmp_path / "manifests" / "arithmetic.target-001.manifest.json").read_text())
     run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
     assert signal_manifest["metadata"]["prompt_source"] == "production_spec"
+    assert signal_manifest["metadata"]["prompt_preflight"]["require_unique_prompt_text"] is True
+    assert signal_manifest["metadata"]["prompt_preflight"]["near_duplicate_prompt_count"] == 0
     assert run_manifest["metadata"]["prompt_source"] == "production_spec"
+    assert run_manifest["metadata"]["prompt_preflight"]["prompt_count"] == 2
+    assert run_manifest["metadata"]["prompt_preflight"]["require_unique_prompt_text"] is True
+
+
+def test_generate_prompt_spec_multi_signal_run_rejects_near_duplicate_prompts_before_backend_calls(
+    tmp_path, monkeypatch
+):
+    backend_calls = []
+
+    def duplicate_prompt_builder(*, signal, count, start_index=1):
+        return [
+            build_prompt_record(signal=signal, prompt="Explain autoscaling in one sentence.", index=start_index),
+            build_prompt_record(signal=signal, prompt=" explain   autoscaling in one sentence! ", index=start_index + 1),
+        ]
+
+    monkeypatch.setattr(
+        "slm_synth.distillation.orchestration.build_prompt_spec_records",
+        duplicate_prompt_builder,
+    )
+
+    with pytest.raises(ValueError, match="near-duplicate prompt text"):
+        generate_prompt_spec_multi_signal_run(
+            signals=["cloud"],
+            count_per_signal=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="target-001",
+            max_tokens=512,
+            backend_factory=lambda signal: backend_calls.append(signal) or PromptIdBackend(),
+        )
+
+    assert backend_calls == []
+    assert not (tmp_path / "datasets" / "cloud.jsonl").exists()
 
 
 def test_generate_seed_multi_signal_run_rejects_missing_count_strategy(tmp_path):
