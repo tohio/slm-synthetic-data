@@ -157,6 +157,11 @@ def _validate_response_ids(row_ids: list[str], *, expected_ids: Iterable[str] | 
     actual_set = set(row_ids)
     missing = sorted(expected_set - actual_set)
     unexpected = sorted(actual_set - expected_set)
+    if missing and unexpected:
+        raise ValueError(
+            f"SFT batch response missing expected id(s): {missing}; "
+            f"contains unexpected id(s): {unexpected}"
+        )
     if missing:
         raise ValueError(f"SFT batch response missing expected id(s): {missing}")
     if unexpected:

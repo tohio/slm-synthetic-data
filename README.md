@@ -2,6 +2,7 @@
 
 Synthetic dataset generation for the SLM training stack.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Overview
 
@@ -142,4 +143,4 @@ The repository is ready for the run ladder: smoke runs, validation checks, small
 
 ## License
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+MIT. See [LICENSE](LICENSE).

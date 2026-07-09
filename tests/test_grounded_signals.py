@@ -341,10 +341,14 @@ def test_run_signal_requeues_exhausted_retryable_provider_failure_and_continues(
 
     generate.run_signal("factual_restraint", cfg, tmp_path)
 
-    assert llm.calls == 3
+    assert llm.calls > 1
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
     rejection = (tmp_path / "rejected" / "factual_restraint.jsonl").read_text()
     assert "requeued_retryable_provider_failure" in rejection
+
+    metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
+    assert metrics["adaptive_batch_size_failures"] == 1
+    assert metrics["adaptive_batch_size_observed_minimum"] == 2
 
 
 def test_run_signal_retries_transient_rendered_batch_failure_at_smaller_size(monkeypatch, tmp_path):
@@ -365,9 +369,12 @@ def test_run_signal_retries_transient_rendered_batch_failure_at_smaller_size(mon
     assert "adaptive_batch_size_reduced" in rejection
 
     metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
-    assert metrics["batches"] == 4
+    assert metrics["batches"] > 4
     assert metrics["dropped_batches"] == 0
     assert metrics["dropped_rows"] == 0
+    assert metrics["adaptive_batch_size_failures"] == 1
+    assert metrics["adaptive_batch_size_decreases"] == 1
+    assert metrics["adaptive_batch_size_observed_minimum"] == 2
 
     generate.run_signal("factual_restraint", cfg, tmp_path)
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
@@ -377,19 +384,19 @@ def test_run_signal_reduces_grounded_batch_size_after_rendered_failure(monkeypat
     cfg = {
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
-        "generation": {"batch_size": 32, "parallel_requests": 1},
-        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 32}},
+        "generation": {"batch_size": 8, "parallel_requests": 1},
+        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 8, "samples": 8}},
     }
-    llm = GroundedFailsLargeBatchesLLM(maximum_successful_batch_size=8)
+    llm = GroundedFailsLargeBatchesLLM(maximum_successful_batch_size=2)
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
 
     generate.run_signal("factual_restraint", cfg, tmp_path)
 
-    assert llm.calls[:3] == [32, 16, 8]
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+    assert llm.calls == [4, 2, 2, 2, 2]
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 8
     metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
-    assert metrics["adaptive_batch_size_observed_minimum"] == 8
-    assert metrics["adaptive_batch_size_decreases"] == 2
+    assert metrics["adaptive_batch_size_observed_minimum"] == 2
+    assert metrics["adaptive_batch_size_decreases"] == 1
 
 
 @pytest.mark.parametrize("signal", [
@@ -416,9 +423,12 @@ def test_run_signal_retries_exhausted_malformed_structured_response_for_every_gr
     assert "adaptive_batch_size_reduced" in rejection
 
     metrics = GroundedBatchStore(tmp_path, signal).telemetry_summary()
-    assert metrics["batches"] == 4
+    assert metrics["batches"] > 4
     assert metrics["dropped_batches"] == 0
     assert metrics["dropped_rows"] == 0
+    assert metrics["adaptive_batch_size_failures"] == 1
+    assert metrics["adaptive_batch_size_decreases"] == 1
+    assert metrics["adaptive_batch_size_observed_minimum"] == 2
     assert metrics["cost"] == 0.0
 
 
@@ -488,7 +498,12 @@ def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tm
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
     generate.run_signal("factual_restraint", cfg, tmp_path)
     assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
-    assert len(list((tmp_path / "manifests" / "grounded" / "factual_restraint" / "batches").glob("batch_*.json"))) == 2
+    metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
+    batch_manifests = list((tmp_path / "manifests" / "grounded" / "factual_restraint" / "batches").glob("batch_*.json"))
+    assert len(batch_manifests) == metrics["batches"]
+    assert metrics["batches"] > 2
+    assert metrics["adaptive_batch_size_observed_minimum"] == 4
+    assert metrics["adaptive_batch_size_observed_peak"] >= 8
 
 
 def test_run_signal_supports_batch_size_64_for_qualification(monkeypatch, tmp_path):

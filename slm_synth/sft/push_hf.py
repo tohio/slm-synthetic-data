@@ -167,7 +167,9 @@ def push_sft_run(
             if not skip_manifests:
                 manifests = sorted((root / "manifests").glob("*.json")) if (root / "manifests").exists() else []
                 for manifest_path in manifests:
-                    if manifest_path.name.startswith(f"{family}.") or manifest_path.name == f"{root.name}.manifest.json":
+                    is_family_manifest = manifest_path.name.startswith(f"{family}.")
+                    is_run_manifest = manifest_path.name.endswith(".manifest.json") and ".batch" not in manifest_path.name
+                    if is_family_manifest or is_run_manifest:
                         upload_optional_file(
                             api,
                             repo_id=repo_id,

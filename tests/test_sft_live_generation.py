@@ -25,7 +25,7 @@ def _sft_spec():
             "template_family": "direct_qa",
             "eval_family": "basic_arithmetic_qa",
         },
-        "variables": {"a": 13, "b": 28},
+        "variables": {"a": 13, "b": 28, "answer": 41},
         "holdout_key": {"op": "add", "a": 13, "b": 28},
     }
 
