@@ -4,21 +4,14 @@ import os
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Optional
 
 import yaml
 from dotenv import load_dotenv
 
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
-from slm_synth.diversity import build_diversity_context
 from slm_synth.llm import LLMBackend
 from slm_synth.model_support import warn_if_unsupported_model
-from slm_synth.rate_limit import RateLimiter
-from slm_synth.pretrain.sources.arithmetic import ArithmeticGenerator
-from slm_synth.pretrain.sources.educational_qa_mcq_general import EducationalQAMCQGeneralGenerator
-from slm_synth.pretrain.sources.educational_qa_mcq_math import EducationalQAMCQMathGenerator
-from slm_synth.pretrain.sources.factual_restraint import FactualRestraintGenerator
-from slm_synth.pretrain.sources.task_code import TaskCodeGenerator
 from slm_synth.pretrain.writer import JSONLWriter
 from slm_synth.pretrain.grounded import (
     GroundedBatchStore,
@@ -29,13 +22,6 @@ from slm_synth.pretrain.grounded import (
 
 load_dotenv()
 
-GENERATOR_MAP = {
-    "arithmetic": ArithmeticGenerator,
-    "task_code": TaskCodeGenerator,
-    "educational_qa_mcq_math": EducationalQAMCQMathGenerator,
-    "educational_qa_mcq_general": EducationalQAMCQGeneralGenerator,
-    "factual_restraint": FactualRestraintGenerator,
-}
 
 MIN_GROUNDED_BATCH_SIZE = 1
 MAX_GROUNDED_BATCH_SIZE = 64
@@ -119,79 +105,6 @@ def build_llm(
         require_parameters=bool(base_cfg.get("require_parameters", True)),
         allow_fallbacks=bool(base_cfg.get("allow_fallbacks", False)),
     )
-
-
-def signal_sample_target(name: str, cfg: Dict[str, Any], signal_cfg: Dict[str, Any]) -> int:
-    generation_cfg = cfg.get("generation", {}) or {}
-
-    explicit_signal_samples = signal_cfg.get("samples")
-    if explicit_signal_samples is not None:
-        return int(explicit_signal_samples)
-
-    # Backward compatible escape hatch for tiny tests.
-    samples_per_signal = generation_cfg.get("samples_per_signal")
-    if samples_per_signal is not None and int(samples_per_signal) > 0:
-        share = float(signal_cfg.get("share", 1.0))
-        return max(1, int(int(samples_per_signal) * share))
-
-    target_tokens = int(cfg["target_total_tokens"])
-    share = float(signal_cfg.get("share", 0.0))
-    avg_tokens = int(signal_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 80)))
-    return max(1, int(target_tokens * share / avg_tokens))
-
-
-def generate_with_split(generator: Any, batch_size: int, min_batch_size: int) -> List[Dict[str, Any]]:
-    """
-    Generate a batch. If a larger batch fails after request-level retries,
-    split it recursively rather than aborting the whole signal.
-    """
-    original_batch_size = generator.batch_size
-    try:
-        generator.batch_size = batch_size
-        return generator.generate_batch()
-    except Exception:
-        if batch_size <= min_batch_size:
-            raise
-        left = max(min_batch_size, batch_size // 2)
-        right = batch_size - left
-        if right <= 0:
-            raise
-        return generate_with_split(generator, left, min_batch_size) + generate_with_split(
-            generator, right, min_batch_size
-        )
-    finally:
-        generator.batch_size = original_batch_size
-
-
-def submit_next(
-    executor: ThreadPoolExecutor,
-    GenClass: Any,
-    candidate_llm: LLMBackend,
-    response_llm: LLMBackend,
-    prompt_file: Optional[str],
-    batch_size: int,
-    min_batch_size: int,
-    signal_name: str,
-    batch_id: int,
-    diversity_enabled: bool,
-):
-    diversity_context = build_diversity_context(signal_name, batch_id) if diversity_enabled else ""
-    generator = GenClass(
-        candidate_llm,
-        response_llm=response_llm,
-        prompt_file=prompt_file,
-        batch_size=batch_size,
-        diversity_context=diversity_context,
-    )
-    return executor.submit(generate_with_split, generator, batch_size, min_batch_size)
-
-
-
-
-def _submit_delay(rate_limiter: RateLimiter) -> None:
-    # Small launch pacing prevents synchronized bursts across worker threads.
-    # Request-level backoff in LLMBackend handles 429/498/5xx after submission.
-    rate_limiter.sleep_with_jitter()
 
 
 def _grounded_token_target(cfg: Dict[str, Any], mix_cfg: Dict[str, Any]) -> int:
@@ -475,108 +388,13 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
 
 def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
     mix_cfg = cfg["mix"][name]
-    if mix_cfg.get("architecture") == "grounded":
-        run_grounded_signal(name, cfg, output_dir)
-        return
-    generation_cfg = cfg.get("generation", {}) or {}
-    backend_cfg = cfg.get("backend", {}) or {}
-    rate_cfg = cfg.get("rate_limit", {}) or {}
-    rate_limiter = RateLimiter(cfg)
-
-    batch_size = int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 1)))
-    min_batch_size = int(mix_cfg.get("min_batch_size", generation_cfg.get("min_batch_size", 1)))
-    parallel_requests = int(
-        mix_cfg.get(
-            "parallel_requests",
-            backend_cfg.get("parallel_requests", rate_cfg.get("max_concurrency", 1)),
+    architecture = mix_cfg.get("architecture")
+    if architecture != "grounded":
+        raise ValueError(
+            "Pretrain generation only supports grounded architecture. "
+            f"Signal {name!r} has architecture={architecture!r}; set mix.{name}.architecture to 'grounded'."
         )
-    )
-    max_rejected_batches = int(
-        mix_cfg.get("max_rejected_batches", generation_cfg.get("max_rejected_batches", 1000))
-    )
-    prompt_file = mix_cfg.get("prompt_file")
-    diversity_cfg = generation_cfg.get("diversity", {}) or {}
-    diversity_enabled = bool(mix_cfg.get("diversity_enabled", diversity_cfg.get("enabled", True)))
-    samples = signal_sample_target(name, cfg, mix_cfg)
-
-    candidate_llm = build_llm(backend_cfg, mix_cfg, role="candidate")
-    response_llm = build_llm(backend_cfg, mix_cfg, role="response")
-
-    print(
-        f"[generate] Starting signal: {name} "
-        f"({samples} samples, batch_size={batch_size}, parallel_requests={parallel_requests}, diversity={diversity_enabled}, "
-        f"candidate_model={candidate_llm.model}, response_model={response_llm.model})"
-    )
-
-    raw_path = output_dir / "raw" / f"{name}.jsonl"
-    rejected_path = output_dir / "rejected" / f"{name}.jsonl"
-
-    writer = JSONLWriter(raw_path)
-    reject_writer = JSONLWriter(rejected_path)
-
-    GenClass = GENERATOR_MAP[name]
-
-    generated = 0
-    rejected_batches = 0
-    submitted = 0
-    pending = set()
-
-    try:
-        with ThreadPoolExecutor(max_workers=max(1, parallel_requests)) as executor:
-            while len(pending) < parallel_requests and submitted * batch_size < samples:
-                _submit_delay(rate_limiter)
-                pending.add(submit_next(executor, GenClass, candidate_llm, response_llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled))
-                submitted += 1
-
-            last_log = time.time()
-            while pending and generated < samples:
-                done, pending = wait(pending, return_when=FIRST_COMPLETED)
-
-                for future in done:
-                    try:
-                        batch = future.result()
-                        for obj in batch:
-                            if generated >= samples:
-                                break
-                            writer.write(obj)
-                            generated += 1
-                    except Exception as exc:
-                        rejected_batches += 1
-                        reject_writer.write(
-                            {
-                                "signal": name,
-                                "batch_size": batch_size,
-                                "error": str(exc),
-                            }
-                        )
-                        print(f"[generate] ERROR in {name}: {exc}")
-                        if rejected_batches >= max_rejected_batches:
-                            raise RuntimeError(
-                                f"Too many rejected batches in '{name}' ({rejected_batches})."
-                            ) from exc
-
-                    while len(pending) < parallel_requests and generated + len(pending) * batch_size < samples:
-                        _submit_delay(rate_limiter)
-                        pending.add(
-                            submit_next(executor, GenClass, candidate_llm, response_llm, prompt_file, batch_size, min_batch_size, name, submitted, diversity_enabled)
-                        )
-                        submitted += 1
-
-                now = time.time()
-                if generated % 100 == 0 or now - last_log >= 10:
-                    print(
-                        f"[generate] {name}: {generated}/{samples} "
-                        f"accepted, rejected_batches={rejected_batches}"
-                    )
-                    last_log = now
-    finally:
-        writer.close()
-        reject_writer.close()
-
-    print(
-        f"[generate] Completed signal: {name} "
-        f"accepted={generated}, rejected_batches={rejected_batches}"
-    )
+    run_grounded_signal(name, cfg, output_dir)
 
 
 def main(config_path: str, signal_override: Optional[str] = None) -> None:

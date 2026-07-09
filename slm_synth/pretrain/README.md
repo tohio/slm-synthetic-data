@@ -11,7 +11,6 @@ It does not produce SFT chat rows, DPO preference pairs, response-distillation r
 ```text
 pretrain/
 ├── artifacts/              # deterministic grounded source objects
-├── sources/                # renderers that turn artifacts into promptable records
 ├── generate.py             # live generation orchestration
 ├── grounded.py             # grounded batch rendering and persistence
 ├── validate.py             # raw-to-validated record validation
@@ -31,7 +30,6 @@ pretrain/
 | `grounded.py` | Builds grounded prompts and writes intermediate generation artifacts. |
 | `schemas.py` | Shared record schemas for pretraining data flow. |
 | `writer.py` | JSONL output helpers. |
-| `repair.py` | Local repair helpers for recoverable malformed records. |
 
 ## How It Fits In
 
@@ -39,4 +37,4 @@ Pretraining outputs are consumed downstream as synthetic text records for contin
 
 ## Conventions
 
-Pretraining signals are grounded in deterministic local artifacts before provider calls. Source records and internal metadata are used for validation and reporting; downstream public artifacts contain validated text records and separate manifests.
+Pretraining signals are grounded in deterministic local artifacts before provider calls. `grounded.py` renders artifacts into structured provider prompts, validates rendered records, and persists batch manifests for resume/reporting. Downstream public artifacts contain validated text records and separate manifests.

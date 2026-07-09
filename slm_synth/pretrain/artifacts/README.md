@@ -22,8 +22,8 @@ artifacts/
 
 ## How It Fits In
 
-`slm_synth/pretrain/sources/` renders these artifacts into generation records. Preflight and report commands inspect this folder to catch duplicate or low-quality source material before provider calls.
+`slm_synth/pretrain/grounded.py` renders these artifacts into provider prompts and validates returned records. Preflight and report commands inspect this folder to catch duplicate or low-quality source material before provider calls.
 
 ## Conventions
 
-Artifacts should be deterministic, inspectable, and cheap to validate locally. Add provider-facing rendering logic under `pretrain/sources/`, not here.
+Artifacts should be deterministic, inspectable, and cheap to validate locally. Keep provider-facing rendering logic in `pretrain/grounded.py`, not here.
