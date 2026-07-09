@@ -2,8 +2,6 @@
 
 Synthetic dataset generation for the SLM training stack.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
 ## Overview
 
 This repository generates synthetic datasets for pretraining, supervised fine-tuning, preference tuning, and distillation workflows in the SLM stack. It owns data creation, validation, manifests, coverage reports, dataset cards, and Hugging Face publishing helpers. It does not train models, run trained-model evals, create checkpoints, export models, or produce logits artifacts.
@@ -143,4 +141,4 @@ The repository is ready for the run ladder: smoke runs, validation checks, small
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
