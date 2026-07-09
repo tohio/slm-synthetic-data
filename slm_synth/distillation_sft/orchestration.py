@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from slm_synth.accepted_target import accepted_target_metadata
+from slm_synth.accepted_target import accepted_target_metadata, raise_for_underfilled_manifest
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.distillation_sft.generation import (
     StructuredTeacherBackend,
@@ -354,6 +354,7 @@ def _generate_multi_signal_run(
             start_index=start_index,
             max_backfill_rounds=max_backfill_rounds,
             backend=backend,
+            raise_on_underfill=False,
         )
 
     results = [run_signal(item) for item in signal_items]
@@ -423,6 +424,7 @@ def _generate_multi_signal_run(
             "llm_telemetry": llm_telemetry,
         },
     )
+    raise_for_underfilled_manifest(run_manifest_path, artifact_name="distillation-sft")
 
     return MultiSignalRunResult(
         generation_run=generation_run,
@@ -543,6 +545,7 @@ def _generate_and_materialize_signal_batches(
     start_index: int = 1,
     max_backfill_rounds: int = 2,
     backend: StructuredTeacherBackend | None = None,
+    raise_on_underfill: bool = True,
 ) -> DistillationRunResult:
     initial_prompt_records = list(prompt_records)
     if not initial_prompt_records:
@@ -772,6 +775,8 @@ def _generate_and_materialize_signal_batches(
             "batch_manifests": [str(result.manifest_path) for result in batch_results],
         },
     )
+    if raise_on_underfill:
+        raise_for_underfilled_manifest(manifest_path, artifact_name=f"distillation-sft signal {signal}")
     print(
         "[generate] Completed distillation signal: "
         f"{signal} rows={row_count}, target_rows={target_row_count}, "

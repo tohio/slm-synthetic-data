@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.distillation_dpo.card import write_dataset_card
 from slm_synth.distillation_dpo.io import read_jsonl
 from slm_synth.distillation_dpo.push_hf import (
@@ -221,3 +222,42 @@ def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():
     assert "materialize-production-run" in block
     assert "--target-pairs $(DISTILLATION_DPO_TARGET_PAIRS)" in block
     assert "slm_synth.dpo" not in block
+
+
+def test_distillation_dpo_seed_run_fails_underfilled_after_backfill_budget(tmp_path, monkeypatch):
+    def build_bad_rows(*, family, count, start_index):
+        rows = []
+        for offset in range(count):
+            row = _row(f"bad-{start_index + offset:06d}")
+            row["chosen"] = [{"role": "assistant", "content": "same answer"}]
+            row["rejected"] = [{"role": "assistant", "content": "same answer"}]
+            rows.append(row)
+        return rows
+
+    monkeypatch.setattr("slm_synth.distillation_dpo.runs.build_seed_rows", build_bad_rows)
+
+    with pytest.raises(UnderfilledRunError, match="distillation-dpo.*underfilled.*remaining=2"):
+        materialize_seed_run(
+            families=["teacher_response_preference"],
+            count_per_family=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="deepseek/deepseek-v4-flash",
+            generation_run="distillation-dpo-underfilled-001",
+            max_backfill_rounds=0,
+        )
+
+    family_manifest_path = (
+        tmp_path
+        / "manifests"
+        / "teacher_response_preference.distillation-dpo-underfilled-001.manifest.json"
+    )
+    family_manifest = json.loads(family_manifest_path.read_text())
+    run_manifest = json.loads((tmp_path / "manifests" / "distillation-dpo-underfilled-001.manifest.json").read_text())
+    assert family_manifest["metadata"]["generation_status"] == "underfilled"
+    assert family_manifest["metadata"]["failure_status"] == "failed"
+    assert family_manifest["metadata"]["run_failed"] is True
+    assert run_manifest["metadata"]["generation_status"] == "underfilled"
+    assert run_manifest["metadata"]["failure_status"] == "failed"
+    assert run_manifest["metadata"]["run_failed"] is True
+    assert run_manifest["metadata"]["remaining_pairs"] == 2

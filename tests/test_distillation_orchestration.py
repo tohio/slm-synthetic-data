@@ -3,6 +3,7 @@ import re
 
 import pytest
 
+from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.distillation_sft.orchestration import (
     generate_prompt_spec_multi_signal_run,
     generate_seed_multi_signal_run,
@@ -495,25 +496,29 @@ def test_generate_prompt_spec_multi_signal_run_backfills_response_rejections(tmp
     assert run_manifest["metadata"]["rejection_reasons"] == {"too_short_response": 1}
 
 
-def test_generate_prompt_spec_multi_signal_run_records_underfill_when_backfill_budget_is_zero(tmp_path):
-    result = generate_prompt_spec_multi_signal_run(
-        signals=["cloud"],
-        target_rows=2,
-        output_dir=tmp_path / "datasets",
-        manifest_dir=tmp_path / "manifests",
-        teacher_model="openai/gpt-4.1-mini",
-        generation_run="target-001",
-        max_tokens=512,
-        max_backfill_rounds=0,
-        backend_factory=lambda signal: OneRejectedCloudBackend(),
-    )
+def test_generate_prompt_spec_multi_signal_run_fails_underfill_when_backfill_budget_is_zero(tmp_path):
+    with pytest.raises(UnderfilledRunError, match="distillation-sft.*underfilled.*remaining=1"):
+        generate_prompt_spec_multi_signal_run(
+            signals=["cloud"],
+            target_rows=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="target-001",
+            max_tokens=512,
+            max_backfill_rounds=0,
+            backend_factory=lambda signal: OneRejectedCloudBackend(),
+        )
 
-    assert result.row_count == 1
     signal_manifest = json.loads((tmp_path / "manifests" / "cloud.target-001.manifest.json").read_text())
     run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
     assert signal_manifest["metadata"]["remaining_rows"] == 1
     assert signal_manifest["metadata"]["generation_status"] == "underfilled"
     assert signal_manifest["metadata"]["publish_ready"] is False
+    assert signal_manifest["metadata"]["failure_status"] == "failed"
+    assert signal_manifest["metadata"]["run_failed"] is True
     assert run_manifest["metadata"]["remaining_rows"] == 1
     assert run_manifest["metadata"]["generation_status"] == "underfilled"
     assert run_manifest["metadata"]["publish_ready"] is False
+    assert run_manifest["metadata"]["failure_status"] == "failed"
+    assert run_manifest["metadata"]["run_failed"] is True

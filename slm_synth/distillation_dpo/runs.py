@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from slm_synth.accepted_target import accepted_target_metadata
+from slm_synth.accepted_target import accepted_target_metadata, raise_for_underfilled_manifest
 from slm_synth.distillation_dpo.io import write_family_dataset, write_manifest, write_run_manifest
 from slm_synth.distillation_dpo.pair_quality import (
     PairQualitySummary,
@@ -110,6 +110,7 @@ def materialize_seed_dataset(
     dataset_filename: str | None = None,
     manifest_filename: str | None = None,
     max_backfill_rounds: int = 2,
+    raise_on_underfill: bool = True,
 ) -> DistillationDPOFamilyResult:
     """Materialize one smoke/control distillation-DPO family dataset."""
     normalized_family = validate_family(family)
@@ -140,6 +141,7 @@ def materialize_seed_dataset(
         dataset_filename=dataset_filename,
         manifest_filename=manifest_filename,
         metadata={"generation_mode": "seed_controlled_weak"},
+        raise_on_underfill=raise_on_underfill,
     )
 
 
@@ -156,6 +158,7 @@ def materialize_production_dataset(
     dataset_filename: str | None = None,
     manifest_filename: str | None = None,
     max_backfill_rounds: int = 2,
+    raise_on_underfill: bool = True,
 ) -> DistillationDPOFamilyResult:
     """Materialize one production distillation-DPO family dataset."""
     normalized_family = validate_family(family)
@@ -186,6 +189,7 @@ def materialize_production_dataset(
         dataset_filename=dataset_filename,
         manifest_filename=manifest_filename,
         metadata={"generation_mode": "production_controlled_weak"},
+        raise_on_underfill=raise_on_underfill,
     )
 
 
@@ -220,6 +224,7 @@ def materialize_seed_run(
                 token_target=token_target,
                 start_index=start_index,
                 max_backfill_rounds=max_backfill_rounds,
+                raise_on_underfill=False,
             )
         )
 
@@ -268,6 +273,7 @@ def materialize_production_run(
                 generation_run=generation_run,
                 start_index=start_index,
                 max_backfill_rounds=max_backfill_rounds,
+                raise_on_underfill=False,
             )
         )
 
@@ -347,6 +353,7 @@ def _materialize_family_dataset(
     metadata: Mapping[str, Any],
     dataset_filename: str | None,
     manifest_filename: str | None,
+    raise_on_underfill: bool = True,
 ) -> DistillationDPOFamilyResult:
     dataset_path = write_family_dataset(
         family=family,
@@ -378,6 +385,8 @@ def _materialize_family_dataset(
         token_target=token_target,
         metadata=manifest_metadata,
     )
+    if raise_on_underfill:
+        raise_for_underfilled_manifest(manifest_path, artifact_name=f"distillation-dpo family {family}")
     return DistillationDPOFamilyResult(
         family=family,
         dataset_path=dataset_path,
@@ -444,6 +453,7 @@ def _write_run_result(
         ),
         metadata=manifest_metadata,
     )
+    raise_for_underfilled_manifest(manifest_path, artifact_name="distillation-dpo")
     return DistillationDPORunResult(
         generation_run=generation_run,
         results=tuple(results),

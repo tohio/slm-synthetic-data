@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from slm_synth.accepted_target import accepted_target_metadata
+from slm_synth.accepted_target import accepted_target_metadata, raise_for_underfilled_manifest
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.planning import build_count_plan
 from slm_synth.sft.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
@@ -466,6 +466,7 @@ def generate_llm_run(
             **dict(metadata or {}),
         },
     )
+    raise_for_underfilled_manifest(run_manifest_path, artifact_name="SFT")
 
     return SFTLLMRunResult(
         results=tuple(results),

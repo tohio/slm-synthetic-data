@@ -3,8 +3,10 @@ import json
 import pytest
 
 from slm_synth.accepted_target import (
+    UnderfilledRunError,
     accepted_target_metadata,
     discover_run_manifest,
+    raise_for_underfilled_manifest,
     require_publish_ready_manifest,
 )
 
@@ -51,6 +53,31 @@ def test_accepted_target_metadata_marks_underfilled_run_not_publish_ready():
     assert metadata["remaining_pairs"] == 2
     assert metadata["accepted_target"]["remaining"] == 2
     assert metadata["accepted_target"]["backfill_budget_exhausted"] is True
+    assert metadata["failure_status"] == "failed"
+    assert metadata["failure_reason"] == "accepted_target_underfilled"
+    assert metadata["run_failed"] is True
+
+
+def test_raise_for_underfilled_manifest_raises_after_manifest_is_written(tmp_path):
+    manifest_path = tmp_path / "run.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "metadata": accepted_target_metadata(
+                    unit="rows",
+                    target_count=3,
+                    accepted_count=2,
+                    attempted_count=4,
+                    max_backfill_rounds=1,
+                    backfill_rounds=1,
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(UnderfilledRunError, match="underfilled.*remaining=1.*accepted=2 target=3"):
+        raise_for_underfilled_manifest(manifest_path, artifact_name="SFT")
 
 
 def test_require_publish_ready_manifest_rejects_underfilled_run(tmp_path):

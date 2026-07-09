@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.sft.runs import generate_llm_run, resolve_spec_families
 
 
@@ -221,3 +222,44 @@ def test_generate_sft_llm_run_rejects_multiple_planning_strategies(tmp_path):
             max_tokens=1024,
             backend=FakeSFTBackend(),
         )
+
+
+def test_generate_sft_llm_run_fails_when_public_rows_underfill_after_budget(tmp_path, monkeypatch):
+    def write_underfilled_public_family_files(*, jobs, output_dir):
+        dataset_path = output_dir / "basic_arithmetic_qa.jsonl"
+        dataset_path.parent.mkdir(parents=True, exist_ok=True)
+        dataset_path.write_text("", encoding="utf-8")
+        return [
+            {
+                "family": "basic_arithmetic_qa",
+                "dataset_path": dataset_path,
+                "row_count": 1,
+                "batch_count": len(jobs),
+                "batch_manifests": [job["result"].manifest_path for job in jobs],
+            }
+        ]
+
+    monkeypatch.setattr(
+        "slm_synth.sft.runs._write_public_family_files",
+        write_underfilled_public_family_files,
+    )
+
+    with pytest.raises(UnderfilledRunError, match="SFT.*underfilled.*remaining=1"):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=2,
+            batch_size=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-underfilled-001",
+            max_tokens=1024,
+            max_backfill_rounds=0,
+            backend=FakeSFTBackend(),
+        )
+
+    manifest = json.loads((tmp_path / "manifests" / "sft-underfilled-001.manifest.json").read_text())
+    assert manifest["metadata"]["generation_status"] == "underfilled"
+    assert manifest["metadata"]["failure_status"] == "failed"
+    assert manifest["metadata"]["run_failed"] is True
+    assert manifest["metadata"]["remaining_rows"] == 1

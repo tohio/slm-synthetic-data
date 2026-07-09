@@ -8,6 +8,12 @@ from typing import Any
 
 COMPLETE_STATUS = "complete"
 UNDERFILLED_STATUS = "underfilled"
+FAILED_STATUS = "failed"
+UNDERFILLED_FAILURE_REASON = "accepted_target_underfilled"
+
+
+class UnderfilledRunError(RuntimeError):
+    """Raised after an artifact run writes an underfilled manifest."""
 
 
 def accepted_target_metadata(
@@ -54,7 +60,59 @@ def accepted_target_metadata(
             "backfill_budget_exhausted": budget_exhausted,
         },
     }
+    if not publish_ready:
+        payload.update(
+            {
+                "failure_status": FAILED_STATUS,
+                "failure_reason": UNDERFILLED_FAILURE_REASON,
+                "run_failed": True,
+            }
+        )
     return payload
+
+
+def raise_for_underfilled_manifest(manifest_path: str | Path, *, artifact_name: str) -> None:
+    """Raise after writing a final run manifest if the accepted target was not reached."""
+    path = Path(manifest_path)
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{artifact_name} manifest must contain a JSON object: {path}")
+    metadata = manifest.get("metadata", {})
+    if not isinstance(metadata, dict):
+        return
+
+    accepted_target = metadata.get("accepted_target")
+    generation_status = metadata.get("generation_status")
+    publish_ready = metadata.get("publish_ready")
+    run_failed = metadata.get("run_failed") is True
+
+    underfilled = generation_status == UNDERFILLED_STATUS or publish_ready is False or run_failed
+    remaining: Any = None
+    target: Any = None
+    accepted: Any = None
+    unit: Any = None
+    if isinstance(accepted_target, dict):
+        underfilled = underfilled or accepted_target.get("status") == UNDERFILLED_STATUS
+        underfilled = underfilled or accepted_target.get("publish_ready") is False
+        remaining = accepted_target.get("remaining")
+        target = accepted_target.get("target")
+        accepted = accepted_target.get("accepted")
+        unit = accepted_target.get("unit")
+
+    if not underfilled:
+        return
+
+    suffix = ""
+    if isinstance(remaining, int):
+        suffix += f" remaining={remaining}"
+    if isinstance(accepted, int) and isinstance(target, int):
+        suffix += f" accepted={accepted} target={target}"
+    if isinstance(unit, str):
+        suffix += f" unit={unit}"
+    raise UnderfilledRunError(
+        f"{artifact_name} run is underfilled after retry/backfill budget: {path}{suffix}. "
+        "The manifest is marked underfilled/failed; resume or rerun before publishing."
+    )
 
 
 def require_publish_ready_manifest(manifest_path: str | Path, *, artifact_name: str) -> None:
@@ -76,7 +134,11 @@ def require_publish_ready_manifest(manifest_path: str | Path, *, artifact_name: 
     if isinstance(accepted_target, dict):
         underfilled = accepted_target.get("status") == UNDERFILLED_STATUS or accepted_target.get("publish_ready") is False
         remaining = accepted_target.get("remaining")
-    if generation_status == UNDERFILLED_STATUS or publish_ready is False:
+    if (
+        generation_status in {UNDERFILLED_STATUS, FAILED_STATUS}
+        or publish_ready is False
+        or metadata.get("run_failed") is True
+    ):
         underfilled = True
 
     if underfilled:
