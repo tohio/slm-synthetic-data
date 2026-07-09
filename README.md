@@ -12,7 +12,7 @@ This repository generates synthetic datasets for pretraining, supervised fine-tu
 
 ![Architecture](docs/architecture.png)
 
-OpenRouter-backed generation flows through `slm_synth/llm.py` for provider calls, retries, routing, structured outputs, and telemetry. Dataset-specific packages own their public row contracts, reports, and push surfaces. Pretraining uses grounded artifact/source builders; SFT, DPO, and distillation SFT use structured provider generation; distillation DPO uses deterministic teacher-quality versus controlled-weak preference builders.
+OpenRouter-backed generation flows through `slm_synth/llm.py` for provider calls, retries, routing, structured outputs, and telemetry. Dataset-specific packages own their public row contracts, reports, and push surfaces. Pretraining uses grounded artifact builders; SFT, DPO, and distillation SFT use structured provider generation; distillation DPO uses deterministic teacher-quality versus controlled-weak preference builders.
 
 ## Features
 
@@ -50,47 +50,67 @@ OPENROUTER_API_KEY=...
 HF_TOKEN=...
 ```
 
-The default live model is configured by `MODEL`:
+The default live model is configured by `MODEL` and can be overridden on generation commands:
 
 ```bash
 MODEL=openai/gpt-4.1-mini
 ```
 
-### Usage
+### Smoke Run
 
-Print the command surface:
-
-```bash
-make help
-```
-
-Run smoke jobs before any larger target run:
+Run a cheap SFT smoke job before any paid target run:
 
 ```bash
-make pretrain-smoke
 make sft-smoke
-make dpo-smoke
-make distillation-sft-smoke
-make distillation-dpo-smoke
+make sft-inspect SFT_INSPECT_RUN=sft-smoke-001
 ```
 
-Inspect generated public artifacts:
+### Small Generation Run
+
+Use a small target override before production:
 
 ```bash
-make pretrain-inspect
-make sft-inspect
-make dpo-inspect
-make distillation-sft-inspect
-make distillation-dpo-inspect
+SFT_TARGET_ROWS=100 SFT_TARGET_RUN=sft-small-001 make sft-generate
 ```
+
+Inspect the generated public rows and run manifest:
+
+```bash
+make sft-inspect SFT_INSPECT_RUN=sft-small-001
+make sft-report SFT_REPORT_RUN=sft-small-001
+```
+
+Generated files are written under:
+
+```text
+data/sft/runs/sft-small-001/
+  datasets/    public JSONL files
+  manifests/   run and batch manifests
+  batches/     internal batch shards
+```
+
+### Production Run
+
+After smoke and small-scale outputs pass inspection, run the full SFT target:
+
+```bash
+SFT_TARGET_ROWS=14000 SFT_TARGET_RUN=sft-prod-001 make sft-generate
+```
+
+Push only after inspecting the public dataset files and manifests:
+
+```bash
+make sft-push SFT_PUSH_RUN=sft-prod-001
+```
+
+For end-to-end workflows across every generation surface, see `docs/GENERATION_WORKFLOW.md`. For Make target details, see `docs/COMMANDS.md`.
 
 ## Project Structure
 
 ```text
 .
 ├── configs/             # generation config templates and helpers
-├── docs/                # command, dataset, disk, and architecture docs
-├── prompts/             # pretraining prompt templates
+├── docs/                # workflow, command, dataset, disk, and architecture docs
 ├── slm_synth/           # Python package for generation and publishing
 ├── tests/               # unit and integration tests
 ├── Makefile             # supported command surface
@@ -101,7 +121,7 @@ Important package folders have their own READMEs under `slm_synth/`.
 
 ## Documentation
 
-See `docs/README.md` for command reference, dataset contracts, and setup notes.
+See `docs/README.md` for the documentation index.
 
 ## Testing
 

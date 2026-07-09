@@ -1,8 +1,8 @@
 # Command Reference
 
-Reference for the supported Make command surface and run ladder.
+Lookup reference for supported Make targets and common variables. For end-to-end run order across all generation surfaces, see `GENERATION_WORKFLOW.md`.
 
-## Workflows
+## Command Groups
 
 | Workflow | Smoke Run | Target Run | Inspect | Push |
 |---|---|---|---|---|
@@ -13,45 +13,6 @@ Reference for the supported Make command surface and run ladder.
 | Distillation DPO | `make distillation-dpo-smoke` | `make distillation-dpo-generate` | `make distillation-dpo-inspect` | `make distillation-dpo-push` |
 
 Run `make help` to print the command surface from the Makefile.
-
-## Run Ladder
-
-Use the same order for every active artifact family:
-
-1. Run smoke jobs.
-2. Inspect public rows, pairs, manifests, telemetry, and public-directory hygiene.
-3. Run small-scale target overrides.
-4. Run full production only after earlier outputs pass inspection.
-
-Smoke jobs:
-
-```bash
-make pretrain-smoke
-make sft-smoke
-make dpo-smoke
-make distillation-sft-smoke
-make distillation-dpo-smoke
-```
-
-Inspect smoke outputs:
-
-```bash
-make pretrain-inspect
-make sft-inspect
-make dpo-inspect
-make distillation-sft-inspect
-make distillation-dpo-inspect
-```
-
-Small-scale target overrides:
-
-```bash
-PRETRAIN_TARGET_TOKENS=100000 make pretrain-generate
-SFT_TARGET_ROWS=200 make sft-generate
-DPO_TARGET_PAIRS=200 make dpo-generate
-DISTILLATION_SFT_TARGET_ROWS=200 make distillation-sft-generate
-DISTILLATION_DPO_TARGET_PAIRS=200 make distillation-dpo-generate
-```
 
 ## Shared Live-Generation Variables
 

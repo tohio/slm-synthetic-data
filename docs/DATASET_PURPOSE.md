@@ -132,5 +132,6 @@ SFT and DPO also keep `SFT_COUNT_PER_FAMILY` and `DPO_COUNT_PER_FAMILY` as expli
 
 ## See Also
 
-- `COMMANDS.md` for Make targets and run ladder commands.
+- `GENERATION_WORKFLOW.md` for the end-to-end run ladder.
+- `COMMANDS.md` for Make targets and common variables.
 - `../slm_synth/README.md` for package layout.
