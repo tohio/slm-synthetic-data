@@ -52,6 +52,7 @@ DISTILLATION_SFT_SIGNALS_ARG := $(if $(filter all,$(DISTILLATION_SFT_SIGNALS)),,
 DISTILLATION_SFT_INITIAL_CONCURRENCY ?= 8
 DISTILLATION_SFT_INITIAL_BATCH_SIZE ?= 4
 DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES ?= 4
+DISTILLATION_SFT_MAX_BACKFILL_ROUNDS ?= 2
 DISTILLATION_SFT_RUN_ROOT ?= data/distillation/runs
 DISTILLATION_SFT_MODEL ?= $(MODEL)
 DISTILLATION_SFT_MAX_TOKENS ?= 4096
@@ -71,6 +72,7 @@ DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY ?= 2
 DISTILLATION_DPO_RUN_ROOT ?= data/distillation-dpo/runs
 DISTILLATION_DPO_MODEL ?= $(MODEL)
 DISTILLATION_DPO_DATASET_NAME ?= SLM Synthetic Distillation DPO
+DISTILLATION_DPO_MAX_BACKFILL_ROUNDS ?= 2
 DISTILLATION_DPO_PUSH_RUN ?= $(DISTILLATION_DPO_REPORT_RUN)
 DISTILLATION_DPO_HF_NAMESPACE ?= $(HF_NAMESPACE)
 DISTILLATION_DPO_HF_PREFIX ?= distillation-dpo
@@ -95,6 +97,7 @@ SFT_MODEL ?= $(MODEL)
 SFT_INITIAL_CONCURRENCY ?= 8
 SFT_INITIAL_BATCH_SIZE ?= 4
 SFT_BATCH_INCREASE_SUCCESSES ?= 4
+SFT_MAX_BACKFILL_ROUNDS ?= 2
 SFT_MAX_TOKENS ?= 4096
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(HF_REPO)
@@ -121,6 +124,7 @@ DPO_MODEL ?= $(MODEL)
 DPO_INITIAL_CONCURRENCY ?= 8
 DPO_INITIAL_BATCH_SIZE ?= 4
 DPO_BATCH_INCREASE_SUCCESSES ?= 4
+DPO_MAX_BACKFILL_ROUNDS ?= 2
 DPO_MAX_TOKENS ?= 4096
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(HF_REPO)
@@ -263,7 +267,8 @@ distillation-sft-smoke:
 >   --concurrency $(DISTILLATION_SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES)
+>   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES) \
+>   --max-backfill-rounds $(DISTILLATION_SFT_MAX_BACKFILL_ROUNDS)
 > $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_RUN)
 
 distillation-sft-generate:
@@ -280,7 +285,8 @@ distillation-sft-generate:
 >   --concurrency $(DISTILLATION_SFT_TARGET_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES)
+>   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES) \
+>   --max-backfill-rounds $(DISTILLATION_SFT_MAX_BACKFILL_ROUNDS)
 > $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_TARGET_RUN)
 
 distillation-sft-report:
@@ -312,7 +318,8 @@ distillation-dpo-smoke:
 >   --output-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_RUN)/datasets \
 >   --manifest-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_RUN)/manifests \
 >   --teacher-model $(DISTILLATION_DPO_MODEL) \
->   --generation-run $(DISTILLATION_DPO_RUN)
+>   --generation-run $(DISTILLATION_DPO_RUN) \
+>   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS)
 > $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_RUN)
 
 distillation-dpo-generate:
@@ -322,7 +329,8 @@ distillation-dpo-generate:
 >   --output-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_TARGET_RUN)/datasets \
 >   --manifest-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_TARGET_RUN)/manifests \
 >   --teacher-model $(DISTILLATION_DPO_MODEL) \
->   --generation-run $(DISTILLATION_DPO_TARGET_RUN)
+>   --generation-run $(DISTILLATION_DPO_TARGET_RUN) \
+>   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS)
 > $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_TARGET_RUN)
 
 distillation-dpo-report:
@@ -361,7 +369,8 @@ sft-smoke:
 >   --concurrency $(SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES)
+>   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
+>   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
@@ -378,7 +387,8 @@ sft-generate:
 >   --concurrency $(SFT_TARGET_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES)
+>   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
+>   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_TARGET_RUN)
 
 sft-report:
@@ -413,7 +423,8 @@ dpo-smoke:
 >   --concurrency $(DPO_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
+>   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES) \
+>   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_RUN)
 
 dpo-generate:
@@ -430,7 +441,8 @@ dpo-generate:
 >   --concurrency $(DPO_TARGET_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
+>   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES) \
+>   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_TARGET_RUN)
 
 dpo-report:

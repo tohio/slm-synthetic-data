@@ -194,6 +194,7 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
+        max_backfill_rounds=args.max_backfill_rounds,
         **_openrouter_routing_kwargs(args),
     )
     signals_text = ", ".join(result.signals)
@@ -233,6 +234,7 @@ def cmd_generate_production_run(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
+        max_backfill_rounds=args.max_backfill_rounds,
         **_openrouter_routing_kwargs(args),
     )
     signals_text = ", ".join(result.signals)
@@ -364,6 +366,7 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--batch-size", type=int, default=None)
     seed_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
+    seed_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     seed_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     seed_run_parser.add_argument("--openrouter-provider", default=None)
     seed_run_parser.set_defaults(func=cmd_generate_seed_run)
@@ -392,6 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     production_run_parser.add_argument("--batch-size", type=int, default=None)
     production_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     production_run_parser.add_argument("--run-manifest-filename", default=None)
+    production_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     production_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     production_run_parser.add_argument("--openrouter-provider", default=None)
     production_run_parser.set_defaults(func=cmd_generate_production_run)

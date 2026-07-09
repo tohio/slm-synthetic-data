@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from slm_synth.accepted_target import accepted_target_metadata
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.distillation_sft.generation import (
     StructuredTeacherBackend,
@@ -155,6 +156,7 @@ def generate_seed_multi_signal_run(
     concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
+    max_backfill_rounds: int = 2,
 ) -> MultiSignalRunResult:
     """Generate smoke seed prompts across signals and materialize public datasets."""
     return _generate_multi_signal_run(
@@ -185,6 +187,7 @@ def generate_seed_multi_signal_run(
         concurrency=concurrency,
         run_manifest_filename=run_manifest_filename,
         backend_factory=backend_factory,
+        max_backfill_rounds=max_backfill_rounds,
         prompt_record_builder=build_seed_prompt_records,
         prompt_source="builtin_seed",
         require_unique_prompt_text=False,
@@ -220,6 +223,7 @@ def generate_prompt_spec_multi_signal_run(
     concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     run_manifest_filename: str | None = None,
     backend_factory: BackendFactory | None = None,
+    max_backfill_rounds: int = 2,
 ) -> MultiSignalRunResult:
     """Generate production prompt specs across signals and materialize public datasets."""
     return _generate_multi_signal_run(
@@ -250,6 +254,7 @@ def generate_prompt_spec_multi_signal_run(
         concurrency=concurrency,
         run_manifest_filename=run_manifest_filename,
         backend_factory=backend_factory,
+        max_backfill_rounds=max_backfill_rounds,
         prompt_record_builder=build_prompt_spec_records,
         prompt_source="production_spec",
         require_unique_prompt_text=True,
@@ -285,6 +290,7 @@ def _generate_multi_signal_run(
     concurrency: int,
     run_manifest_filename: str | None,
     backend_factory: BackendFactory | None,
+    max_backfill_rounds: int,
     prompt_record_builder: Callable[..., list[dict[str, Any]]],
     prompt_source: str,
     require_unique_prompt_text: bool,
@@ -302,6 +308,7 @@ def _generate_multi_signal_run(
     )
     normalized_batch_size = _validate_batch_size(batch_size)
     _validate_openrouter_concurrency(concurrency)
+    _validate_non_negative_int(max_backfill_rounds, "max_backfill_rounds")
 
     signal_items = list(signal_counts.items())
     prompt_records_by_signal = {
@@ -342,15 +349,23 @@ def _generate_multi_signal_run(
             concurrency=concurrency,
             prompt_source=prompt_source,
             require_unique_prompt_text=require_unique_prompt_text,
+            prompt_record_builder=prompt_record_builder,
+            target_rows=_count,
+            start_index=start_index,
+            max_backfill_rounds=max_backfill_rounds,
             backend=backend,
         )
 
     results = [run_signal(item) for item in signal_items]
-    planned_prompt_rows = sum(signal_counts.values())
-    accepted_rows = sum(result.row_count for result in results)
-    rejected_rows = max(planned_prompt_rows - accepted_rows, 0)
+    target_prompt_rows = sum(signal_counts.values())
     signal_manifest_paths = [result.manifest_path for result in results]
-    rejection_reasons = _aggregate_rejection_reasons_from_manifests(signal_manifest_paths)
+    signal_metadata = _metadata_from_manifests(signal_manifest_paths)
+    planned_prompt_rows = sum(_metadata_int(metadata, "planned_prompt_rows") for metadata in signal_metadata)
+    accepted_rows = sum(result.row_count for result in results)
+    rejected_rows = sum(_metadata_int(metadata, "rejected_rows") for metadata in signal_metadata)
+    remaining_rows = max(target_prompt_rows - accepted_rows, 0)
+    backfill_rounds = max((_metadata_int(metadata, "backfill_rounds") for metadata in signal_metadata), default=0)
+    rejection_reasons = _aggregate_rejection_reasons_from_metadata(signal_metadata)
     llm_telemetry = aggregate_llm_telemetry_from_manifests(signal_manifest_paths)
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
@@ -374,6 +389,7 @@ def _generate_multi_signal_run(
             "signals": [signal for signal, _count in signal_items],
             "rows_per_signal": dict(signal_counts),
             "target_rows": target_rows,
+            "target_prompt_rows": target_prompt_rows,
             "planned_prompt_rows": planned_prompt_rows,
             "accepted_rows": accepted_rows,
             "rejected_rows": rejected_rows,
@@ -385,6 +401,16 @@ def _generate_multi_signal_run(
                 "rejection_reasons": rejection_reasons,
                 "checks": list(RESPONSE_QUALITY_CHECKS),
             },
+            "max_backfill_rounds": max_backfill_rounds,
+            "backfill_rounds": backfill_rounds,
+            **accepted_target_metadata(
+                unit="rows",
+                target_count=target_prompt_rows,
+                accepted_count=accepted_rows,
+                attempted_count=planned_prompt_rows,
+                max_backfill_rounds=max_backfill_rounds,
+                backfill_rounds=backfill_rounds,
+            ),
             "start_index": start_index,
             "batch_size": normalized_batch_size,
             "concurrency": concurrency,
@@ -406,13 +432,26 @@ def _generate_multi_signal_run(
 
 
 def _aggregate_rejection_reasons_from_manifests(manifest_paths: Iterable[Path]) -> dict[str, int]:
+    return _aggregate_rejection_reasons_from_metadata(_metadata_from_manifests(manifest_paths))
+
+
+def _aggregate_rejection_reasons_from_metadata(metadata_items: Iterable[Mapping[str, Any]]) -> dict[str, int]:
+    return aggregate_rejection_reasons(metadata_items)
+
+
+def _metadata_from_manifests(manifest_paths: Iterable[Path]) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for manifest_path in manifest_paths:
         manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
         metadata = manifest.get("metadata", {})
         if isinstance(metadata, Mapping):
             summaries.append(dict(metadata))
-    return aggregate_rejection_reasons(summaries)
+    return summaries
+
+
+def _metadata_int(metadata: Mapping[str, Any], key: str) -> int:
+    value = metadata.get(key, 0)
+    return value if isinstance(value, int) and value > 0 else 0
 
 
 def _validate_count(count: Any) -> int:
@@ -434,6 +473,11 @@ def _validate_batch_size(batch_size: Any) -> int | None:
 def _validate_positive_int(value: Any, name: str) -> None:
     if not isinstance(value, int) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
+
+
+def _validate_non_negative_int(value: Any, name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
 
 
 def _validate_openrouter_concurrency(value: Any) -> None:
@@ -494,14 +538,23 @@ def _generate_and_materialize_signal_batches(
     concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     prompt_source: str = "builtin_seed",
     require_unique_prompt_text: bool = False,
+    prompt_record_builder: Callable[..., list[dict[str, Any]]] | None = None,
+    target_rows: int | None = None,
+    start_index: int = 1,
+    max_backfill_rounds: int = 2,
     backend: StructuredTeacherBackend | None = None,
 ) -> DistillationRunResult:
-    prompt_records = list(prompt_records)
+    initial_prompt_records = list(prompt_records)
+    if not initial_prompt_records:
+        raise ValueError("at least one distillation prompt record is required")
+    _validate_non_negative_int(max_backfill_rounds, "max_backfill_rounds")
+    target_row_count = len(initial_prompt_records) if target_rows is None else _validate_target_rows(target_rows)
+    all_prompt_records = list(initial_prompt_records)
     prompt_preflight = validate_prompt_preflight(
-        prompt_records,
+        all_prompt_records,
         require_unique_prompt_text=require_unique_prompt_text,
     )
-    maximum_batch_size = batch_size or len(prompt_records)
+    maximum_batch_size = batch_size or len(initial_prompt_records)
     batch_controller = AdaptiveBatchSizeController(
         maximum=maximum_batch_size,
         minimum=1,
@@ -510,7 +563,7 @@ def _generate_and_materialize_signal_batches(
     )
     print(
         "[generate] Starting distillation signal: "
-        f"{signal} (target_rows={len(prompt_records)}, batch_size={maximum_batch_size}, "
+        f"{signal} (target_rows={target_row_count}, batch_size={maximum_batch_size}, "
         f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
         flush=True,
     )
@@ -553,73 +606,107 @@ def _generate_and_materialize_signal_batches(
             backend=active_backend,
         )
 
-    pending_ranges: deque[tuple[int, int]] = deque([(0, len(prompt_records))])
-    active: dict[Any, dict[str, Any]] = {}
     jobs: list[dict[str, Any]] = []
     next_batch_number = 1
     signal_rows_done = 0
+    backfill_rounds_used = 0
 
     def active_job_limit() -> int:
         return min(concurrency, max(1, adaptive_initial_in_flight, batch_controller.current))
 
-    def submit_available(executor: ThreadPoolExecutor) -> None:
-        nonlocal next_batch_number
-        while pending_ranges and len(active) < active_job_limit():
-            offset, remaining = pending_ranges.popleft()
-            size = min(batch_controller.current, remaining)
-            if remaining > size:
-                pending_ranges.appendleft((offset + size, remaining - size))
-            job = {
-                "batch_number": next_batch_number,
-                "batch_start_offset": offset,
-                "prompt_records": list(prompt_records[offset : offset + size]),
-            }
-            next_batch_number += 1
-            active[executor.submit(run_batch, job)] = job
+    def run_prompt_records_round(round_records: list[Mapping[str, Any]], *, round_number: int, round_start_offset: int) -> None:
+        nonlocal next_batch_number, signal_rows_done
+        pending_ranges: deque[tuple[int, int]] = deque([(0, len(round_records))])
+        active: dict[Any, dict[str, Any]] = {}
 
-    with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        submit_available(executor)
-        while active:
-            done, _ = wait(set(active), return_when=FIRST_COMPLETED)
-            for future in done:
-                job = active.pop(future)
-                try:
-                    result = future.result()
-                except Exception as exc:
-                    batch_controller.record_failure()
-                    print_batch_failure(
+        def submit_available(executor: ThreadPoolExecutor) -> None:
+            nonlocal next_batch_number
+            while pending_ranges and len(active) < active_job_limit():
+                offset, remaining = pending_ranges.popleft()
+                size = min(batch_controller.current, remaining)
+                if remaining > size:
+                    pending_ranges.appendleft((offset + size, remaining - size))
+                batch_start_offset = round_start_offset + offset
+                job = {
+                    "batch_number": next_batch_number,
+                    "batch_start_offset": batch_start_offset,
+                    "backfill_round": round_number,
+                    "prompt_records": list(round_records[offset : offset + size]),
+                }
+                next_batch_number += 1
+                active[executor.submit(run_batch, job)] = job
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            submit_available(executor)
+            while active:
+                done, _ = wait(set(active), return_when=FIRST_COMPLETED)
+                for future in done:
+                    job = active.pop(future)
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        batch_controller.record_failure()
+                        print_batch_failure(
+                            workflow="distillation",
+                            group_key="signal",
+                            group_value=signal,
+                            batch_number=job["batch_number"],
+                            batch_start=job["batch_start_offset"],
+                            batch_size=len(job["prompt_records"]),
+                            adaptive_batch_size=batch_controller.snapshot(),
+                            error=exc,
+                        )
+                        if len(job["prompt_records"]) <= batch_controller.minimum:
+                            raise
+                        local_offset = job["batch_start_offset"] - round_start_offset
+                        pending_ranges.appendleft((local_offset, len(job["prompt_records"])))
+                        submit_available(executor)
+                        continue
+                    batch_controller.record_success()
+                    job["result"] = result
+                    job["adaptive_batch_size"] = batch_controller.snapshot()
+                    jobs.append(job)
+                    signal_rows_done += result.row_count
+                    print_batch_progress(
                         workflow="distillation",
                         group_key="signal",
                         group_value=signal,
                         batch_number=job["batch_number"],
                         batch_start=job["batch_start_offset"],
                         batch_size=len(job["prompt_records"]),
-                        adaptive_batch_size=batch_controller.snapshot(),
-                        error=exc,
+                        rows_done=signal_rows_done,
+                        rows_total=target_row_count,
+                        manifest_path=result.manifest_path,
+                        adaptive_batch_size=job["adaptive_batch_size"],
                     )
-                    if len(job["prompt_records"]) <= batch_controller.minimum:
-                        raise
-                    pending_ranges.appendleft((job["batch_start_offset"], len(job["prompt_records"])))
                     submit_available(executor)
-                    continue
-                batch_controller.record_success()
-                job["result"] = result
-                job["adaptive_batch_size"] = batch_controller.snapshot()
-                jobs.append(job)
-                signal_rows_done += result.row_count
-                print_batch_progress(
-                    workflow="distillation",
-                    group_key="signal",
-                    group_value=signal,
-                    batch_number=job["batch_number"],
-                    batch_start=job["batch_start_offset"],
-                    batch_size=len(job["prompt_records"]),
-                    rows_done=signal_rows_done,
-                    rows_total=len(prompt_records),
-                    manifest_path=result.manifest_path,
-                    adaptive_batch_size=job["adaptive_batch_size"],
-                )
-                submit_available(executor)
+
+    round_records = list(initial_prompt_records)
+    round_start_offset = 0
+    round_number = 0
+    while round_records and signal_rows_done < target_row_count:
+        run_prompt_records_round(round_records, round_number=round_number, round_start_offset=round_start_offset)
+        if signal_rows_done >= target_row_count:
+            break
+        if prompt_record_builder is None or backfill_rounds_used >= max_backfill_rounds:
+            break
+        remaining = target_row_count - signal_rows_done
+        backfill_rounds_used += 1
+        next_start_index = start_index + len(all_prompt_records)
+        round_records = prompt_record_builder(signal=signal, count=remaining, start_index=next_start_index)
+        round_start_offset = len(all_prompt_records)
+        all_prompt_records.extend(round_records)
+        prompt_preflight = validate_prompt_preflight(
+            all_prompt_records,
+            require_unique_prompt_text=require_unique_prompt_text,
+        )
+        print(
+            "[generate] Backfilling distillation signal: "
+            f"{signal} round={backfill_rounds_used}/{max_backfill_rounds} "
+            f"remaining_rows={remaining}",
+            flush=True,
+        )
+        round_number = backfill_rounds_used
 
     jobs.sort(key=lambda item: (item["batch_start_offset"], item["batch_number"]))
     batch_results = [job["result"] for job in jobs]
@@ -627,10 +714,13 @@ def _generate_and_materialize_signal_batches(
     public_rows: list[dict[str, Any]] = []
     for batch_result in batch_results:
         public_rows.extend(_read_jsonl(batch_result.dataset_path))
+    if len(public_rows) > target_row_count:
+        public_rows = public_rows[:target_row_count]
     rejection_reasons = _aggregate_rejection_reasons_from_manifests(
         result.manifest_path for result in batch_results
     )
 
+    attempted_rows = len(all_prompt_records)
     dataset_path = Path(output_dir) / f"{signal}.jsonl"
     row_count = write_jsonl(public_rows, dataset_path)
     manifest_path = Path(manifest_dir) / f"{signal}.{generation_run}.manifest.json"
@@ -644,18 +734,30 @@ def _generate_and_materialize_signal_batches(
         generation_run=generation_run,
         token_target=token_target,
         metadata={
-            "prompt_count": len(prompt_records),
-            "planned_prompt_rows": len(prompt_records),
+            "prompt_count": attempted_rows,
+            "initial_prompt_rows": len(initial_prompt_records),
+            "target_prompt_rows": target_row_count,
+            "planned_prompt_rows": attempted_rows,
             "accepted_rows": row_count,
-            "rejected_rows": max(len(prompt_records) - row_count, 0),
+            "rejected_rows": max(attempted_rows - row_count, 0),
             "rejection_reasons": rejection_reasons,
             "response_quality": {
-                "checked_rows": len(prompt_records),
+                "checked_rows": attempted_rows,
                 "accepted_rows": row_count,
-                "rejected_rows": max(len(prompt_records) - row_count, 0),
+                "rejected_rows": max(attempted_rows - row_count, 0),
                 "rejection_reasons": rejection_reasons,
                 "checks": list(RESPONSE_QUALITY_CHECKS),
             },
+            "max_backfill_rounds": max_backfill_rounds,
+            "backfill_rounds": backfill_rounds_used,
+            **accepted_target_metadata(
+                unit="rows",
+                target_count=target_row_count,
+                accepted_count=row_count,
+                attempted_count=attempted_rows,
+                max_backfill_rounds=max_backfill_rounds,
+                backfill_rounds=backfill_rounds_used,
+            ),
             "batch_count": len(batch_results),
             "batch_size": maximum_batch_size,
             "concurrency": concurrency,
@@ -672,7 +774,8 @@ def _generate_and_materialize_signal_batches(
     )
     print(
         "[generate] Completed distillation signal: "
-        f"{signal} rows={row_count}, target_rows={len(prompt_records)}, "
+        f"{signal} rows={row_count}, target_rows={target_row_count}, "
+        f"remaining_rows={max(target_row_count - row_count, 0)}, backfill_rounds={backfill_rounds_used}, "
         f"batches={len(batch_results)}, batch_size={maximum_batch_size}, min_batch_size=1, "
         f"parallel_requests={concurrency}, adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
         f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "

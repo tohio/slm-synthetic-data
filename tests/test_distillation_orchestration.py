@@ -456,7 +456,7 @@ class OneRejectedCloudBackend(PromptIdBackend):
         return "Use autoscaling to add capacity during traffic spikes."
 
 
-def test_generate_prompt_spec_multi_signal_run_records_response_rejections(tmp_path):
+def test_generate_prompt_spec_multi_signal_run_backfills_response_rejections(tmp_path):
     result = generate_prompt_spec_multi_signal_run(
         signals=["cloud"],
         target_rows=2,
@@ -468,20 +468,52 @@ def test_generate_prompt_spec_multi_signal_run_records_response_rejections(tmp_p
         backend_factory=lambda signal: OneRejectedCloudBackend(),
     )
 
-    assert result.row_count == 1
+    assert result.row_count == 2
     rows = [
         json.loads(line)
         for line in (tmp_path / "datasets" / "cloud.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert [row["id"] for row in rows] == ["cloud-000001"]
+    assert [row["id"] for row in rows] == ["cloud-000001", "cloud-000003"]
 
     signal_manifest = json.loads((tmp_path / "manifests" / "cloud.target-001.manifest.json").read_text())
     run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
-    assert signal_manifest["metadata"]["planned_prompt_rows"] == 2
-    assert signal_manifest["metadata"]["accepted_rows"] == 1
+    assert signal_manifest["metadata"]["target_prompt_rows"] == 2
+    assert signal_manifest["metadata"]["planned_prompt_rows"] == 3
+    assert signal_manifest["metadata"]["accepted_rows"] == 2
     assert signal_manifest["metadata"]["rejected_rows"] == 1
+    assert signal_manifest["metadata"]["remaining_rows"] == 0
+    assert signal_manifest["metadata"]["generation_status"] == "complete"
+    assert signal_manifest["metadata"]["publish_ready"] is True
+    assert signal_manifest["metadata"]["backfill_rounds"] == 1
     assert signal_manifest["metadata"]["rejection_reasons"] == {"too_short_response": 1}
-    assert signal_manifest["metadata"]["response_quality"]["checked_rows"] == 2
-    assert run_manifest["metadata"]["accepted_rows"] == 1
+    assert signal_manifest["metadata"]["response_quality"]["checked_rows"] == 3
+    assert run_manifest["metadata"]["accepted_rows"] == 2
     assert run_manifest["metadata"]["rejected_rows"] == 1
+    assert run_manifest["metadata"]["remaining_rows"] == 0
+    assert run_manifest["metadata"]["generation_status"] == "complete"
+    assert run_manifest["metadata"]["publish_ready"] is True
     assert run_manifest["metadata"]["rejection_reasons"] == {"too_short_response": 1}
+
+
+def test_generate_prompt_spec_multi_signal_run_records_underfill_when_backfill_budget_is_zero(tmp_path):
+    result = generate_prompt_spec_multi_signal_run(
+        signals=["cloud"],
+        target_rows=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="target-001",
+        max_tokens=512,
+        max_backfill_rounds=0,
+        backend_factory=lambda signal: OneRejectedCloudBackend(),
+    )
+
+    assert result.row_count == 1
+    signal_manifest = json.loads((tmp_path / "manifests" / "cloud.target-001.manifest.json").read_text())
+    run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
+    assert signal_manifest["metadata"]["remaining_rows"] == 1
+    assert signal_manifest["metadata"]["generation_status"] == "underfilled"
+    assert signal_manifest["metadata"]["publish_ready"] is False
+    assert run_manifest["metadata"]["remaining_rows"] == 1
+    assert run_manifest["metadata"]["generation_status"] == "underfilled"
+    assert run_manifest["metadata"]["publish_ready"] is False

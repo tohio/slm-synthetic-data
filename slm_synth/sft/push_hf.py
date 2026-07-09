@@ -11,6 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import HfApi, create_repo
 
+from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
 from slm_synth.sft.schema import validate_sft_row
 
 
@@ -135,6 +136,9 @@ def push_sft_run(
     api = HfApi(token=token)
 
     dataset_root = Path(dataset_dir)
+    if run_dir is not None:
+        manifest_path = discover_run_manifest(run_dir, dataset_type="sft")
+        require_publish_ready_manifest(manifest_path, artifact_name="SFT")
     files = discover_jsonl_files(dataset_root)
     files_by_family: dict[str, list[Path]] = {}
     for file_path in files:

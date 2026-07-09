@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from slm_synth.accepted_target import accepted_target_metadata
 from slm_synth.distillation_dpo.io import write_family_dataset, write_manifest, write_run_manifest
 from slm_synth.distillation_dpo.pair_quality import (
     PairQualitySummary,
@@ -28,6 +29,8 @@ class DistillationDPOFamilyResult:
     accepted_pairs: int
     rejected_pairs: int
     rejection_reasons: dict[str, int]
+    max_backfill_rounds: int = 0
+    backfill_rounds: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,15 +109,28 @@ def materialize_seed_dataset(
     start_index: int = 1,
     dataset_filename: str | None = None,
     manifest_filename: str | None = None,
+    max_backfill_rounds: int = 2,
 ) -> DistillationDPOFamilyResult:
     """Materialize one smoke/control distillation-DPO family dataset."""
     normalized_family = validate_family(family)
     _validate_positive_int(count, "count")
-    rows = build_seed_rows(family=normalized_family, count=count, start_index=start_index)
+    rows, accepted_rows, quality, backfill_rounds = _build_rows_until_target(
+        family=normalized_family,
+        target_pairs=count,
+        start_index=start_index,
+        max_backfill_rounds=max_backfill_rounds,
+        builder=lambda *, count, start_index: build_seed_rows(
+            family=normalized_family, count=count, start_index=start_index
+        ),
+    )
     return _materialize_family_dataset(
         family=normalized_family,
-        rows=rows,
-        planned_pairs=count,
+        accepted_rows=accepted_rows,
+        quality=quality,
+        target_pairs=count,
+        planned_pairs=len(rows),
+        max_backfill_rounds=max_backfill_rounds,
+        backfill_rounds=backfill_rounds,
         output_dir=output_dir,
         manifest_dir=manifest_dir,
         teacher_model=teacher_model,
@@ -139,15 +155,28 @@ def materialize_production_dataset(
     start_index: int = 1,
     dataset_filename: str | None = None,
     manifest_filename: str | None = None,
+    max_backfill_rounds: int = 2,
 ) -> DistillationDPOFamilyResult:
     """Materialize one production distillation-DPO family dataset."""
     normalized_family = validate_family(family)
     _validate_positive_int(count, "count")
-    rows = build_production_rows(family=normalized_family, count=count, start_index=start_index)
+    rows, accepted_rows, quality, backfill_rounds = _build_rows_until_target(
+        family=normalized_family,
+        target_pairs=count,
+        start_index=start_index,
+        max_backfill_rounds=max_backfill_rounds,
+        builder=lambda *, count, start_index: build_production_rows(
+            family=normalized_family, count=count, start_index=start_index
+        ),
+    )
     return _materialize_family_dataset(
         family=normalized_family,
-        rows=rows,
-        planned_pairs=count,
+        accepted_rows=accepted_rows,
+        quality=quality,
+        target_pairs=count,
+        planned_pairs=len(rows),
+        max_backfill_rounds=max_backfill_rounds,
+        backfill_rounds=backfill_rounds,
         output_dir=output_dir,
         manifest_dir=manifest_dir,
         teacher_model=teacher_model,
@@ -172,6 +201,7 @@ def materialize_seed_run(
     token_target: str | int | None = None,
     start_index: int = 1,
     run_manifest_filename: str | None = None,
+    max_backfill_rounds: int = 2,
 ) -> DistillationDPORunResult:
     """Materialize a deterministic distillation-DPO smoke/control run."""
     _validate_positive_int(count_per_family, "count_per_family")
@@ -189,6 +219,7 @@ def materialize_seed_run(
                 generation_run=generation_run,
                 token_target=token_target,
                 start_index=start_index,
+                max_backfill_rounds=max_backfill_rounds,
             )
         )
 
@@ -204,6 +235,7 @@ def materialize_seed_run(
         metadata={
             "generation_mode": "seed_controlled_weak_run",
             "count_per_family": count_per_family,
+            "max_backfill_rounds": max_backfill_rounds,
         },
     )
 
@@ -219,6 +251,7 @@ def materialize_production_run(
     teacher_provider: str = "openrouter",
     start_index: int = 1,
     run_manifest_filename: str | None = None,
+    max_backfill_rounds: int = 2,
 ) -> DistillationDPORunResult:
     """Materialize a deterministic production distillation-DPO run."""
     pair_counts = normalize_family_pair_counts(families=families, target_pairs=target_pairs)
@@ -234,6 +267,7 @@ def materialize_production_run(
                 teacher_provider=teacher_provider,
                 generation_run=generation_run,
                 start_index=start_index,
+                max_backfill_rounds=max_backfill_rounds,
             )
         )
 
@@ -250,15 +284,60 @@ def materialize_production_run(
             "generation_mode": "production_controlled_weak_run",
             "target_pairs": target_pairs,
             "pairs_per_family": pair_counts,
+            "max_backfill_rounds": max_backfill_rounds,
         },
     )
+
+
+def _build_rows_until_target(
+    *,
+    family: str,
+    target_pairs: int,
+    start_index: int,
+    max_backfill_rounds: int,
+    builder: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], PairQualitySummary, int]:
+    _validate_positive_int(target_pairs, "target_pairs")
+    _validate_positive_int(start_index, "start_index")
+    _validate_non_negative_int(max_backfill_rounds, "max_backfill_rounds")
+
+    attempted_rows: list[dict[str, Any]] = []
+    accepted_rows: list[dict[str, Any]] = []
+    quality = PairQualitySummary(checked_pairs=0, accepted_pairs=0, rejected_pairs=0, rejection_reasons={})
+    next_start_index = start_index
+    backfill_rounds = 0
+
+    while len(accepted_rows) < target_pairs:
+        if attempted_rows and backfill_rounds >= max_backfill_rounds:
+            break
+        remaining = target_pairs - len(accepted_rows)
+        if attempted_rows:
+            backfill_rounds += 1
+        new_rows = builder(count=remaining, start_index=next_start_index)
+        attempted_rows.extend(new_rows)
+        next_start_index += remaining
+        accepted_rows, quality = filter_pairs_by_quality(family=family, rows=attempted_rows)
+
+    if len(accepted_rows) > target_pairs:
+        accepted_rows = accepted_rows[:target_pairs]
+        quality = PairQualitySummary(
+            checked_pairs=quality.checked_pairs,
+            accepted_pairs=len(accepted_rows),
+            rejected_pairs=max(quality.checked_pairs - len(accepted_rows), 0),
+            rejection_reasons=quality.rejection_reasons,
+        )
+    return attempted_rows, accepted_rows, quality, backfill_rounds
 
 
 def _materialize_family_dataset(
     *,
     family: str,
-    rows: Sequence[Mapping[str, Any]],
+    accepted_rows: Sequence[Mapping[str, Any]],
+    quality: PairQualitySummary,
+    target_pairs: int,
     planned_pairs: int,
+    max_backfill_rounds: int,
+    backfill_rounds: int,
     output_dir: str | Path,
     manifest_dir: str | Path,
     teacher_model: str,
@@ -269,7 +348,6 @@ def _materialize_family_dataset(
     dataset_filename: str | None,
     manifest_filename: str | None,
 ) -> DistillationDPOFamilyResult:
-    accepted_rows, quality = filter_pairs_by_quality(family=family, rows=rows)
     dataset_path = write_family_dataset(
         family=family,
         rows=accepted_rows,
@@ -283,9 +361,11 @@ def _materialize_family_dataset(
     )
     manifest_metadata = _planning_metadata(
         base_metadata=metadata,
-        target_pairs=planned_pairs,
+        target_pairs=target_pairs,
         planned_pairs=planned_pairs,
         quality=quality,
+        max_backfill_rounds=max_backfill_rounds,
+        backfill_rounds=backfill_rounds,
     )
     write_manifest(
         manifest_path=manifest_path,
@@ -307,6 +387,8 @@ def _materialize_family_dataset(
         accepted_pairs=quality.accepted_pairs,
         rejected_pairs=quality.rejected_pairs,
         rejection_reasons=quality.rejection_reasons,
+        max_backfill_rounds=max_backfill_rounds,
+        backfill_rounds=backfill_rounds,
     )
 
 
@@ -337,6 +419,8 @@ def _write_run_result(
         target_pairs=target_pairs,
         planned_pairs=planned_pairs,
         quality=quality_summary,
+        max_backfill_rounds=max(_metadata_max_backfill_rounds(results), int(metadata.get("max_backfill_rounds", 0)) if isinstance(metadata.get("max_backfill_rounds"), int) else 0),
+        backfill_rounds=max(_metadata_backfill_rounds(results), 0),
     )
     manifest_path = (
         Path(manifest_dir) / run_manifest_filename
@@ -378,6 +462,8 @@ def _planning_metadata(
     target_pairs: int,
     planned_pairs: int,
     quality: PairQualitySummary,
+    max_backfill_rounds: int,
+    backfill_rounds: int,
 ) -> dict[str, Any]:
     metadata = dict(base_metadata)
     metadata.update(
@@ -393,9 +479,27 @@ def _planning_metadata(
             "rejected_pairs": quality.rejected_pairs,
             "rejection_reasons": dict(sorted(quality.rejection_reasons.items())),
             "pair_quality": quality.to_dict(),
+            "max_backfill_rounds": max_backfill_rounds,
+            "backfill_rounds": backfill_rounds,
+            **accepted_target_metadata(
+                unit="pairs",
+                target_count=target_pairs,
+                accepted_count=quality.accepted_pairs,
+                attempted_count=planned_pairs,
+                max_backfill_rounds=max_backfill_rounds,
+                backfill_rounds=backfill_rounds,
+            ),
         }
     )
     return metadata
+
+
+def _metadata_max_backfill_rounds(results: Sequence[DistillationDPOFamilyResult]) -> int:
+    return max((result.max_backfill_rounds for result in results), default=0)
+
+
+def _metadata_backfill_rounds(results: Sequence[DistillationDPOFamilyResult]) -> int:
+    return max((result.backfill_rounds for result in results), default=0)
 
 
 def _merge_rejection_reasons(summaries: Sequence[Mapping[str, int]] | Any) -> dict[str, int]:
@@ -413,3 +517,8 @@ def _merge_rejection_reasons(summaries: Sequence[Mapping[str, int]] | Any) -> di
 def _validate_positive_int(value: int, field_name: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ValueError(f"{field_name} must be a positive integer")
+
+
+def _validate_non_negative_int(value: int, field_name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")

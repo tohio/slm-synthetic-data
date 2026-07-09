@@ -11,6 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import HfApi, create_repo
 
+from slm_synth.accepted_target import require_publish_ready_manifest
 from slm_synth.distillation_sft.schema import validate_public_row
 
 
@@ -152,6 +153,8 @@ def push_distillation_run(
     create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
 
     dataset_root = Path(dataset_dir)
+    if run_dir is not None:
+        require_publish_ready_manifest(discover_run_manifest(run_dir), artifact_name="distillation SFT")
     files = discover_jsonl_files(dataset_root)
     total_rows = 0
     uploaded_files: list[str] = []

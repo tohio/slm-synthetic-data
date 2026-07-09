@@ -79,6 +79,7 @@ make sft-inspect SFT_INSPECT_RUN=sft-target-001
 | `SFT_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests. |
 | `SFT_RUN_ROOT` | `data/sft/runs` | Run output root. |
 | `SFT_MODEL` | `$(MODEL)` | Teacher model. |
+| `SFT_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget. |
 
 ## DPO
 
@@ -106,6 +107,7 @@ make dpo-inspect DPO_INSPECT_RUN=dpo-target-001
 | `DPO_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests. |
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root. |
 | `DPO_MODEL` | `$(MODEL)` | Teacher model. |
+| `DPO_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget. |
 
 ## Distillation SFT
 
@@ -131,6 +133,7 @@ make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-targ
 | `DISTILLATION_SFT_RUN_ROOT` | `data/distillation/runs` | Run output root. |
 | `DISTILLATION_SFT_SIGNALS` | unset | Optional signal list. |
 | `DISTILLATION_SFT_MODEL` | `$(MODEL)` | Teacher model. |
+| `DISTILLATION_SFT_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget after response quality gates. |
 
 ## Distillation DPO
 
@@ -154,6 +157,7 @@ make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-targ
 | `DISTILLATION_DPO_TARGET_PAIRS` | `50000` | Target accepted preference pairs. |
 | `DISTILLATION_DPO_RUN_ROOT` | `data/distillation-dpo/runs` | Run output root. |
 | `DISTILLATION_DPO_MODEL` | `$(MODEL)` | Teacher lineage model recorded in manifests. |
+| `DISTILLATION_DPO_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget after pair quality gates. |
 
 ## Reports and Publishing
 

@@ -24,6 +24,7 @@ def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
         start_index=args.start_index,
         dataset_filename=args.dataset_filename,
         manifest_filename=args.manifest_filename,
+        max_backfill_rounds=args.max_backfill_rounds,
     )
     print(
         "materialized "
@@ -45,6 +46,7 @@ def cmd_materialize_seed_run(args: argparse.Namespace) -> int:
         token_target=args.token_target,
         start_index=args.start_index,
         run_manifest_filename=args.run_manifest_filename,
+        max_backfill_rounds=args.max_backfill_rounds,
     )
     print(
         "materialized "
@@ -65,6 +67,7 @@ def cmd_materialize_production_run(args: argparse.Namespace) -> int:
         generation_run=args.generation_run,
         start_index=args.start_index,
         run_manifest_filename=args.run_manifest_filename,
+        max_backfill_rounds=args.max_backfill_rounds,
     )
     print(
         "materialized "
@@ -117,6 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
     materialize_parser.add_argument("--start-index", type=int, default=1)
     materialize_parser.add_argument("--dataset-filename", default=None)
     materialize_parser.add_argument("--manifest-filename", default=None)
+    materialize_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     materialize_parser.set_defaults(func=cmd_materialize_seed_dataset)
 
     seed_run_parser = subparsers.add_parser("materialize-seed-run")
@@ -136,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--token-target", default=None)
     seed_run_parser.add_argument("--start-index", type=int, default=1)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
+    seed_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     seed_run_parser.set_defaults(func=cmd_materialize_seed_run)
 
     production_run_parser = subparsers.add_parser("materialize-production-run")
@@ -154,6 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     production_run_parser.add_argument("--teacher-provider", default="openrouter")
     production_run_parser.add_argument("--start-index", type=int, default=1)
     production_run_parser.add_argument("--run-manifest-filename", default=None)
+    production_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     production_run_parser.set_defaults(func=cmd_materialize_production_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")

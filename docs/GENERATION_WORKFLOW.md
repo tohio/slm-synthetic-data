@@ -16,6 +16,8 @@ Use the same order for every active generation surface:
 
 Public dataset directories should contain final public files only. Batch shards, partial files, rejected rows, retry files, provider internals, and scratch files stay out of public upload discovery.
 
+For SFT, DPO, distillation SFT, and distillation DPO, row and pair targets mean accepted public artifacts. Quality-gate rejects do not count toward the target. Underfilled runs preserve accepted rows, record `remaining_rows` or `remaining_pairs` in the manifest, and are not publish-ready until completed by backfill or rerun.
+
 ## Generic SFT
 
 Smoke:
@@ -196,7 +198,7 @@ Grounded pretraining records are written under `data/runs/<run>/deduped/`.
 For each run, inspect:
 
 - public rows or pairs for schema, formatting, and obvious quality failures
-- run manifest planning fields and telemetry
+- run manifest planning fields, accepted-target status, and telemetry
 - retry counts, adaptive batch failures, request tokens, and aggregate request seconds
 - public dataset directory hygiene
 - coverage reports or dataset cards before publishing

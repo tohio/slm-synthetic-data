@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from slm_synth.accepted_target import accepted_target_metadata
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.planning import build_count_plan
 from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
@@ -248,6 +249,7 @@ def generate_llm_run(
     adaptive_initial_batch_size: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
     adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    max_backfill_rounds: int = 2,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
@@ -267,6 +269,7 @@ def generate_llm_run(
     _validate_openrouter_batch_size(batch_size)
     _validate_positive_int(start_index, "start_index")
     _validate_openrouter_concurrency(concurrency)
+    _validate_non_negative_int(max_backfill_rounds, "max_backfill_rounds")
     _validate_positive_int(adaptive_initial_batch_size, "adaptive_initial_batch_size")
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     adaptive_maximum_in_flight = concurrency
@@ -439,6 +442,16 @@ def generate_llm_run(
             "planned_pairs": planned_pairs,
             "accepted_pairs": accepted_pairs,
             "rejected_pairs": rejected_pairs,
+            "max_backfill_rounds": max_backfill_rounds,
+            "backfill_rounds": 0,
+            **accepted_target_metadata(
+                unit="pairs",
+                target_count=planned_pairs,
+                accepted_count=accepted_pairs,
+                attempted_count=planned_pairs,
+                max_backfill_rounds=max_backfill_rounds,
+                backfill_rounds=0,
+            ),
             "pairs_per_family": dict(count_plan.counts_by_key),
             "count_per_family": count_per_family,
             "batch_size": batch_size,
@@ -554,6 +567,11 @@ def _write_public_family_files(*, jobs: list[dict[str, Any]], output_dir: str | 
 def _validate_positive_int(value: int, field_name: str) -> None:
     if not isinstance(value, int) or value < 1:
         raise ValueError(f"{field_name} must be a positive integer")
+
+
+def _validate_non_negative_int(value: int, field_name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
 
 
 def _validate_openrouter_batch_size(value: int) -> None:

@@ -11,6 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import HfApi, create_repo
 
+from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
 from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
 
 INTERNAL_DATASET_DIR_NAMES = {
@@ -132,6 +133,9 @@ def push_distillation_dpo_run(
 
     token = get_hf_token()
     api = HfApi(token=token)
+    if run_dir is not None:
+        manifest_path = discover_run_manifest(run_dir, dataset_type="distillation-dpo")
+        require_publish_ready_manifest(manifest_path, artifact_name="distillation DPO")
     dataset_root = Path(dataset_dir)
     files = discover_jsonl_files(dataset_root)
 
