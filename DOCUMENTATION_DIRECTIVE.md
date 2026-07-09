@@ -34,21 +34,20 @@ exactly this reason.
 ### A. Root `README.md`
 Audience: newcomers/evaluators deciding whether to use the project.
 Section order:
-1. Title + one-line description
-2. License badge (no build-status badge)
-3. Overview (2-4 sentences: what problem this solves, why it exists)
-4. Architecture (diagram placeholder + brief component explanation) —
+1. Title + one-line description 
+2. Overview (2-4 sentences: what problem this solves, why it exists)
+3. Architecture (diagram placeholder + brief component explanation) —
    directly after Overview, before Features
-5. Features (bullets)
-6. Demo / Screenshot (optional)
-7. Getting Started → Prerequisites, Installation, Configuration, Usage
+4. Features (bullets)
+5. Demo / Screenshot (optional)
+6. Getting Started → Prerequisites, Installation, Configuration, Usage
    (copy-pasteable commands only)
-8. Project Structure (top-level tree; note sub-READMEs where they exist)
-9. Documentation (link to `docs/README.md` — never duplicate its content here)
-10. Testing
-11. Roadmap / Status (optional)
-12. License
-13. Acknowledgments / Contact (optional)
+7. Project Structure (top-level tree; note sub-READMEs where they exist)
+8. Documentation (link to `docs/README.md` — never duplicate its content here)
+9. Testing
+10. Roadmap / Status (optional)
+11. License badge (no build-status badge)
+12. Acknowledgments / Contact (optional)
 
 Do not include a Contributing section here.
 
