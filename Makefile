@@ -267,7 +267,7 @@ pretrain-push:
 > $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 
 distillation-sft-smoke:
-> $(PYTHON) -m slm_synth.distillation_sft.cli generate-seed-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.cli generate-seed-run \
 >   $(DISTILLATION_SFT_SIGNALS_ARG) \
 >   --count-per-signal $(DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL) \
 >   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_RUN)/datasets \
@@ -285,7 +285,7 @@ distillation-sft-smoke:
 > $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_RUN)
 
 distillation-sft-generate:
-> $(PYTHON) -m slm_synth.distillation_sft.cli generate-production-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.cli generate-production-run \
 >   $(DISTILLATION_SFT_SIGNALS_ARG) \
 >   --target-rows $(DISTILLATION_SFT_TARGET_ROWS) \
 >   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_TARGET_RUN)/datasets \
@@ -369,7 +369,7 @@ distillation-dpo-push:
 >   --repo-prefix $(DISTILLATION_DPO_HF_PREFIX) $(HF_PRIVATE_ARG)
 
 sft-smoke:
-> $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_SMOKE_FAMILIES_EFFECTIVE) \
 >   --count-per-family $(SFT_SMOKE_COUNT_PER_FAMILY) \
 >   --batch-size $(SFT_SMOKE_BATCH_SIZE) \
@@ -387,7 +387,7 @@ sft-smoke:
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
-> $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_FAMILIES) \
 >   --target-rows $(SFT_TARGET_ROWS) \
 >   --batch-size $(SFT_BATCH_SIZE) \
@@ -423,7 +423,7 @@ sft-push:
 >   --repo-prefix $(SFT_HF_PREFIX) $(HF_PRIVATE_ARG)
 
 dpo-smoke:
-> $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
 >   --families $(DPO_SMOKE_FAMILIES_EFFECTIVE) \
 >   --count-per-family $(DPO_SMOKE_COUNT_PER_FAMILY) \
 >   --batch-size $(DPO_SMOKE_BATCH_SIZE) \
@@ -441,7 +441,7 @@ dpo-smoke:
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_RUN)
 
 dpo-generate:
-> $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
 >   --families $(DPO_FAMILIES) \
 >   --target-pairs $(DPO_TARGET_PAIRS) \
 >   --batch-size $(DPO_BATCH_SIZE) \
