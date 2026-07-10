@@ -243,18 +243,33 @@ def _clean_optional_env_string(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _clean_optional_env_list(value: str | None) -> tuple[str, ...]:
+    cleaned = _clean_optional_env_string(value)
+    if cleaned is None:
+        return ()
+    return tuple(part.strip() for part in cleaned.split(",") if part.strip())
+
+
 @dataclass(frozen=True)
 class OpenRouterRoutingPolicy:
     """Validated OpenRouter provider routing request policy."""
 
     mode: str = "auto"
     requested_provider: str | None = None
+    provider_order: tuple[str, ...] = ()
+    provider_only: tuple[str, ...] = ()
+    provider_ignore: tuple[str, ...] = ()
+    provider_sort: str | None = None
 
     def provider_preferences(self, *, require_parameters: bool, allow_fallbacks: bool) -> dict[str, Any]:
         preferences: dict[str, Any] = {
             "require_parameters": bool(require_parameters),
         }
         if self.mode == "auto":
+            if self.provider_order:
+                preferences["order"] = list(self.provider_order)
+            if self.provider_only:
+                preferences["only"] = list(self.provider_only)
             preferences["allow_fallbacks"] = bool(allow_fallbacks)
         elif self.mode == "prefer":
             assert self.requested_provider is not None
@@ -274,12 +289,20 @@ class OpenRouterRoutingPolicy:
             )
         else:  # pragma: no cover - construction validates this.
             raise ValueError(f"Unsupported OpenRouter routing mode: {self.mode}")
+        if self.provider_ignore:
+            preferences["ignore"] = list(self.provider_ignore)
+        if self.provider_sort:
+            preferences["sort"] = self.provider_sort
         return preferences
 
     def metadata(self, *, allow_fallbacks: bool) -> dict[str, Any]:
         return {
             "routing_mode": self.mode,
             "requested_provider": self.requested_provider,
+            "provider_order": list(self.provider_order),
+            "provider_only": list(self.provider_only),
+            "provider_ignore": list(self.provider_ignore),
+            "provider_sort": self.provider_sort,
             "allow_fallbacks": bool(allow_fallbacks),
         }
 
@@ -288,6 +311,10 @@ def resolve_openrouter_routing_policy(
     *,
     mode: str | None = None,
     provider: str | None = None,
+    provider_order: str | None = None,
+    provider_only: str | None = None,
+    provider_ignore: str | None = None,
+    provider_sort: str | None = None,
 ) -> OpenRouterRoutingPolicy:
     """Resolve OpenRouter routing policy from explicit values or environment."""
     raw_mode = _clean_optional_env_string(mode)
@@ -303,6 +330,18 @@ def resolve_openrouter_routing_policy(
     requested_provider = _clean_optional_env_string(
         provider if provider is not None else os.environ.get("OPENROUTER_PROVIDER")
     )
+    resolved_provider_order = _clean_optional_env_list(
+        provider_order if provider_order is not None else os.environ.get("OPENROUTER_PROVIDER_ORDER")
+    )
+    resolved_provider_only = _clean_optional_env_list(
+        provider_only if provider_only is not None else os.environ.get("OPENROUTER_PROVIDER_ONLY")
+    )
+    resolved_provider_ignore = _clean_optional_env_list(
+        provider_ignore if provider_ignore is not None else os.environ.get("OPENROUTER_PROVIDER_IGNORE")
+    )
+    resolved_provider_sort = _clean_optional_env_string(
+        provider_sort if provider_sort is not None else os.environ.get("OPENROUTER_PROVIDER_SORT")
+    )
     if normalized_mode in {"prefer", "strict"} and requested_provider is None:
         raise ValueError(
             f"OPENROUTER_PROVIDER is required when OPENROUTER_ROUTING_MODE={normalized_mode}"
@@ -311,7 +350,18 @@ def resolve_openrouter_routing_policy(
         raise ValueError(
             "OPENROUTER_PROVIDER requires OPENROUTER_ROUTING_MODE=prefer or OPENROUTER_ROUTING_MODE=strict"
         )
-    return OpenRouterRoutingPolicy(mode=normalized_mode, requested_provider=requested_provider)
+    if normalized_mode != "auto" and (resolved_provider_order or resolved_provider_only):
+        raise ValueError(
+            "OPENROUTER_PROVIDER_ORDER and OPENROUTER_PROVIDER_ONLY require OPENROUTER_ROUTING_MODE=auto"
+        )
+    return OpenRouterRoutingPolicy(
+        mode=normalized_mode,
+        requested_provider=requested_provider,
+        provider_order=resolved_provider_order,
+        provider_only=resolved_provider_only,
+        provider_ignore=resolved_provider_ignore,
+        provider_sort=resolved_provider_sort,
+    )
 
 
 class LLMBackend:

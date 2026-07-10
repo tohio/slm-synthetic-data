@@ -34,6 +34,10 @@ def test_openrouter_routing_policy_auto_allows_default_fallbacks():
     assert policy.metadata(allow_fallbacks=True) == {
         "routing_mode": "auto",
         "requested_provider": None,
+        "provider_order": [],
+        "provider_only": [],
+        "provider_ignore": [],
+        "provider_sort": None,
         "allow_fallbacks": True,
     }
 
@@ -56,6 +60,56 @@ def test_openrouter_routing_policy_strict_allows_only_requested_provider():
         "only": ["deepinfra"],
         "allow_fallbacks": False,
     }
+
+
+def test_openrouter_routing_policy_auto_supports_order_ignore_and_sort():
+    policy = resolve_openrouter_routing_policy(
+        mode="auto",
+        provider=None,
+        provider_order="Venice,Alibaba",
+        provider_ignore="Baidu",
+        provider_sort="throughput",
+    )
+
+    assert policy.provider_preferences(require_parameters=True, allow_fallbacks=True) == {
+        "require_parameters": True,
+        "order": ["Venice", "Alibaba"],
+        "allow_fallbacks": True,
+        "ignore": ["Baidu"],
+        "sort": "throughput",
+    }
+    assert policy.metadata(allow_fallbacks=True) == {
+        "routing_mode": "auto",
+        "requested_provider": None,
+        "provider_order": ["Venice", "Alibaba"],
+        "provider_only": [],
+        "provider_ignore": ["Baidu"],
+        "provider_sort": "throughput",
+        "allow_fallbacks": True,
+    }
+
+
+def test_openrouter_routing_policy_auto_supports_only_provider_list():
+    policy = resolve_openrouter_routing_policy(
+        mode="auto",
+        provider=None,
+        provider_only="Venice,Alibaba",
+    )
+
+    assert policy.provider_preferences(require_parameters=True, allow_fallbacks=True) == {
+        "require_parameters": True,
+        "only": ["Venice", "Alibaba"],
+        "allow_fallbacks": True,
+    }
+
+
+def test_openrouter_routing_policy_rejects_order_with_provider_mode():
+    with pytest.raises(ValueError, match="OPENROUTER_PROVIDER_ORDER"):
+        resolve_openrouter_routing_policy(
+            mode="strict",
+            provider="Venice",
+            provider_order="Alibaba",
+        )
 
 
 @pytest.mark.parametrize("mode", ["prefer", "strict"])
@@ -113,5 +167,9 @@ def test_openrouter_routing_metadata_is_available_for_manifests():
     assert backend._routing_metadata() == {
         "routing_mode": "prefer",
         "requested_provider": "deepinfra",
+        "provider_order": [],
+        "provider_only": [],
+        "provider_ignore": [],
+        "provider_sort": None,
         "allow_fallbacks": True,
     }
