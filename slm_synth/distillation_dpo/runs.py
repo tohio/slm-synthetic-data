@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections import deque
 from collections.abc import Mapping, Sequence
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from slm_synth.accepted_target import accepted_target_metadata, raise_for_underfilled_manifest
-from slm_synth.distillation_dpo.io import write_family_dataset, write_manifest, write_run_manifest
+from slm_synth.adaptive_batch import AdaptiveBatchSizeController
+from slm_synth.distillation_dpo.batches import (
+    DISTILLATION_DPO_BATCH_RESPONSE_SCHEMA,
+    render_distillation_dpo_batch_prompt,
+    validate_distillation_dpo_batch_response,
+)
+from slm_synth.distillation_dpo.io import write_family_dataset, write_jsonl, write_manifest, write_run_manifest
 from slm_synth.distillation_dpo.pair_quality import (
     PairQualitySummary,
     aggregate_rejection_reasons,
@@ -17,6 +25,20 @@ from slm_synth.distillation_dpo.pair_quality import (
 )
 from slm_synth.distillation_dpo.seeds import DISTILLATION_DPO_FAMILIES, build_seed_rows, validate_family
 from slm_synth.distillation_dpo.spec_builders import build_production_rows
+from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend
+from slm_synth.planning import build_count_plan
+from slm_synth.run_summary import print_batch_failure, print_batch_progress
+from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+    DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    MAX_OPENROUTER_BATCH_SIZE,
+    MAX_OPENROUTER_CONCURRENCY,
+    MIN_OPENROUTER_BATCH_SIZE,
+    MIN_OPENROUTER_CONCURRENCY,
+)
 
 
 @dataclass(frozen=True)
@@ -31,6 +53,7 @@ class DistillationDPOFamilyResult:
     rejection_reasons: dict[str, int]
     max_backfill_rounds: int = 0
     backfill_rounds: int = 0
+    batch_manifest_paths: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -295,6 +318,435 @@ def materialize_production_run(
     )
 
 
+def generate_llm_run(
+    *,
+    families: Sequence[str] | None,
+    count_per_family: int | None = None,
+    target_pairs: int | None = None,
+    batch_size: int = 1,
+    output_dir: str | Path,
+    manifest_dir: str | Path,
+    teacher_model: str,
+    generation_run: str,
+    max_tokens: int,
+    teacher_provider: str = "openrouter",
+    start_index: int = 1,
+    temperature: float = 0.2,
+    top_p: float = 0.95,
+    request_timeout: float | None = None,
+    max_request_retries: int = 3,
+    max_retryable_request_attempts: int = 20,
+    retry_max_elapsed_seconds: float = 1800.0,
+    adaptive_initial_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+    adaptive_initial_batch_size: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
+    concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    max_backfill_rounds: int = 2,
+    run_manifest_filename: str | None = None,
+    openrouter_routing_mode: str | None = None,
+    openrouter_provider: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
+    backend: StructuredTeacherBackend | None = None,
+) -> DistillationDPORunResult:
+    """Generate distillation-DPO preference pairs with an LLM teacher."""
+    normalized_families = resolve_families(families)
+    count_plan = build_count_plan(
+        keys=normalized_families,
+        count_per_key=count_per_family,
+        target_count=target_pairs,
+        key_name="family",
+        count_per_key_name="count_per_family",
+        target_count_name="target_pairs",
+        target_mode="target_pairs",
+    )
+    _validate_openrouter_batch_size(batch_size)
+    _validate_openrouter_concurrency(concurrency)
+    _validate_positive_int(max_tokens, "max_tokens")
+    _validate_positive_int(start_index, "start_index")
+    _validate_positive_int(adaptive_initial_in_flight, "adaptive_initial_in_flight")
+    _validate_positive_int(adaptive_initial_batch_size, "adaptive_initial_batch_size")
+    _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
+    _validate_non_negative_int(max_backfill_rounds, "max_backfill_rounds")
+
+    active_backend = backend or build_openrouter_backend(
+        model=teacher_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=concurrency,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
+    )
+
+    results: list[DistillationDPOFamilyResult] = []
+    for family in normalized_families:
+        results.append(
+            _generate_llm_family(
+                family=family,
+                target_pairs=count_plan.counts_by_key[family],
+                output_dir=output_dir,
+                manifest_dir=manifest_dir,
+                teacher_model=teacher_model,
+                teacher_provider=teacher_provider,
+                generation_run=generation_run,
+                max_tokens=max_tokens,
+                start_index=start_index,
+                batch_size=batch_size,
+                concurrency=concurrency,
+                adaptive_initial_in_flight=adaptive_initial_in_flight,
+                adaptive_initial_batch_size=adaptive_initial_batch_size,
+                adaptive_batch_increase_successes=adaptive_batch_increase_successes,
+                max_backfill_rounds=max_backfill_rounds,
+                backend=active_backend,
+                metadata=dict(metadata or {}),
+            )
+        )
+
+    llm_manifest_paths = [path for result in results for path in result.batch_manifest_paths]
+    return _write_run_result(
+        generation_run=generation_run,
+        results=results,
+        manifest_dir=manifest_dir,
+        teacher_model=teacher_model,
+        teacher_provider=teacher_provider,
+        token_target=None,
+        target_pairs=count_plan.planned_count,
+        run_manifest_filename=run_manifest_filename,
+        metadata={
+            "generation_mode": "live_llm_run",
+            "planning_mode": count_plan.planning_mode,
+            "target_pairs": target_pairs,
+            "pairs_per_family": dict(count_plan.counts_by_key),
+            "count_per_family": count_per_family,
+            "batch_size": batch_size,
+            "concurrency": concurrency,
+            "adaptive_maximum_in_flight": concurrency,
+            "adaptive_initial_in_flight": adaptive_initial_in_flight,
+            "adaptive_initial_batch_size": adaptive_initial_batch_size,
+            "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
+            "llm_telemetry": aggregate_llm_telemetry_from_manifests(llm_manifest_paths),
+            **dict(metadata or {}),
+        },
+    )
+
+
+def _generate_llm_family(
+    *,
+    family: str,
+    target_pairs: int,
+    output_dir: str | Path,
+    manifest_dir: str | Path,
+    teacher_model: str,
+    teacher_provider: str,
+    generation_run: str,
+    max_tokens: int,
+    start_index: int,
+    batch_size: int,
+    concurrency: int,
+    adaptive_initial_in_flight: int,
+    adaptive_initial_batch_size: int,
+    adaptive_batch_increase_successes: int,
+    max_backfill_rounds: int,
+    backend: StructuredTeacherBackend,
+    metadata: Mapping[str, Any],
+) -> DistillationDPOFamilyResult:
+    normalized_family = validate_family(family)
+    print(
+        "[generate] Starting distillation-DPO family: "
+        f"{normalized_family} (target_pairs={target_pairs}, batch_size={batch_size}, "
+        f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
+        flush=True,
+    )
+
+    accepted_rows: list[dict[str, Any]] = []
+    attempted_rows: list[dict[str, Any]] = []
+    batch_manifest_paths: list[Path] = []
+    quality = PairQualitySummary(checked_pairs=0, accepted_pairs=0, rejected_pairs=0, rejection_reasons={})
+    backfill_rounds = 0
+    next_start_index = start_index
+    planned_pairs = 0
+    batch_controller = AdaptiveBatchSizeController(
+        maximum=batch_size,
+        minimum=1,
+        initial=adaptive_initial_batch_size,
+        increase_successes=adaptive_batch_increase_successes,
+    )
+
+    while len(accepted_rows) < target_pairs:
+        if planned_pairs and backfill_rounds >= max_backfill_rounds:
+            break
+        remaining = target_pairs - len(accepted_rows)
+        if planned_pairs:
+            backfill_rounds += 1
+        source_rows = build_production_rows(
+            family=normalized_family,
+            count=remaining,
+            start_index=next_start_index,
+        )
+        next_start_index += remaining
+        planned_pairs += len(source_rows)
+        round_rows, round_manifests = _generate_llm_rows_for_source_rows(
+            family=normalized_family,
+            source_rows=source_rows,
+            output_dir=output_dir,
+            manifest_dir=manifest_dir,
+            teacher_model=teacher_model,
+            teacher_provider=teacher_provider,
+            generation_run=generation_run,
+            max_tokens=max_tokens,
+            batch_controller=batch_controller,
+            concurrency=concurrency,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            backend=backend,
+            metadata={
+                "generation_mode": "live_llm_batch",
+                "family": normalized_family,
+                "max_tokens": max_tokens,
+                **dict(metadata),
+            },
+        )
+        attempted_rows.extend(round_rows)
+        batch_manifest_paths.extend(round_manifests)
+        accepted_rows, quality = filter_pairs_by_quality(family=normalized_family, rows=attempted_rows)
+        if len(accepted_rows) > target_pairs:
+            accepted_rows = accepted_rows[:target_pairs]
+            quality = PairQualitySummary(
+                checked_pairs=quality.checked_pairs,
+                accepted_pairs=len(accepted_rows),
+                rejected_pairs=max(quality.checked_pairs - len(accepted_rows), 0),
+                rejection_reasons=quality.rejection_reasons,
+            )
+
+    dataset_path = write_family_dataset(
+        family=normalized_family,
+        rows=accepted_rows,
+        output_dir=output_dir,
+    )
+    manifest_path = default_manifest_path(
+        manifest_dir=manifest_dir,
+        family=normalized_family,
+        generation_run=generation_run,
+    )
+    manifest_metadata = _planning_metadata(
+        base_metadata={
+            "generation_mode": "live_llm_family",
+            "batch_size": batch_size,
+            "concurrency": concurrency,
+            "adaptive_initial_batch_size": adaptive_initial_batch_size,
+            "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
+            **batch_controller.snapshot(),
+            "llm_telemetry": aggregate_llm_telemetry_from_manifests(batch_manifest_paths),
+            **dict(metadata),
+        },
+        target_pairs=target_pairs,
+        planned_pairs=planned_pairs,
+        quality=quality,
+        max_backfill_rounds=max_backfill_rounds,
+        backfill_rounds=backfill_rounds,
+    )
+    write_manifest(
+        manifest_path=manifest_path,
+        family=normalized_family,
+        dataset_path=dataset_path,
+        row_count=len(accepted_rows),
+        teacher_model=teacher_model,
+        teacher_provider=teacher_provider,
+        generation_run=generation_run,
+        token_target=None,
+        metadata=manifest_metadata,
+    )
+    print(
+        "[generate] Completed distillation-DPO family: "
+        f"{normalized_family} rows={len(accepted_rows)}, target_pairs={target_pairs}, "
+        f"planned_pairs={planned_pairs}, rejected_pairs={quality.rejected_pairs}, "
+        f"adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
+        f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "
+        f"adaptive_batch_size_increases={batch_controller.increases}, "
+        f"adaptive_batch_size_decreases={batch_controller.decreases}, "
+        f"adaptive_batch_size_failures={batch_controller.failures}",
+        flush=True,
+    )
+    return DistillationDPOFamilyResult(
+        family=normalized_family,
+        dataset_path=dataset_path,
+        manifest_path=manifest_path,
+        row_count=len(accepted_rows),
+        planned_pairs=planned_pairs,
+        accepted_pairs=quality.accepted_pairs,
+        rejected_pairs=quality.rejected_pairs,
+        rejection_reasons=quality.rejection_reasons,
+        max_backfill_rounds=max_backfill_rounds,
+        backfill_rounds=backfill_rounds,
+        batch_manifest_paths=tuple(batch_manifest_paths),
+    )
+
+
+def _generate_llm_rows_for_source_rows(
+    *,
+    family: str,
+    source_rows: Sequence[Mapping[str, Any]],
+    output_dir: str | Path,
+    manifest_dir: str | Path,
+    teacher_model: str,
+    teacher_provider: str,
+    generation_run: str,
+    max_tokens: int,
+    batch_controller: AdaptiveBatchSizeController,
+    concurrency: int,
+    adaptive_initial_in_flight: int,
+    backend: StructuredTeacherBackend,
+    metadata: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], list[Path]]:
+    pending_ranges: deque[tuple[int, int]] = deque([(0, len(source_rows))])
+    active: dict[Any, dict[str, Any]] = {}
+    completed_jobs: list[dict[str, Any]] = []
+    rows_done = 0
+
+    def make_job(offset: int, size: int) -> dict[str, Any]:
+        batch_rows = list(source_rows[offset : offset + size])
+        batch_start_index = _row_index(batch_rows[0]) if batch_rows else offset + 1
+        return {
+            "family": family,
+            "batch_number": batch_start_index,
+            "batch_start_index": batch_start_index,
+            "rows": batch_rows,
+            "dataset_path": default_batch_output_dir(output_dir) / f"{family}.batch{batch_start_index:06d}.jsonl",
+            "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_start_index:06d}.{generation_run}.manifest.json",
+        }
+
+    def active_job_limit() -> int:
+        return min(concurrency, max(1, adaptive_initial_in_flight, batch_controller.current))
+
+    def submit_available(executor: ThreadPoolExecutor) -> None:
+        while pending_ranges and len(active) < active_job_limit():
+            offset, remaining = pending_ranges.popleft()
+            size = min(batch_controller.current, remaining)
+            if remaining > size:
+                pending_ranges.appendleft((offset + size, remaining - size))
+            job = make_job(offset, size)
+            active[executor.submit(_run_llm_batch_job, job, teacher_model, teacher_provider, generation_run, max_tokens, backend, metadata)] = job
+
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        submit_available(executor)
+        while active:
+            done, _ = wait(set(active), return_when=FIRST_COMPLETED)
+            for future in done:
+                job = active.pop(future)
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    batch_controller.record_failure()
+                    print_batch_failure(
+                        workflow="distillation-DPO",
+                        group_key="family",
+                        group_value=family,
+                        batch_number=job["batch_number"],
+                        batch_start=job["batch_start_index"],
+                        batch_size=len(job["rows"]),
+                        adaptive_batch_size=batch_controller.snapshot(),
+                        error=exc,
+                    )
+                    if len(job["rows"]) <= batch_controller.minimum:
+                        raise
+                    offset = source_rows.index(job["rows"][0])
+                    pending_ranges.appendleft((offset, len(job["rows"])))
+                    submit_available(executor)
+                    continue
+                batch_controller.record_success()
+                job["result"] = result
+                job["adaptive_batch_size"] = batch_controller.snapshot()
+                completed_jobs.append(job)
+                rows_done += len(result["rows"])
+                print_batch_progress(
+                    workflow="distillation-DPO",
+                    group_key="family",
+                    group_value=family,
+                    batch_number=job["batch_number"],
+                    batch_start=job["batch_start_index"],
+                    batch_size=len(job["rows"]),
+                    rows_done=rows_done,
+                    rows_total=len(source_rows),
+                    manifest_path=result["manifest_path"],
+                    adaptive_batch_size=job["adaptive_batch_size"],
+                )
+                submit_available(executor)
+
+    completed_jobs.sort(key=lambda item: (item["batch_start_index"], item["batch_number"]))
+    generated_rows: list[dict[str, Any]] = []
+    manifest_paths: list[Path] = []
+    for job in completed_jobs:
+        generated_rows.extend(job["result"]["rows"])
+        manifest_paths.append(job["result"]["manifest_path"])
+    return generated_rows, manifest_paths
+
+
+def _run_llm_batch_job(
+    job: Mapping[str, Any],
+    teacher_model: str,
+    teacher_provider: str,
+    generation_run: str,
+    max_tokens: int,
+    backend: StructuredTeacherBackend,
+    metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    source_rows = list(job["rows"])
+    prompt = render_distillation_dpo_batch_prompt(source_rows)
+    result = backend.generate_structured_object_with_metadata(
+        prompt=prompt,
+        schema=DISTILLATION_DPO_BATCH_RESPONSE_SCHEMA,
+        schema_name="distillation_dpo_batch",
+    )
+    data = result.get("data")
+    if not isinstance(data, Mapping):
+        raise ValueError("distillation-DPO teacher backend returned non-object data")
+    telemetry = result.get("telemetry")
+    expected_ids = [str(row["id"]) for row in source_rows]
+    rows = validate_distillation_dpo_batch_response(
+        data,
+        expected_ids=expected_ids,
+        expected_count=len(source_rows),
+    )
+    dataset_path = Path(job["dataset_path"])
+    row_count = write_jsonl(rows, dataset_path)
+    manifest_path = write_manifest(
+        manifest_path=job["manifest_path"],
+        family=str(job["family"]),
+        dataset_path=dataset_path,
+        row_count=row_count,
+        teacher_model=teacher_model,
+        teacher_provider=teacher_provider,
+        generation_run=generation_run,
+        token_target=None,
+        metadata={
+            "generation_mode": "live_llm_batch",
+            "batch_number": job["batch_number"],
+            "batch_start_index": job["batch_start_index"],
+            "batch_size": len(source_rows),
+            "max_tokens": max_tokens,
+            "llm_telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
+            **dict(metadata),
+        },
+    )
+    return {"rows": rows, "dataset_path": dataset_path, "manifest_path": manifest_path}
+
+
+def default_batch_output_dir(output_dir: str | Path) -> Path:
+    """Return the sibling internal batch directory for a public dataset directory."""
+    public_dir = Path(output_dir)
+    return public_dir.parent / "batches"
+
+
+def _row_index(row: Mapping[str, Any]) -> int:
+    row_id = str(row.get("id", ""))
+    suffix = row_id.rsplit("-", 1)[-1]
+    return int(suffix) if suffix.isdigit() else 1
+
+
 def _build_rows_until_target(
     *,
     family: str,
@@ -522,6 +974,24 @@ def _merge_rejection_reasons(summaries: Sequence[Mapping[str, int]] | Any) -> di
                 if isinstance(reason, str) and isinstance(count, int) and count > 0:
                     counter[reason] += count
     return dict(sorted(counter.items()))
+
+
+def _validate_openrouter_batch_size(value: int) -> None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("batch_size must be an integer")
+    if not MIN_OPENROUTER_BATCH_SIZE <= value <= MAX_OPENROUTER_BATCH_SIZE:
+        raise ValueError(
+            f"batch_size must be between {MIN_OPENROUTER_BATCH_SIZE} and {MAX_OPENROUTER_BATCH_SIZE}"
+        )
+
+
+def _validate_openrouter_concurrency(value: int) -> None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("concurrency must be an integer")
+    if not MIN_OPENROUTER_CONCURRENCY <= value <= MAX_OPENROUTER_CONCURRENCY:
+        raise ValueError(
+            f"concurrency must be between {MIN_OPENROUTER_CONCURRENCY} and {MAX_OPENROUTER_CONCURRENCY}"
+        )
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:

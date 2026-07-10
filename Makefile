@@ -77,6 +77,13 @@ DISTILLATION_DPO_TARGET_PAIRS ?= 50000
 DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY ?= 2
 DISTILLATION_DPO_RUN_ROOT ?= data/distillation-dpo/runs
 DISTILLATION_DPO_MODEL ?= $(MODEL)
+DISTILLATION_DPO_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
+DISTILLATION_DPO_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
+DISTILLATION_DPO_TARGET_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
+DISTILLATION_DPO_INITIAL_CONCURRENCY ?= 8
+DISTILLATION_DPO_INITIAL_BATCH_SIZE ?= 4
+DISTILLATION_DPO_BATCH_INCREASE_SUCCESSES ?= 4
+DISTILLATION_DPO_MAX_TOKENS ?= 4096
 DISTILLATION_DPO_DATASET_NAME ?= SLM Synthetic Distillation DPO
 DISTILLATION_DPO_MAX_BACKFILL_ROUNDS ?= 2
 DISTILLATION_DPO_PUSH_RUN ?= $(DISTILLATION_DPO_REPORT_RUN)
@@ -325,24 +332,38 @@ distillation-sft-push:
 >   --repo-id $(DISTILLATION_SFT_HF_REPO) $(HF_PRIVATE_ARG)
 
 distillation-dpo-smoke:
-> $(PYTHON) -m slm_synth.distillation_dpo.cli materialize-seed-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_dpo.cli generate-llm-run \
 >   --families $(DISTILLATION_DPO_SMOKE_FAMILIES_EFFECTIVE) \
 >   --count-per-family $(DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY) \
+>   --batch-size $(DISTILLATION_DPO_BATCH_SIZE) \
 >   --output-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_RUN)/datasets \
 >   --manifest-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_RUN)/manifests \
 >   --teacher-model $(DISTILLATION_DPO_MODEL) \
 >   --generation-run $(DISTILLATION_DPO_RUN) \
+>   --max-tokens $(DISTILLATION_DPO_MAX_TOKENS) \
+>   --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE) \
+>   --concurrency $(DISTILLATION_DPO_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DISTILLATION_DPO_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DISTILLATION_DPO_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DISTILLATION_DPO_BATCH_INCREASE_SUCCESSES) \
 >   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS)
 > $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_RUN)
 
 distillation-dpo-generate:
-> $(PYTHON) -m slm_synth.distillation_dpo.cli materialize-production-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_dpo.cli generate-llm-run \
 >   --families $(DISTILLATION_DPO_FAMILIES) \
 >   --target-pairs $(DISTILLATION_DPO_TARGET_PAIRS) \
+>   --batch-size $(DISTILLATION_DPO_BATCH_SIZE) \
 >   --output-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_TARGET_RUN)/datasets \
 >   --manifest-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_TARGET_RUN)/manifests \
 >   --teacher-model $(DISTILLATION_DPO_MODEL) \
 >   --generation-run $(DISTILLATION_DPO_TARGET_RUN) \
+>   --max-tokens $(DISTILLATION_DPO_MAX_TOKENS) \
+>   --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE) \
+>   --concurrency $(DISTILLATION_DPO_TARGET_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DISTILLATION_DPO_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DISTILLATION_DPO_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DISTILLATION_DPO_BATCH_INCREASE_SUCCESSES) \
 >   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS)
 > $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_TARGET_RUN)
 

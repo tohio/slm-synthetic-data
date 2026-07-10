@@ -7,8 +7,61 @@ import json
 
 from slm_synth.distillation_dpo.card import write_dataset_card
 from slm_synth.distillation_dpo.report import build_coverage_report, write_coverage_report
-from slm_synth.distillation_dpo.runs import materialize_production_run, materialize_seed_dataset, materialize_seed_run
+from slm_synth.distillation_dpo.runs import generate_llm_run, materialize_production_run, materialize_seed_dataset, materialize_seed_run
+from slm_synth.run_summary import print_dpo_run_summary
+from slm_synth.throughput_defaults import (
+    DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
+    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
+    DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+)
 from slm_synth.distillation_dpo.seeds import DISTILLATION_DPO_FAMILIES
+
+
+def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None]:
+    kwargs: dict[str, str | None] = {}
+    if getattr(args, "openrouter_routing_mode", None) is not None:
+        kwargs["openrouter_routing_mode"] = args.openrouter_routing_mode
+    if getattr(args, "openrouter_provider", None) is not None:
+        kwargs["openrouter_provider"] = args.openrouter_provider
+    return kwargs
+
+
+def cmd_generate_llm_run(args: argparse.Namespace) -> int:
+    result = generate_llm_run(
+        families=args.families,
+        count_per_family=args.count_per_family,
+        target_pairs=args.target_pairs,
+        batch_size=args.batch_size,
+        output_dir=args.output_dir,
+        manifest_dir=args.manifest_dir,
+        teacher_model=args.teacher_model,
+        teacher_provider=args.teacher_provider,
+        generation_run=args.generation_run,
+        max_tokens=args.max_tokens,
+        start_index=args.start_index,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        request_timeout=args.request_timeout,
+        max_request_retries=args.max_request_retries,
+        max_retryable_request_attempts=args.max_retryable_request_attempts,
+        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
+        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        adaptive_initial_batch_size=args.adaptive_initial_batch_size,
+        adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
+        concurrency=args.concurrency,
+        max_backfill_rounds=args.max_backfill_rounds,
+        run_manifest_filename=args.run_manifest_filename,
+        **_openrouter_routing_kwargs(args),
+    )
+    print(
+        "generated "
+        f"{result.accepted_pairs} accepted LLM-backed distillation-DPO pair(s) "
+        f"from {result.planned_pairs} planned pair(s) across {len(result.families)} family/families "
+        f"for run {result.generation_run}; run manifest: {result.manifest_path}"
+    )
+    print_dpo_run_summary(result.manifest_path)
+    return 0
 
 
 def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
@@ -161,6 +214,41 @@ def build_parser() -> argparse.ArgumentParser:
     production_run_parser.add_argument("--run-manifest-filename", default=None)
     production_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     production_run_parser.set_defaults(func=cmd_materialize_production_run)
+
+    generate_run_parser = subparsers.add_parser("generate-llm-run")
+    generate_run_parser.add_argument(
+        "--families",
+        nargs="+",
+        default=["all"],
+        choices=["all", *family_choices],
+        help="Distillation-DPO families to generate, or 'all'.",
+    )
+    planning_group = generate_run_parser.add_mutually_exclusive_group(required=True)
+    planning_group.add_argument("--count-per-family", type=int)
+    planning_group.add_argument("--target-pairs", type=int)
+    generate_run_parser.add_argument("--batch-size", required=True, type=int)
+    generate_run_parser.add_argument("--output-dir", required=True)
+    generate_run_parser.add_argument("--manifest-dir", required=True)
+    generate_run_parser.add_argument("--teacher-model", required=True)
+    generate_run_parser.add_argument("--generation-run", required=True)
+    generate_run_parser.add_argument("--teacher-provider", default="openrouter")
+    generate_run_parser.add_argument("--max-tokens", required=True, type=int)
+    generate_run_parser.add_argument("--start-index", type=int, default=1)
+    generate_run_parser.add_argument("--temperature", type=float, default=0.2)
+    generate_run_parser.add_argument("--top-p", type=float, default=0.95)
+    generate_run_parser.add_argument("--request-timeout", type=float, default=None)
+    generate_run_parser.add_argument("--max-request-retries", type=int, default=3)
+    generate_run_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
+    generate_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
+    generate_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
+    generate_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE)
+    generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES)
+    generate_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
+    generate_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
+    generate_run_parser.add_argument("--run-manifest-filename", default=None)
+    generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
+    generate_run_parser.add_argument("--openrouter-provider", default=None)
+    generate_run_parser.set_defaults(func=cmd_generate_llm_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument("--input", nargs="+", required=True)

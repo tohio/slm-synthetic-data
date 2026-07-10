@@ -14,7 +14,7 @@ from slm_synth.distillation_dpo.push_hf import (
 )
 from slm_synth.distillation_dpo.report import build_coverage_report
 from slm_synth.distillation_dpo.pair_quality import filter_pairs_by_quality
-from slm_synth.distillation_dpo.runs import materialize_production_run, materialize_seed_run, normalize_family_pair_counts
+from slm_synth.distillation_dpo.runs import generate_llm_run, materialize_production_run, materialize_seed_run, normalize_family_pair_counts
 from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
 
 
@@ -32,6 +32,41 @@ def _row(row_id="distillation-dpo-1"):
             "failure_mode": "wrong_numeric_answer",
         },
     }
+
+
+class _EchoDistillationDPOBackend:
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        request = json.loads(prompt.split("Input specs:\n", 1)[1])
+        return {
+            "data": {
+                "items": [
+                    {
+                        "id": item["id"],
+                        "prompt": item["prompt"],
+                        "chosen": item["reference_chosen"],
+                        "rejected": item["reference_rejected"],
+                        "metadata": item["metadata"],
+                    }
+                    for item in request["items"]
+                ]
+            },
+            "telemetry": {
+                "model": "fake-teacher",
+                "provider": "fake-provider",
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                    "cost": 0.01,
+                },
+                "retry_count": 0,
+                "retryable_provider_retries": 0,
+                "retry_sleep_seconds": 0.0,
+                "adaptive_peak_in_flight_limit": 1,
+                "adaptive_min_in_flight_limit": 1,
+                "elapsed_seconds": 0.1,
+            },
+        }
 
 
 def test_distillation_dpo_schema_keeps_lineage_out_of_rows():
@@ -99,6 +134,39 @@ def test_materialize_production_run_uses_target_pairs_and_controlled_weak_contra
     assert manifest["metadata"]["accepted_pairs"] == 12
     assert manifest["metadata"]["rejected_pairs"] == 0
     assert manifest["metadata"]["source_contract"]["rejected_source"] == "controlled_weak"
+    assert "teacher_model" not in rows[0]
+    assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_generate_llm_run_writes_live_distillation_dpo_outputs(tmp_path):
+    result = generate_llm_run(
+        families=["teacher_response_preference"],
+        count_per_family=3,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="deepseek/deepseek-v4-flash",
+        generation_run="distillation-dpo-llm-001",
+        max_tokens=2048,
+        concurrency=2,
+        adaptive_initial_in_flight=1,
+        adaptive_initial_batch_size=1,
+        adaptive_batch_increase_successes=1,
+        backend=_EchoDistillationDPOBackend(),
+    )
+
+    dataset_path = tmp_path / "datasets" / "teacher_response_preference.jsonl"
+    rows = read_jsonl(dataset_path)
+    manifest = json.loads(result.manifest_path.read_text())
+
+    assert result.row_count == 3
+    assert result.accepted_pairs == 3
+    assert len(rows) == 3
+    assert manifest["dataset_type"] == "distillation-dpo"
+    assert manifest["metadata"]["generation_mode"] == "live_llm_run"
+    assert manifest["metadata"]["accepted_pairs"] == 3
+    assert manifest["metadata"]["llm_telemetry"]["batch_count"] >= 1
+    assert manifest["metadata"]["source_contract"]["target_consumer"] == "slm-distillation"
     assert "teacher_model" not in rows[0]
     assert rows[0]["chosen"] != rows[0]["rejected"]
 
@@ -219,8 +287,9 @@ def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():
     block = makefile.split("distillation-dpo-smoke:", 1)[1].split("sft-smoke:", 1)[0]
 
     assert "slm_synth.distillation_dpo" in block
-    assert "materialize-production-run" in block
+    assert "generate-llm-run" in block
     assert "--target-pairs $(DISTILLATION_DPO_TARGET_PAIRS)" in block
+    assert "$(OPENROUTER_ENV)" in block
     assert "slm_synth.dpo" not in block
 
 
