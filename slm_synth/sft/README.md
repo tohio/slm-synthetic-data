@@ -4,7 +4,7 @@
 
 This package owns generic supervised fine-tuning dataset generation. It builds task specs, requests structured teacher chat rows, validates public SFT rows, writes family JSONL files, records manifests, reports coverage, and publishes public artifacts.
 
-It does not produce DPO preference pairs, response-distillation rows, or model-training artifacts.
+It does not produce DPO preference pairs, response-distillation rows, deterministic seed datasets, or model-training artifacts.
 
 ## Contents
 
@@ -14,9 +14,8 @@ sft/
 ├── specs.py          # teacher-visible spec validation
 ├── batches.py        # batch prompt and response contract
 ├── generation.py     # one-batch materialization/generation
-├── runs.py           # multi-family run orchestration
+├── runs.py           # multi-family LLM run orchestration
 ├── schema.py         # public row validation
-├── seeds.py          # deterministic smoke rows
 ├── manifest.py       # dataset and run manifests
 ├── report.py         # coverage reporting
 ├── push_hf.py        # Hugging Face publishing

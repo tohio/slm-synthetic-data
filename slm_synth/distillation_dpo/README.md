@@ -2,20 +2,21 @@
 
 ## Purpose
 
-This package owns distillation-specific preference pairs for aligning distilled models. It materializes teacher-quality chosen responses and controlled-weak rejected responses, applies pair-quality gates, writes public JSONL files, records lineage manifests, reports coverage, and publishes `distillation-dpo-*` artifacts.
+This package owns distillation-specific preference dataset generation. It builds deterministic source specs, requests structured teacher preference rows, applies pair-quality gates, writes public JSONL files, records lineage manifests, reports coverage, and publishes `distillation-dpo-*` artifacts.
 
-It does not call the teacher live for student sampling, replace generic DPO, or train distilled models.
+It does not produce generic DPO data, response-distillation rows, student-sampled pairs, or model-training artifacts.
 
 ## Contents
 
 ```text
 distillation_dpo/
-├── seeds.py          # smoke families and seed pairs
-├── spec_builders.py  # deterministic production pair builders
+├── seeds.py          # family definitions
+├── spec_builders.py  # source specs for teacher generation
+├── batches.py        # batch prompt and response contract
 ├── pair_quality.py   # pair-quality gates
 ├── schema.py         # public row validation
 ├── io.py             # JSONL and manifest writers
-├── runs.py           # smoke and production run orchestration
+├── runs.py           # multi-family LLM run orchestration
 ├── report.py         # coverage reporting
 ├── card.py           # dataset card rendering
 ├── push_hf.py        # Hugging Face publishing

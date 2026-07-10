@@ -14,8 +14,7 @@ from slm_synth.throughput_defaults import (
 from slm_synth.run_summary import print_sft_run_summary
 from slm_synth.sft.generation import generate_llm_batch_from_files, materialize_llm_batch_from_files
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
-from slm_synth.sft.runs import generate_llm_run, materialize_seed_dataset, materialize_seed_run
-from slm_synth.sft.seeds import SFT_SEED_FAMILIES
+from slm_synth.sft.runs import generate_llm_run
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_and_write_specs
 
 
@@ -26,25 +25,6 @@ def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None
     if getattr(args, "openrouter_provider", None) is not None:
         kwargs["openrouter_provider"] = args.openrouter_provider
     return kwargs
-
-
-def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
-    result = materialize_seed_dataset(
-        family=args.family,
-        count=args.count,
-        output_dir=args.output_dir,
-        manifest_dir=args.manifest_dir,
-        generation_run=args.generation_run,
-        start_index=args.start_index,
-        dataset_filename=args.dataset_filename,
-        manifest_filename=args.manifest_filename,
-    )
-    print(
-        "materialized "
-        f"{result.row_count} SFT row(s) for {result.family} to {result.dataset_path}; "
-        f"manifest: {result.manifest_path}"
-    )
-    return 0
 
 
 def cmd_build_specs(args: argparse.Namespace) -> int:
@@ -150,29 +130,6 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_materialize_seed_run(args: argparse.Namespace) -> int:
-    result = materialize_seed_run(
-        families=args.families,
-        count_per_family=args.count_per_family,
-        output_dir=args.output_dir,
-        manifest_dir=args.manifest_dir,
-        generation_run=args.generation_run,
-        start_index=args.start_index,
-        run_manifest_filename=args.run_manifest_filename,
-    )
-    print(
-        "materialized "
-        f"{result.row_count} SFT row(s) across {len(result.families)} family/families "
-        f"for run {result.generation_run}; run manifest: {result.manifest_path}"
-    )
-    for family_result in result.results:
-        print(
-            f"- {family_result.family}: {family_result.row_count} row(s), "
-            f"dataset: {family_result.dataset_path}, manifest: {family_result.manifest_path}"
-        )
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.sft.cli",
@@ -180,39 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    materialize_parser = subparsers.add_parser("materialize-seed-dataset")
-    materialize_parser.add_argument("--family", required=True, choices=sorted(SFT_SEED_FAMILIES))
-    materialize_parser.add_argument("--count", required=True, type=int)
-    materialize_parser.add_argument("--output-dir", required=True)
-    materialize_parser.add_argument("--manifest-dir", required=True)
-    materialize_parser.add_argument("--generation-run", required=True)
-    materialize_parser.add_argument("--start-index", type=int, default=1)
-    materialize_parser.add_argument("--dataset-filename", default=None)
-    materialize_parser.add_argument("--manifest-filename", default=None)
-    materialize_parser.set_defaults(func=cmd_materialize_seed_dataset)
-
     build_specs_parser = subparsers.add_parser("build-specs")
     build_specs_parser.add_argument("--family", required=True, choices=sorted(SFT_SPEC_FAMILIES))
     build_specs_parser.add_argument("--count", required=True, type=int)
     build_specs_parser.add_argument("--output", required=True, help="Output SFT task spec JSONL path.")
     build_specs_parser.add_argument("--start-index", type=int, default=1)
     build_specs_parser.set_defaults(func=cmd_build_specs)
-
-    seed_run_parser = subparsers.add_parser("materialize-seed-run")
-    seed_run_parser.add_argument(
-        "--families",
-        nargs="+",
-        default=["all"],
-        choices=["all", *sorted(SFT_SEED_FAMILIES)],
-        help="SFT seed families to materialize, or 'all'.",
-    )
-    seed_run_parser.add_argument("--count-per-family", required=True, type=int)
-    seed_run_parser.add_argument("--output-dir", required=True)
-    seed_run_parser.add_argument("--manifest-dir", required=True)
-    seed_run_parser.add_argument("--generation-run", required=True)
-    seed_run_parser.add_argument("--start-index", type=int, default=1)
-    seed_run_parser.add_argument("--run-manifest-filename", default=None)
-    seed_run_parser.set_defaults(func=cmd_materialize_seed_run)
 
     llm_batch_parser = subparsers.add_parser("materialize-llm-batch")
     llm_batch_parser.add_argument("--specs", required=True, help="SFT task spec JSONL path.")

@@ -68,7 +68,7 @@ def write_run_manifest(
     datasets: Iterable[Mapping[str, Any]],
     metadata: Mapping[str, Any] | None = None,
 ) -> Path:
-    """Write a local manifest summarizing one multi-family DPO seed run."""
+    """Write a local manifest summarizing one multi-family DPO run."""
     run = _require_non_empty_string(generation_run, "generation_run")
 
     normalized_datasets: list[dict[str, Any]] = []
