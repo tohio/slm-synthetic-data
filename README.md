@@ -10,7 +10,7 @@ This repository generates synthetic datasets for pretraining, supervised fine-tu
 
 ![Architecture](docs/architecture.png)
 
-OpenRouter-backed generation flows through `slm_synth/llm.py` for provider calls, retries, routing, structured outputs, and telemetry. Dataset-specific packages own their public row contracts, reports, and push surfaces. Pretraining uses grounded artifact builders; SFT, DPO, and distillation SFT use structured provider generation; distillation DPO uses deterministic teacher-quality versus controlled-weak preference builders.
+OpenRouter-backed generation flows through `slm_synth/llm.py` for provider calls, retries, routing, structured outputs, and telemetry. Dataset-specific packages own their public row contracts, reports, and push surfaces. Pretraining uses grounded artifact builders; SFT, DPO, distillation SFT, and distillation DPO use structured provider generation. Distillation DPO uses deterministic preference specs as anchors for teacher-quality versus controlled-weak pairs.
 
 ## Features
 
@@ -101,7 +101,7 @@ Push only after inspecting the public dataset files and manifests:
 make sft-push SFT_PUSH_RUN=sft-prod-001
 ```
 
-For end-to-end workflows across every generation surface, see `docs/GENERATION_WORKFLOW.md`. For Make target details, see `docs/COMMANDS.md`.
+For end-to-end workflows across every generation surface, see `docs/GENERATION_WORKFLOW.md`. For supported families and signals, see `docs/GENERATION_FAMILIES.md`. For Make target details, see `docs/COMMANDS.md`.
 
 ## Project Structure
 

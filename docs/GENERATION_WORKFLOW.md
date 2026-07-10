@@ -206,4 +206,5 @@ For each run, inspect:
 ## See Also
 
 - `COMMANDS.md` for Make target reference.
+- `GENERATION_FAMILIES.md` for supported families/signals and target distribution behavior.
 - `DATASET_PURPOSE.md` for artifact families and public row contracts.
