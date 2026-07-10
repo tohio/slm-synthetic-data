@@ -7,7 +7,7 @@ import json
 
 from slm_synth.distillation_dpo.card import write_dataset_card
 from slm_synth.distillation_dpo.report import build_coverage_report, write_coverage_report
-from slm_synth.distillation_dpo.runs import generate_llm_run, materialize_production_run, materialize_seed_dataset, materialize_seed_run
+from slm_synth.distillation_dpo.runs import generate_llm_run
 from slm_synth.run_summary import print_dpo_run_summary
 from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
@@ -64,73 +64,6 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_materialize_seed_dataset(args: argparse.Namespace) -> int:
-    result = materialize_seed_dataset(
-        family=args.family,
-        count=args.count,
-        output_dir=args.output_dir,
-        manifest_dir=args.manifest_dir,
-        teacher_model=args.teacher_model,
-        teacher_provider=args.teacher_provider,
-        generation_run=args.generation_run,
-        token_target=args.token_target,
-        start_index=args.start_index,
-        dataset_filename=args.dataset_filename,
-        manifest_filename=args.manifest_filename,
-        max_backfill_rounds=args.max_backfill_rounds,
-    )
-    print(
-        "materialized "
-        f"{result.row_count} distillation-DPO row(s) for {result.family} to {result.dataset_path}; "
-        f"manifest: {result.manifest_path}"
-    )
-    return 0
-
-
-def cmd_materialize_seed_run(args: argparse.Namespace) -> int:
-    result = materialize_seed_run(
-        families=args.families,
-        count_per_family=args.count_per_family,
-        output_dir=args.output_dir,
-        manifest_dir=args.manifest_dir,
-        teacher_model=args.teacher_model,
-        teacher_provider=args.teacher_provider,
-        generation_run=args.generation_run,
-        token_target=args.token_target,
-        start_index=args.start_index,
-        run_manifest_filename=args.run_manifest_filename,
-        max_backfill_rounds=args.max_backfill_rounds,
-    )
-    print(
-        "materialized "
-        f"{result.row_count} distillation-DPO row(s) across {len(result.families)} family/families "
-        f"for run {result.generation_run}; run manifest: {result.manifest_path}"
-    )
-    return 0
-
-
-def cmd_materialize_production_run(args: argparse.Namespace) -> int:
-    result = materialize_production_run(
-        families=args.families,
-        target_pairs=args.target_pairs,
-        output_dir=args.output_dir,
-        manifest_dir=args.manifest_dir,
-        teacher_model=args.teacher_model,
-        teacher_provider=args.teacher_provider,
-        generation_run=args.generation_run,
-        start_index=args.start_index,
-        run_manifest_filename=args.run_manifest_filename,
-        max_backfill_rounds=args.max_backfill_rounds,
-    )
-    print(
-        "materialized "
-        f"{result.accepted_pairs} accepted distillation-DPO pair(s) "
-        f"from {result.planned_pairs} planned pair(s) across {len(result.families)} family/families "
-        f"for run {result.generation_run}; run manifest: {result.manifest_path}"
-    )
-    return 0
-
-
 def cmd_report_coverage(args: argparse.Namespace) -> int:
     report = build_coverage_report(args.input)
     if args.output:
@@ -160,60 +93,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     family_choices = sorted(DISTILLATION_DPO_FAMILIES)
-
-    materialize_parser = subparsers.add_parser("materialize-seed-dataset")
-    materialize_parser.add_argument("--family", required=True, choices=family_choices)
-    materialize_parser.add_argument("--count", required=True, type=int)
-    materialize_parser.add_argument("--output-dir", required=True)
-    materialize_parser.add_argument("--manifest-dir", required=True)
-    materialize_parser.add_argument("--teacher-model", required=True)
-    materialize_parser.add_argument("--generation-run", required=True)
-    materialize_parser.add_argument("--teacher-provider", default="openrouter")
-    materialize_parser.add_argument("--token-target", default=None)
-    materialize_parser.add_argument("--start-index", type=int, default=1)
-    materialize_parser.add_argument("--dataset-filename", default=None)
-    materialize_parser.add_argument("--manifest-filename", default=None)
-    materialize_parser.add_argument("--max-backfill-rounds", type=int, default=2)
-    materialize_parser.set_defaults(func=cmd_materialize_seed_dataset)
-
-    seed_run_parser = subparsers.add_parser("materialize-seed-run")
-    seed_run_parser.add_argument(
-        "--families",
-        nargs="+",
-        default=["all"],
-        choices=["all", *family_choices],
-        help="Distillation-DPO families to materialize, or 'all'.",
-    )
-    seed_run_parser.add_argument("--count-per-family", required=True, type=int)
-    seed_run_parser.add_argument("--output-dir", required=True)
-    seed_run_parser.add_argument("--manifest-dir", required=True)
-    seed_run_parser.add_argument("--teacher-model", required=True)
-    seed_run_parser.add_argument("--generation-run", required=True)
-    seed_run_parser.add_argument("--teacher-provider", default="openrouter")
-    seed_run_parser.add_argument("--token-target", default=None)
-    seed_run_parser.add_argument("--start-index", type=int, default=1)
-    seed_run_parser.add_argument("--run-manifest-filename", default=None)
-    seed_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
-    seed_run_parser.set_defaults(func=cmd_materialize_seed_run)
-
-    production_run_parser = subparsers.add_parser("materialize-production-run")
-    production_run_parser.add_argument(
-        "--families",
-        nargs="+",
-        default=["all"],
-        choices=["all", *family_choices],
-        help="Distillation-DPO families to materialize, or 'all'.",
-    )
-    production_run_parser.add_argument("--target-pairs", required=True, type=int)
-    production_run_parser.add_argument("--output-dir", required=True)
-    production_run_parser.add_argument("--manifest-dir", required=True)
-    production_run_parser.add_argument("--teacher-model", required=True)
-    production_run_parser.add_argument("--generation-run", required=True)
-    production_run_parser.add_argument("--teacher-provider", default="openrouter")
-    production_run_parser.add_argument("--start-index", type=int, default=1)
-    production_run_parser.add_argument("--run-manifest-filename", default=None)
-    production_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
-    production_run_parser.set_defaults(func=cmd_materialize_production_run)
 
     generate_run_parser = subparsers.add_parser("generate-llm-run")
     generate_run_parser.add_argument(

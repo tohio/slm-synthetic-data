@@ -14,7 +14,7 @@ from slm_synth.distillation_dpo.push_hf import (
 )
 from slm_synth.distillation_dpo.report import build_coverage_report
 from slm_synth.distillation_dpo.pair_quality import filter_pairs_by_quality
-from slm_synth.distillation_dpo.runs import generate_llm_run, materialize_production_run, materialize_seed_run, normalize_family_pair_counts
+from slm_synth.distillation_dpo.runs import generate_llm_run, normalize_family_pair_counts
 from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
 
 
@@ -69,73 +69,47 @@ class _EchoDistillationDPOBackend:
         }
 
 
+class _BadDistillationDPOBackend:
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        request = json.loads(prompt.split("Input specs:\n", 1)[1])
+        return {
+            "data": {
+                "items": [
+                    {
+                        "id": item["id"],
+                        "prompt": item["prompt"],
+                        "chosen": [{"role": "assistant", "content": item["prompt"][-1]["content"]}],
+                        "rejected": [{"role": "assistant", "content": "different but still rejected"}],
+                        "metadata": item["metadata"],
+                    }
+                    for item in request["items"]
+                ]
+            },
+            "telemetry": {
+                "model": "fake-teacher",
+                "provider": "fake-provider",
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                    "cost": 0.01,
+                },
+                "retry_count": 0,
+                "retryable_provider_retries": 0,
+                "retry_sleep_seconds": 0.0,
+                "adaptive_peak_in_flight_limit": 1,
+                "adaptive_min_in_flight_limit": 1,
+                "elapsed_seconds": 0.1,
+            },
+        }
+
+
 def test_distillation_dpo_schema_keeps_lineage_out_of_rows():
     row = _row()
     row["teacher_model"] = "deepseek/deepseek-v4-flash"
 
     with pytest.raises(ValueError, match="forbidden field"):
         validate_distillation_dpo_row(row)
-
-
-def test_materialize_seed_run_writes_isolated_manifest_and_public_rows(tmp_path):
-    result = materialize_seed_run(
-        families=["teacher_response_preference"],
-        count_per_family=3,
-        output_dir=tmp_path / "datasets",
-        manifest_dir=tmp_path / "manifests",
-        teacher_model="deepseek/deepseek-v4-flash",
-        generation_run="distillation-dpo-smoke-001",
-    )
-
-    assert result.row_count == 3
-    assert result.families == ("teacher_response_preference",)
-    dataset_path = tmp_path / "datasets" / "teacher_response_preference.jsonl"
-    assert result.results[0].dataset_path == dataset_path
-    rows = read_jsonl(dataset_path)
-    assert len(rows) == 3
-    assert "teacher_model" not in rows[0]
-    assert rows[0]["chosen"] != rows[0]["rejected"]
-
-    manifest = json.loads(result.manifest_path.read_text())
-    assert manifest["dataset_type"] == "distillation-dpo"
-    assert manifest["chosen_source"] == "teacher"
-    assert manifest["rejected_source"] == "controlled_weak"
-    assert manifest["teacher_model"] == "deepseek/deepseek-v4-flash"
-    assert manifest["target_consumer"] == "slm-distillation"
-    assert manifest["datasets"][0]["dataset_path"] == str(dataset_path)
-
-
-def test_materialize_production_run_uses_target_pairs_and_controlled_weak_contract(tmp_path):
-    result = materialize_production_run(
-        families=["teacher_response_preference"],
-        target_pairs=12,
-        output_dir=tmp_path / "datasets",
-        manifest_dir=tmp_path / "manifests",
-        teacher_model="deepseek/deepseek-v4-flash",
-        generation_run="distillation-dpo-target-001",
-    )
-
-    dataset_path = tmp_path / "datasets" / "teacher_response_preference.jsonl"
-    rows = read_jsonl(dataset_path)
-    manifest = json.loads(result.manifest_path.read_text())
-
-    assert result.target_pairs == 12
-    assert result.planned_pairs == 12
-    assert result.accepted_pairs == 12
-    assert result.rejected_pairs == 0
-    assert len(rows) == 12
-    assert manifest["dataset_type"] == "distillation-dpo"
-    assert manifest["chosen_source"] == "teacher"
-    assert manifest["rejected_source"] == "controlled_weak"
-    assert manifest["target_consumer"] == "slm-distillation"
-    assert manifest["metadata"]["generation_mode"] == "production_controlled_weak_run"
-    assert manifest["metadata"]["target_pairs"] == 12
-    assert manifest["metadata"]["planned_pairs"] == 12
-    assert manifest["metadata"]["accepted_pairs"] == 12
-    assert manifest["metadata"]["rejected_pairs"] == 0
-    assert manifest["metadata"]["source_contract"]["rejected_source"] == "controlled_weak"
-    assert "teacher_model" not in rows[0]
-    assert rows[0]["chosen"] != rows[0]["rejected"]
 
 
 def test_generate_llm_run_writes_live_distillation_dpo_outputs(tmp_path):
@@ -198,13 +172,20 @@ def test_normalize_family_pair_counts_requires_target_for_each_family():
 
 
 def test_distillation_dpo_report_and_card(tmp_path):
-    result = materialize_seed_run(
+    result = generate_llm_run(
         families=["teacher_response_preference"],
         count_per_family=2,
+        batch_size=2,
         output_dir=tmp_path / "datasets",
         manifest_dir=tmp_path / "manifests",
         teacher_model="deepseek/deepseek-v4-flash",
         generation_run="distillation-dpo-smoke-001",
+        max_tokens=2048,
+        concurrency=1,
+        adaptive_initial_in_flight=1,
+        adaptive_initial_batch_size=1,
+        adaptive_batch_increase_successes=1,
+        backend=_EchoDistillationDPOBackend(),
     )
 
     report = build_coverage_report([tmp_path / "datasets"])
@@ -293,27 +274,23 @@ def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():
     assert "slm_synth.dpo" not in block
 
 
-def test_distillation_dpo_seed_run_fails_underfilled_after_backfill_budget(tmp_path, monkeypatch):
-    def build_bad_rows(*, family, count, start_index):
-        rows = []
-        for offset in range(count):
-            row = _row(f"bad-{start_index + offset:06d}")
-            row["chosen"] = [{"role": "assistant", "content": "same answer"}]
-            row["rejected"] = [{"role": "assistant", "content": "same answer"}]
-            rows.append(row)
-        return rows
-
-    monkeypatch.setattr("slm_synth.distillation_dpo.runs.build_seed_rows", build_bad_rows)
-
+def test_distillation_dpo_llm_run_fails_underfilled_after_backfill_budget(tmp_path):
     with pytest.raises(UnderfilledRunError, match="distillation-dpo.*underfilled.*remaining=2"):
-        materialize_seed_run(
+        generate_llm_run(
             families=["teacher_response_preference"],
             count_per_family=2,
+            batch_size=2,
             output_dir=tmp_path / "datasets",
             manifest_dir=tmp_path / "manifests",
             teacher_model="deepseek/deepseek-v4-flash",
             generation_run="distillation-dpo-underfilled-001",
+            max_tokens=2048,
+            concurrency=1,
+            adaptive_initial_in_flight=1,
+            adaptive_initial_batch_size=1,
+            adaptive_batch_increase_successes=1,
             max_backfill_rounds=0,
+            backend=_BadDistillationDPOBackend(),
         )
 
     family_manifest_path = (
