@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from slm_synth.pretrain.grounded import GroundedBatchStore
+from slm_synth.run_summary import print_pretrain_run_summary
 from slm_synth.pretrain.record_quality import SIGNAL_FROM_FILE
 
 PRETRAIN_STAGES = ("raw", "validated", "deduped", "rejected")
@@ -299,6 +300,7 @@ def cli(argv: list[str] | None = None) -> int:
         generation_run=args.generation_run,
     )
     print(f"wrote pretrain run manifest to {path}")
+    print_pretrain_run_summary(path)
     return 0
 
 

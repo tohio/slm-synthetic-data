@@ -179,3 +179,32 @@ mix: {{}}
     assert path == custom_manifest
     assert manifest["generation_run"] == "manual-run"
     assert manifest["output_dir"] == str(override_output_dir)
+
+
+def test_pretrain_manifest_cli_prints_run_summary(tmp_path, capsys):
+    output_dir = tmp_path / "runs" / "pretrain-smoke"
+    config_path = tmp_path / "synthetic.yaml"
+    config_path.write_text(
+        f"""
+run_name: pretrain-smoke
+output_dir: "{output_dir}"
+target_total_tokens: 1000
+mix:
+  arithmetic:
+    share: 1.0
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_jsonl(output_dir / "raw" / "arithmetic.jsonl", [{"id": 1}])
+    _write_jsonl(output_dir / "validated" / "arithmetic.jsonl", [{"id": 1}])
+    _write_jsonl(output_dir / "deduped" / "arithmetic.jsonl", [{"id": 1}])
+
+    from slm_synth.pretrain.manifest import cli
+
+    assert cli(["--config", str(config_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "wrote pretrain run manifest" in output
+    assert "[generate] Completed pretrain run: rows=1" in output
+    assert '[generate] pretrain signals={"arithmetic": 1}' in output

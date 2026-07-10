@@ -1,6 +1,76 @@
 import json
 
-from slm_synth.run_summary import print_distillation_run_summary, print_dpo_run_summary, print_sft_run_summary
+from slm_synth.run_summary import (
+    print_distillation_run_summary,
+    print_dpo_run_summary,
+    print_pretrain_run_summary,
+    print_sft_run_summary,
+)
+
+
+def test_print_pretrain_run_summary_emits_common_stats(tmp_path, capsys):
+    manifest = tmp_path / "pretrain-run.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "dataset_type": "pretrain",
+                "generation_run": "pretrain-smoke",
+                "stages": {
+                    "raw": {"row_count": 12},
+                    "validated": {"row_count": 11},
+                    "deduped": {"row_count": 10},
+                    "rejected": {"row_count": 1},
+                },
+                "signals": {
+                    "arithmetic": {"deduped_rows": 6},
+                    "task_code": {"deduped_rows": 4},
+                },
+                "metadata": {
+                    "telemetry": {
+                        "totals": {
+                            "batches": 5,
+                            "retry_count": 1,
+                            "retryable_provider_retries": 2,
+                            "retry_sleep_seconds": 0.5,
+                            "adaptive_window_increases": 3,
+                            "adaptive_window_decreases": 1,
+                            "adaptive_admission_wait_seconds": 9.25,
+                            "adaptive_peak_in_flight_limit": 16,
+                            "adaptive_min_in_flight_limit": 8,
+                            "max_adaptive_cooldown_seconds": 2.0,
+                            "adaptive_batch_size_observed_minimum": 4,
+                            "adaptive_batch_size_observed_peak": 8,
+                            "adaptive_batch_size_increases": 2,
+                            "adaptive_batch_size_decreases": 1,
+                            "adaptive_batch_size_failures": 1,
+                            "cost": 0.125,
+                            "total_tokens": 4096,
+                            "elapsed_seconds": 12.5,
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    print_pretrain_run_summary(manifest)
+
+    output = capsys.readouterr().out
+    assert "[generate] Completed pretrain run: rows=10" in output
+    assert "raw_rows=12" in output
+    assert "validated_rows=11" in output
+    assert "rejected_rows=1" in output
+    assert "signals=2" in output
+    assert "adaptive_batch_size_observed_minimum=4" in output
+    assert "adaptive_batch_size_observed_peak=8" in output
+    assert "adaptive_batch_size_failures=1" in output
+    assert "batches=5" in output
+    assert "provider_retries=2" in output
+    assert "adaptive_peak_in_flight_limit=16" in output
+    assert "cost=0.12500000" in output
+    assert "request_tokens=4096" in output
+    assert '[generate] pretrain signals={"arithmetic": 6, "task_code": 4}' in output
 
 
 def test_print_sft_run_summary_emits_pretrain_style_stats(tmp_path, capsys):

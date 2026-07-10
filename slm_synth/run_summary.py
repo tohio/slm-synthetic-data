@@ -9,6 +9,30 @@ from pathlib import Path
 from typing import Any
 
 
+def print_pretrain_run_summary(manifest_path: str | Path) -> None:
+    manifest = _load_json(manifest_path)
+    metadata = _metadata(manifest)
+    telemetry = _pretrain_telemetry(metadata)
+    rows = _pretrain_rows(manifest)
+    signals = manifest.get("signals", {})
+    signal_count = len(signals) if isinstance(signals, Mapping) else 0
+    print(
+        "[generate] Completed pretrain run: "
+        f"rows={rows.get('deduped', 0)}, "
+        f"raw_rows={rows.get('raw', 0)}, "
+        f"validated_rows={rows.get('validated', 0)}, "
+        f"rejected_rows={rows.get('rejected', 0)}, "
+        f"signals={signal_count}, "
+        f"adaptive_batch_size_observed_minimum={telemetry.get('adaptive_batch_size_observed_minimum', 'n/a')}, "
+        f"adaptive_batch_size_observed_peak={telemetry.get('adaptive_batch_size_observed_peak', 'n/a')}, "
+        f"adaptive_batch_size_increases={telemetry.get('adaptive_batch_size_increases', 'n/a')}, "
+        f"adaptive_batch_size_decreases={telemetry.get('adaptive_batch_size_decreases', 'n/a')}, "
+        f"adaptive_batch_size_failures={telemetry.get('adaptive_batch_size_failures', 'n/a')}, "
+        f"{_pretrain_telemetry_text(telemetry)}"
+    )
+    print(f"[generate] pretrain signals={json.dumps(_pretrain_signal_rows(manifest), sort_keys=True)}")
+
+
 def print_sft_run_summary(manifest_path: str | Path) -> None:
     manifest = _load_json(manifest_path)
     _print_chat_run_summary(label="SFT", manifest=manifest)
@@ -148,6 +172,54 @@ def _print_chat_run_summary(*, label: str, manifest: Mapping[str, Any]) -> None:
         f"{_telemetry_text(telemetry)}"
     )
     print(f"[generate] {label} families={json.dumps(families, sort_keys=True)}")
+
+
+def _pretrain_rows(manifest: Mapping[str, Any]) -> dict[str, int]:
+    stages = manifest.get("stages", {})
+    if not isinstance(stages, Mapping):
+        return {"raw": 0, "validated": 0, "deduped": 0, "rejected": 0}
+    rows: dict[str, int] = {}
+    for stage in ("raw", "validated", "deduped", "rejected"):
+        payload = stages.get(stage, {})
+        rows[stage] = int(payload.get("row_count", 0) or 0) if isinstance(payload, Mapping) else 0
+    return rows
+
+
+def _pretrain_signal_rows(manifest: Mapping[str, Any]) -> dict[str, int]:
+    signals = manifest.get("signals", {})
+    if not isinstance(signals, Mapping):
+        return {}
+    rows: dict[str, int] = {}
+    for name, payload in signals.items():
+        if isinstance(name, str) and isinstance(payload, Mapping):
+            rows[name] = int(payload.get("deduped_rows", payload.get("validated_rows", payload.get("raw_rows", 0))) or 0)
+    return dict(sorted(rows.items()))
+
+
+def _pretrain_telemetry(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    telemetry = metadata.get("telemetry", {})
+    if not isinstance(telemetry, Mapping):
+        return {}
+    totals = telemetry.get("totals", {})
+    return dict(totals) if isinstance(totals, Mapping) else {}
+
+
+def _pretrain_telemetry_text(telemetry: Mapping[str, Any]) -> str:
+    return (
+        f"batches={int(telemetry.get('batches', 0) or 0)}, "
+        f"retry_count={int(telemetry.get('retry_count', 0) or 0)}, "
+        f"provider_retries={int(telemetry.get('retryable_provider_retries', 0) or 0)}, "
+        f"retry_sleep_seconds={float(telemetry.get('retry_sleep_seconds', 0.0) or 0.0):.3f}, "
+        f"adaptive_window_increases={int(telemetry.get('adaptive_window_increases', 0) or 0)}, "
+        f"adaptive_window_decreases={int(telemetry.get('adaptive_window_decreases', 0) or 0)}, "
+        f"adaptive_admission_wait_seconds={float(telemetry.get('adaptive_admission_wait_seconds', 0.0) or 0.0):.3f}, "
+        f"adaptive_peak_in_flight_limit={int(telemetry.get('adaptive_peak_in_flight_limit', 0) or 0)}, "
+        f"adaptive_min_in_flight_limit={int(telemetry.get('adaptive_min_in_flight_limit', 0) or 0)}, "
+        f"max_adaptive_cooldown_seconds={float(telemetry.get('max_adaptive_cooldown_seconds', 0.0) or 0.0):.3f}, "
+        f"cost={float(telemetry.get('cost', 0.0) or 0.0):.8f}, "
+        f"request_tokens={int(telemetry.get('total_tokens', 0) or 0)}, "
+        f"aggregate_request_seconds={float(telemetry.get('elapsed_seconds', 0.0) or 0.0):.3f}"
+    )
 
 
 def _telemetry_text(telemetry: Mapping[str, Any]) -> str:
