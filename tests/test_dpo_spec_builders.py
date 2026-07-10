@@ -92,3 +92,37 @@ def test_build_dpo_specs_rejects_unknown_family():
 def test_build_dpo_specs_rejects_bad_count():
     with pytest.raises(ValueError, match="count"):
         build_specs(family="basic_arithmetic_qa", count=0)
+
+
+def test_function_completion_dpo_specs_ground_signature_and_exact_body():
+    spec = build_specs(family="function_completion_body_only", count=1)[0]
+
+    assert spec["variables"]["function_signature"] == "def add_numbers(a, b):"
+    assert spec["variables"]["chosen_answer"] == "return a + b"
+    assert spec["variables"]["rejected_answer"] == "# Explanation: implement the requested behavior.\nreturn a + b"
+    assert any("Prompt must include variables.function_signature" in c for c in spec["constraints"])
+    assert any("Chosen response must be semantically correct" in c for c in spec["constraints"])
+
+
+def test_code_generation_dpo_specs_require_complete_function_request():
+    spec = build_specs(family="code_generation_function", count=1)[0]
+
+    assert spec["variables"]["function_signature"] == "def add_numbers(a, b):"
+    assert spec["variables"]["chosen_answer"] == "def add_numbers(a, b):\n    return a + b"
+    assert spec["variables"]["rejected_answer"].startswith("Here is the function:")
+    assert any("Prompt must ask for a complete Python function" in c for c in spec["constraints"])
+
+
+def test_list_exact_dpo_specs_forbid_prompt_answer_leakage():
+    spec = build_specs(family="list_exact_n_items", count=1)[0]
+
+    assert spec["variables"]["chosen_answer"] == "red, green, blue"
+    assert spec["variables"]["rejected_answer"] == "red, green, blue, purple"
+    assert any("must not reveal variables.items or variables.answer" in c for c in spec["constraints"])
+
+
+def test_short_factual_dpo_rejected_answer_matches_verbosity_failure_mode():
+    spec = build_specs(family="short_factual_stop_behavior", count=1)[0]
+
+    assert spec["variables"]["chosen_answer"] == spec["variables"]["capital"]
+    assert spec["variables"]["rejected_answer"] == "The capital of Italy is Rome."

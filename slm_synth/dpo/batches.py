@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from slm_synth.dpo.schema import validate_dpo_row
-from slm_synth.dpo.specs import teacher_visible_dpo_spec
+from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 
 DPO_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
@@ -117,7 +117,8 @@ def render_dpo_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "- The chosen response must be correct and preferred.\n"
         "- The rejected response must be realistic and reflect metadata.failure_mode.\n"
         "- The chosen and rejected responses must differ.\n"
-        "- If variables.rejected_answer is present, use it for the rejected assistant content.\n"
+        "- If variables.chosen_answer is present, use it exactly for the chosen assistant content.\n"
+        "- If variables.rejected_answer is present, use it exactly for the rejected assistant content.\n"
         "- Do not copy known eval prompts exactly.\n"
         "- Do not include variables, constraints, holdout_key, teacher_model, teacher_provider, or generation_run.\n\n"
         "Input specs:\n"
@@ -130,6 +131,7 @@ def validate_dpo_batch_response(
     *,
     expected_ids: Iterable[str] | None = None,
     expected_count: int | None = None,
+    expected_specs: Iterable[Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Validate a batched LLM DPO response and return normalized rows."""
     if not isinstance(response_object, Mapping):
@@ -152,8 +154,78 @@ def validate_dpo_batch_response(
 
     rows = [validate_dpo_row(item) for item in items]
     _validate_response_ids([row["id"] for row in rows], expected_ids=expected_ids)
+    _validate_rows_against_specs(rows, expected_specs=expected_specs)
     return rows
 
+
+
+def _validate_rows_against_specs(
+    rows: list[dict[str, Any]],
+    *,
+    expected_specs: Iterable[Mapping[str, Any]] | None,
+) -> None:
+    if expected_specs is None:
+        return
+    specs_by_id = {spec["id"]: validate_dpo_spec(spec) for spec in expected_specs}
+    for row in rows:
+        spec = specs_by_id.get(row["id"])
+        if spec is None:
+            continue
+        _validate_exact_targeted_row(row, spec=spec)
+        _validate_prompt_does_not_leak_answer(row, spec=spec)
+
+
+def _validate_exact_targeted_row(row: dict[str, Any], *, spec: Mapping[str, Any]) -> None:
+    variables = spec.get("variables")
+    if not isinstance(variables, Mapping):
+        return
+    chosen_answer = _optional_string(variables.get("chosen_answer"))
+    if chosen_answer is not None:
+        chosen_content = _single_assistant_content(row["chosen"], field_name="chosen")
+        if chosen_content.strip() != chosen_answer.strip():
+            raise ValueError(f"DPO row {row['id']} chosen content does not match variables.chosen_answer")
+
+    rejected_answer = _optional_string(variables.get("rejected_answer"))
+    if rejected_answer is not None:
+        rejected_content = _single_assistant_content(row["rejected"], field_name="rejected")
+        if rejected_content.strip() != rejected_answer.strip():
+            raise ValueError(f"DPO row {row['id']} rejected content does not match variables.rejected_answer")
+
+
+def _validate_prompt_does_not_leak_answer(row: dict[str, Any], *, spec: Mapping[str, Any]) -> None:
+    metadata = spec.get("metadata")
+    variables = spec.get("variables")
+    if not isinstance(metadata, Mapping) or metadata.get("eval_family") != "list_exact_n_items":
+        return
+    if not isinstance(variables, Mapping):
+        return
+    prompt_text = "\n".join(message["content"] for message in row["prompt"] if message["role"] == "user").lower()
+    answer = _optional_string(variables.get("answer"))
+    if answer is not None and answer.lower() in prompt_text:
+        raise ValueError(f"DPO row {row['id']} prompt leaks variables.answer")
+    items = variables.get("items")
+    if isinstance(items, list) and items and all(str(item).lower() in prompt_text for item in items):
+        raise ValueError(f"DPO row {row['id']} prompt leaks variables.items")
+
+
+def _single_assistant_content(messages: Any, *, field_name: str) -> str:
+    if not isinstance(messages, list):
+        raise ValueError(f"DPO row {field_name} must be a message list")
+    assistant_messages = [message for message in messages if isinstance(message, Mapping) and message.get("role") == "assistant"]
+    if len(assistant_messages) != 1:
+        raise ValueError(f"DPO row {field_name} must contain exactly one assistant message")
+    content = assistant_messages[0].get("content")
+    if not isinstance(content, str):
+        raise ValueError(f"DPO row {field_name} assistant content must be a string")
+    return content
+
+
+def _optional_string(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
 
 def _validate_response_ids(row_ids: list[str], *, expected_ids: Iterable[str] | None) -> None:
     seen: set[str] = set()

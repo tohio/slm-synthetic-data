@@ -290,6 +290,7 @@ def materialize_llm_batch(
         repaired_response,
         expected_ids=expected_ids,
         expected_count=len(validated_specs),
+        expected_specs=validated_specs,
     )
     _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
 

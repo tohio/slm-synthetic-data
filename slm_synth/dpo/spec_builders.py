@@ -63,7 +63,7 @@ def build_and_write_specs(
 def _dpo_from_sft_spec(spec: dict[str, Any], *, family: str) -> dict[str, Any]:
     metadata = dict(spec["metadata"])
     metadata["failure_mode"] = _FAILURE_MODE_BY_FAMILY[family]
-    variables = dict(spec.get("variables", {}))
+    variables = _dpo_variables(family=family, variables=dict(spec.get("variables", {})))
     rejected_answer = _build_rejected_answer(family=family, variables=variables)
     if rejected_answer is not None:
         variables["rejected_answer"] = rejected_answer
@@ -78,13 +78,76 @@ def _dpo_from_sft_spec(spec: dict[str, Any], *, family: str) -> dict[str, Any]:
         "variables": variables,
         "constraints": [
             *list(spec.get("constraints", [])),
+            *_family_prompt_constraints(family),
             "Chosen response must be preferred over rejected response.",
+            "Chosen response must be semantically correct, not merely better formatted.",
             "Rejected response must be realistic, not random.",
             *(_rejected_answer_constraints(family) if rejected_answer is not None else []),
         ],
         **({"holdout_key": spec["holdout_key"]} if "holdout_key" in spec else {}),
     }
 
+
+
+def _dpo_variables(*, family: str, variables: dict[str, Any]) -> dict[str, Any]:
+    """Add DPO-specific exact targets that validators can enforce."""
+    if family in {
+        "basic_arithmetic_qa",
+        "clear_sky_color_qa",
+        "code_expression_result",
+        "direct_division",
+        "direct_subtraction",
+        "list_exact_n_items",
+        "repeat_exact_n_times",
+    }:
+        answer = variables.get("answer")
+        if answer is not None:
+            variables["chosen_answer"] = str(answer)
+    elif family in {"capital_city_qa", "short_factual_stop_behavior"}:
+        capital = variables.get("capital")
+        if isinstance(capital, str) and capital.strip():
+            variables["chosen_answer"] = capital.strip()
+    elif family == "function_completion_body_only":
+        signature, body = _function_signature_and_body(variables.get("function_name"))
+        if signature and body:
+            variables["function_signature"] = signature
+            variables["chosen_answer"] = body
+    elif family == "code_generation_function":
+        signature, body = _function_signature_and_body(variables.get("function_name"))
+        if signature and body:
+            code = f"{signature}\n    {body}"
+            variables["function_signature"] = signature
+            variables["chosen_answer"] = code
+    return variables
+
+
+def _family_prompt_constraints(family: str) -> list[str]:
+    if family == "function_completion_body_only":
+        return [
+            "Prompt must include variables.function_signature exactly so the function parameters are grounded.",
+            "Chosen assistant content must exactly match variables.chosen_answer.",
+            "Chosen assistant content must not invent different parameter names or a different operation.",
+        ]
+    if family == "code_generation_function":
+        return [
+            "Prompt must ask for a complete Python function, not only show a bare def line.",
+            "Chosen assistant content must include variables.function_signature and the required return behavior.",
+        ]
+    if family == "list_exact_n_items":
+        return [
+            "Prompt must ask for the item type and exact count only; it must not reveal variables.items or variables.answer.",
+        ]
+    return []
+
+
+def _function_signature_and_body(function_name: Any) -> tuple[str | None, str | None]:
+    if function_name == "add_numbers":
+        return "def add_numbers(a, b):", "return a + b"
+    if function_name == "is_even":
+        return "def is_even(number):", "return number % 2 == 0"
+    if function_name == "last_item":
+        return "def last_item(items):", "return items[-1]"
+    return None, None
 
 def _build_rejected_answer(*, family: str, variables: dict[str, Any]) -> str | None:
     if family in {"basic_arithmetic_qa", "direct_division", "direct_subtraction"}:
@@ -96,6 +159,10 @@ def _build_rejected_answer(*, family: str, variables: dict[str, Any]) -> str | N
     if family == "clear_sky_color_qa":
         return _alternate_text(variables.get("answer"), fallback="purple")
     if family == "short_factual_stop_behavior":
+        country = variables.get("country")
+        capital = variables.get("capital")
+        if isinstance(country, str) and isinstance(capital, str) and country and capital:
+            return f"The capital of {country} is {capital}."
         return _alternate_text(variables.get("capital"), fallback="Toronto")
     if family == "repeat_exact_n_times":
         answer = variables.get("answer")
@@ -110,6 +177,14 @@ def _build_rejected_answer(*, family: str, variables: dict[str, Any]) -> str | N
         answer = variables.get("answer")
         if isinstance(answer, str) and answer:
             return f"{answer}, purple"
+    if family == "function_completion_body_only":
+        chosen = variables.get("chosen_answer")
+        if isinstance(chosen, str) and chosen.strip():
+            return f"# Explanation: implement the requested behavior.\n{chosen}"
+    if family == "code_generation_function":
+        chosen = variables.get("chosen_answer")
+        if isinstance(chosen, str) and chosen.strip():
+            return f"Here is the function:\n```python\n{chosen}\n```"
     return None
 
 
@@ -119,14 +194,16 @@ def _rejected_answer_constraints(family: str) -> list[str]:
         "capital_city_qa",
         "clear_sky_color_qa",
         "code_expression_result",
+        "code_generation_function",
         "direct_division",
         "direct_subtraction",
+        "function_completion_body_only",
         "list_exact_n_items",
         "repeat_exact_n_times",
         "short_factual_stop_behavior",
     }:
         return [
-            "Chosen assistant content must exactly match variables.answer or variables.capital.",
+            "Chosen assistant content must exactly match variables.chosen_answer when present.",
             "Rejected assistant content must exactly match variables.rejected_answer.",
             "Rejected assistant content must not equal chosen assistant content.",
         ]

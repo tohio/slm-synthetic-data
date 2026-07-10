@@ -6,6 +6,19 @@ from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.dpo.runs import generate_llm_run, resolve_spec_families
 
 
+def _fake_row_from_spec(spec):
+    variables = spec.get("variables", {})
+    chosen = str(variables.get("chosen_answer") or variables.get("answer") or "Correct.")
+    rejected = str(variables.get("rejected_answer") or "Incorrect, with a realistic failure.")
+    return {
+        "id": spec["id"],
+        "prompt": [{"role": "user", "content": f"Answer this generated item: {spec['id']}"}],
+        "chosen": [{"role": "assistant", "content": chosen}],
+        "rejected": [{"role": "assistant", "content": rejected}],
+        "metadata": spec["metadata"],
+    }
+
+
 class FakeDPOBackend:
     def __init__(self):
         self.calls = []
@@ -15,16 +28,7 @@ class FakeDPOBackend:
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         return {
             "data": {
-                "items": [
-                    {
-                        "id": spec["id"],
-                        "prompt": [{"role": "user", "content": f"Answer this generated item: {spec['id']}"}],
-                        "chosen": [{"role": "assistant", "content": "Correct."}],
-                        "rejected": [{"role": "assistant", "content": "Incorrect, with a realistic failure."}],
-                        "metadata": spec["metadata"],
-                    }
-                    for spec in specs
-                ]
+                "items": [_fake_row_from_spec(spec) for spec in specs]
             },
             "telemetry": {"usage": {"total_tokens": 12}},
         }
@@ -38,16 +42,7 @@ class SplitOnLargeDPOBackend(FakeDPOBackend):
             raise ValueError("batch too large")
         return {
             "data": {
-                "items": [
-                    {
-                        "id": spec["id"],
-                        "prompt": [{"role": "user", "content": f"Answer this generated item: {spec['id']}"}],
-                        "chosen": [{"role": "assistant", "content": "Correct."}],
-                        "rejected": [{"role": "assistant", "content": "Incorrect, with a realistic failure."}],
-                        "metadata": spec["metadata"],
-                    }
-                    for spec in specs
-                ]
+                "items": [_fake_row_from_spec(spec) for spec in specs]
             },
             "telemetry": {"usage": {"total_tokens": 12}},
         }

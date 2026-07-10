@@ -36,9 +36,7 @@ def _teacher_response(row_id: str = "dpo_answer_only_arithmetic_000001"):
                 "id": row_id,
                 "prompt": [{"role": "user", "content": "Answer with only the number: What is 17 + 26?"}],
                 "chosen": [{"role": "assistant", "content": "43"}],
-                "rejected": [
-                    {"role": "assistant", "content": "The answer is 43 because 17 plus 26 equals 43."}
-                ],
+                "rejected": [{"role": "assistant", "content": "44"}],
                 "metadata": {
                     "category": "answer_only_compliance",
                     "difficulty": 1,

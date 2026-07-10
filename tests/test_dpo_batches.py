@@ -143,3 +143,92 @@ def test_dpo_batch_schema_matches_response_contract():
         "eval_family",
         "failure_mode",
     ]
+
+
+def test_validate_dpo_batch_response_rejects_clean_but_wrong_function_body():
+    spec = {
+        "id": "dpo_function_completion_body_only_000001",
+        "instruction": "Complete the function body only.",
+        "metadata": {
+            "category": "code_generation",
+            "difficulty": 2,
+            "template_family": "python_function_body_only",
+            "eval_family": "function_completion_body_only",
+            "failure_mode": "code_includes_explanation",
+        },
+        "variables": {
+            "function_name": "add_numbers",
+            "function_signature": "def add_numbers(a, b):",
+            "chosen_answer": "return a + b",
+            "rejected_answer": "# Explanation: implement the requested behavior.\nreturn a + b",
+        },
+    }
+    row = {
+        "id": "dpo_function_completion_body_only_000001",
+        "prompt": [{"role": "user", "content": "Complete this body: def add_numbers(a, b):"}],
+        "chosen": [{"role": "assistant", "content": "return a % 2 == 0"}],
+        "rejected": [{"role": "assistant", "content": "# Explanation: implement the requested behavior.\nreturn a + b"}],
+        "metadata": spec["metadata"],
+    }
+
+    with pytest.raises(ValueError, match="chosen content does not match"):
+        validate_dpo_batch_response({"items": [row]}, expected_specs=[spec])
+
+
+def test_validate_dpo_batch_response_rejects_list_prompt_answer_leakage():
+    spec = {
+        "id": "dpo_list_exact_n_items_000001",
+        "instruction": "List exact items.",
+        "metadata": {
+            "category": "exact_output_format_control",
+            "difficulty": 1,
+            "template_family": "list_exact_count",
+            "eval_family": "list_exact_n_items",
+            "failure_mode": "format_violation",
+        },
+        "variables": {
+            "items": ["red", "green", "blue"],
+            "answer": "red, green, blue",
+            "chosen_answer": "red, green, blue",
+            "rejected_answer": "red, green, blue, purple",
+        },
+    }
+    row = {
+        "id": "dpo_list_exact_n_items_000001",
+        "prompt": [{"role": "user", "content": "List exactly 3 colors: red, green, blue."}],
+        "chosen": [{"role": "assistant", "content": "red, green, blue"}],
+        "rejected": [{"role": "assistant", "content": "red, green, blue, purple"}],
+        "metadata": spec["metadata"],
+    }
+
+    with pytest.raises(ValueError, match="prompt leaks"):
+        validate_dpo_batch_response({"items": [row]}, expected_specs=[spec])
+
+
+def test_validate_dpo_batch_response_accepts_exact_targeted_spec():
+    spec = {
+        "id": "dpo_short_factual_stop_behavior_000001",
+        "instruction": "Answer briefly.",
+        "metadata": {
+            "category": "controlled_verbosity",
+            "difficulty": 1,
+            "template_family": "short_factual_answer",
+            "eval_family": "short_factual_stop_behavior",
+            "failure_mode": "verbosity_mismatch",
+        },
+        "variables": {
+            "chosen_answer": "Rome",
+            "rejected_answer": "The capital of Italy is Rome.",
+        },
+    }
+    row = {
+        "id": "dpo_short_factual_stop_behavior_000001",
+        "prompt": [{"role": "user", "content": "What is the capital of Italy? Answer with only the city."}],
+        "chosen": [{"role": "assistant", "content": "Rome"}],
+        "rejected": [{"role": "assistant", "content": "The capital of Italy is Rome."}],
+        "metadata": spec["metadata"],
+    }
+
+    rows = validate_dpo_batch_response({"items": [row]}, expected_specs=[spec])
+
+    assert rows == [row]
