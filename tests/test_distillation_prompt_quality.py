@@ -2,7 +2,7 @@ import pytest
 
 from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text, validate_prompt_preflight
 from slm_synth.distillation_sft.prompts import build_prompt_record
-from slm_synth.distillation_sft.seeds import build_seed_prompt_records
+from slm_synth.distillation_sft.seeds import DISTILLATION_PROMPT_SEEDS, build_seed_prompt_records
 
 
 def test_normalize_prompt_text_catches_case_spacing_and_terminal_punctuation():
@@ -31,12 +31,13 @@ def test_prompt_preflight_rejects_near_duplicate_prompt_text():
         validate_prompt_preflight(records, require_unique_prompt_text=True)
 
 
-def test_prompt_preflight_allows_cycled_smoke_seed_text_when_prompt_uniqueness_is_not_required():
-    records = build_seed_prompt_records(signal="cloud", count=4)
+def test_prompt_preflight_allows_cycled_seed_text_when_prompt_uniqueness_is_not_required():
+    count = len(DISTILLATION_PROMPT_SEEDS["cloud"]) + 1
+    records = build_seed_prompt_records(signal="cloud", count=count)
 
     summary = validate_prompt_preflight(records, require_unique_prompt_text=False)
 
-    assert summary.prompt_count == 4
+    assert summary.prompt_count == count
     assert summary.duplicate_id_count == 0
     assert summary.duplicate_prompt_text_count == 1
     assert summary.near_duplicate_prompt_count == 1

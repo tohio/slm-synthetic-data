@@ -3,6 +3,7 @@ import pytest
 from slm_synth.distillation_sft.prompts import build_prompt_record, build_prompt_records, format_prompt_id
 from slm_synth.distillation_sft.seeds import (
     DISTILLATION_PROMPT_SEEDS,
+    MIN_SEED_PROMPTS_PER_SIGNAL,
     build_seed_prompt_records,
     iter_seed_prompts,
 )
@@ -51,6 +52,14 @@ def test_builtin_seed_prompts_cover_exact_supported_signal_set():
     assert all(DISTILLATION_PROMPT_SEEDS[signal] for signal in DISTILLATION_SIGNALS)
 
 
+def test_builtin_seed_prompts_have_validation_sized_unique_inventory():
+    for signal in DISTILLATION_SIGNALS:
+        prompts = DISTILLATION_PROMPT_SEEDS[signal]
+        assert len(prompts) >= MIN_SEED_PROMPTS_PER_SIGNAL
+        normalized = {" ".join(prompt.casefold().strip().split()).strip(" .!?;:") for prompt in prompts}
+        assert len(normalized) == len(prompts)
+
+
 def test_iter_seed_prompts_validates_signal():
     prompts = list(iter_seed_prompts("instruction"))
     assert len(prompts) >= 1
@@ -59,16 +68,16 @@ def test_iter_seed_prompts_validates_signal():
         list(iter_seed_prompts("unknown"))
 
 
-def test_build_seed_prompt_records_cycles_prompts_and_keeps_metadata_internal():
-    rows = build_seed_prompt_records(signal="arithmetic", count=5, start_index=7)
+def test_build_seed_prompt_records_uses_unique_validation_sized_prompt_window():
+    rows = build_seed_prompt_records(
+        signal="arithmetic",
+        count=MIN_SEED_PROMPTS_PER_SIGNAL,
+        start_index=7,
+    )
 
-    assert [row["id"] for row in rows] == [
-        "arithmetic-000007",
-        "arithmetic-000008",
-        "arithmetic-000009",
-        "arithmetic-000010",
-        "arithmetic-000011",
-    ]
-    assert [row["metadata"]["seed_index"] for row in rows] == [0, 1, 2, 0, 1]
+    assert rows[0]["id"] == "arithmetic-000007"
+    assert rows[-1]["id"] == f"arithmetic-{6 + MIN_SEED_PROMPTS_PER_SIGNAL:06d}"
+    assert [row["metadata"]["seed_index"] for row in rows] == list(range(MIN_SEED_PROMPTS_PER_SIGNAL))
+    assert len({row["prompt"] for row in rows}) == MIN_SEED_PROMPTS_PER_SIGNAL
     assert all(row["metadata"]["seed_source"] == "builtin" for row in rows)
     assert all("response" not in row for row in rows)
