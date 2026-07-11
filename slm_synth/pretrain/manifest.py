@@ -208,7 +208,7 @@ def _aggregate_grounded_telemetry(metrics_by_signal: Any) -> dict[str, Any]:
         "completion_tokens": 0,
         "total_tokens": 0,
         "cost": 0.0,
-        "elapsed_seconds": 0.0,
+        "aggregate_request_seconds": 0.0,
         "retry_count": 0,
         "retryable_provider_retries": 0,
         "retry_sleep_seconds": 0.0,
@@ -235,7 +235,7 @@ def _aggregate_grounded_telemetry(metrics_by_signal: Any) -> dict[str, Any]:
         totals["completion_tokens"] += int(metrics.get("completion_tokens", 0) or 0)
         totals["total_tokens"] += int(metrics.get("total_tokens", 0) or 0)
         totals["cost"] += float(metrics.get("cost", 0.0) or 0.0)
-        totals["elapsed_seconds"] += float(metrics.get("elapsed_seconds", 0.0) or 0.0)
+        totals["aggregate_request_seconds"] += _request_seconds(metrics)
         totals["retry_count"] += int(metrics.get("retry_count", 0) or 0)
         totals["retryable_provider_retries"] += int(metrics.get("retryable_provider_retries", 0) or 0)
         totals["retry_sleep_seconds"] += float(metrics.get("retry_sleep_seconds", 0.0) or 0.0)
@@ -267,13 +267,19 @@ def _aggregate_grounded_telemetry(metrics_by_signal: Any) -> dict[str, Any]:
         totals["adaptive_batch_size_failures"] += int(metrics.get("adaptive_batch_size_failures", 0) or 0)
 
     totals["cost"] = round(totals["cost"], 8)
-    totals["elapsed_seconds"] = round(totals["elapsed_seconds"], 3)
+    totals["aggregate_request_seconds"] = round(totals["aggregate_request_seconds"], 3)
     totals["retry_sleep_seconds"] = round(totals["retry_sleep_seconds"], 3)
     totals["adaptive_admission_wait_seconds"] = round(totals["adaptive_admission_wait_seconds"], 3)
     totals["max_adaptive_cooldown_seconds"] = round(totals["max_adaptive_cooldown_seconds"], 3)
     totals["adaptive_min_in_flight_limit"] = min_in_flight or 0
     totals["adaptive_batch_size_observed_minimum"] = min_batch_size or 0
     return totals
+
+
+def _request_seconds(metrics: Mapping[str, Any]) -> float:
+    if "aggregate_request_seconds" in metrics:
+        return float(metrics.get("aggregate_request_seconds", 0.0) or 0.0)
+    return float(metrics.get("elapsed_seconds", 0.0) or 0.0)
 
 
 def _count_jsonl_rows(path: Path) -> int:

@@ -33,7 +33,8 @@ def test_aggregate_llm_telemetry_sums_nested_batch_counts():
     }
     assert telemetry["retry_count"] == 5
     assert telemetry["retryable_provider_retries"] == 7
-    assert telemetry["elapsed_seconds"] == 10.0
+    assert telemetry["aggregate_request_seconds"] == 10.0
+    assert "elapsed_seconds" not in telemetry
     assert telemetry["routing_mode"] == "prefer"
     assert telemetry["requested_provider"] == "deepinfra"
     assert telemetry["allow_fallbacks"] is True
@@ -44,3 +45,16 @@ def test_aggregate_llm_telemetry_counts_raw_items_as_single_batches():
 
     assert telemetry["batch_count"] == 2
     assert telemetry["usage"]["total_tokens"] == 5
+
+
+def test_aggregate_llm_telemetry_accepts_already_aggregated_request_seconds():
+    telemetry = aggregate_llm_telemetry(
+        [
+            {"batch_count": 2, "aggregate_request_seconds": 10.5},
+            {"batch_count": 3, "elapsed_seconds": 4.5},
+        ]
+    )
+
+    assert telemetry["batch_count"] == 5
+    assert telemetry["aggregate_request_seconds"] == 15.0
+    assert "elapsed_seconds" not in telemetry

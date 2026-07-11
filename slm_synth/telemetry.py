@@ -55,7 +55,7 @@ def aggregate_llm_telemetry(telemetry_items: Sequence[Mapping[str, Any]]) -> dic
             max(float(item.get("max_adaptive_cooldown_seconds", 0.0) or 0.0) for item in telemetry_items),
             3,
         ),
-        "elapsed_seconds": round(sum(float(item.get("elapsed_seconds", 0.0) or 0.0) for item in telemetry_items), 3),
+        "aggregate_request_seconds": round(sum(_request_seconds(item) for item in telemetry_items), 3),
     }
 
     first = telemetry_items[0]
@@ -69,6 +69,18 @@ def _read_manifest_metadata(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     metadata = payload.get("metadata")
     return dict(metadata) if isinstance(metadata, Mapping) else {}
+
+
+def _request_seconds(item: Mapping[str, Any]) -> float:
+    """Return request-duration telemetry under the aggregate-safe field name.
+
+    Raw provider-call telemetry records ``elapsed_seconds`` for one request.
+    Aggregated manifests record ``aggregate_request_seconds`` because the summed
+    value is not wall-clock elapsed time when requests run concurrently.
+    """
+    if "aggregate_request_seconds" in item:
+        return float(item.get("aggregate_request_seconds", 0.0) or 0.0)
+    return float(item.get("elapsed_seconds", 0.0) or 0.0)
 
 
 def _sum_usage(telemetry_items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:

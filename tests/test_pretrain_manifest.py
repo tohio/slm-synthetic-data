@@ -109,6 +109,8 @@ mix:
     assert telemetry["totals"]["retryable_provider_retries"] == 2
     assert telemetry["totals"]["adaptive_min_in_flight_limit"] == 8
     assert telemetry["totals"]["adaptive_batch_size_observed_minimum"] == 16
+    assert telemetry["signals"]["arithmetic"]["aggregate_request_seconds"] == 0.0
+    assert "elapsed_seconds" not in telemetry["totals"]
 
 
 def test_default_pretrain_manifest_path():

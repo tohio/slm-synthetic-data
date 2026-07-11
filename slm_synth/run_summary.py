@@ -218,7 +218,7 @@ def _pretrain_telemetry_text(telemetry: Mapping[str, Any]) -> str:
         f"max_adaptive_cooldown_seconds={float(telemetry.get('max_adaptive_cooldown_seconds', 0.0) or 0.0):.3f}, "
         f"cost={float(telemetry.get('cost', 0.0) or 0.0):.8f}, "
         f"request_tokens={int(telemetry.get('total_tokens', 0) or 0)}, "
-        f"aggregate_request_seconds={float(telemetry.get('elapsed_seconds', 0.0) or 0.0):.3f}"
+        f"aggregate_request_seconds={_aggregate_request_seconds(telemetry):.3f}"
     )
 
 
@@ -239,8 +239,14 @@ def _telemetry_text(telemetry: Mapping[str, Any]) -> str:
         f"max_adaptive_cooldown_seconds={float(telemetry.get('max_adaptive_cooldown_seconds', 0.0) or 0.0):.3f}, "
         f"cost={float(usage.get('cost', 0.0) or 0.0):.8f}, "
         f"request_tokens={int(usage.get('total_tokens', 0) or 0)}, "
-        f"aggregate_request_seconds={float(telemetry.get('elapsed_seconds', 0.0) or 0.0):.3f}"
+        f"aggregate_request_seconds={_aggregate_request_seconds(telemetry):.3f}"
     )
+
+
+def _aggregate_request_seconds(telemetry: Mapping[str, Any]) -> float:
+    if "aggregate_request_seconds" in telemetry:
+        return float(telemetry.get("aggregate_request_seconds", 0.0) or 0.0)
+    return float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
 
 
 def _count_by_key(items: Any, key: str) -> dict[str, int]:

@@ -45,7 +45,7 @@ def test_print_pretrain_run_summary_emits_common_stats(tmp_path, capsys):
                             "adaptive_batch_size_failures": 1,
                             "cost": 0.125,
                             "total_tokens": 4096,
-                            "elapsed_seconds": 12.5,
+                            "aggregate_request_seconds": 12.5,
                         }
                     }
                 },
@@ -70,6 +70,7 @@ def test_print_pretrain_run_summary_emits_common_stats(tmp_path, capsys):
     assert "adaptive_peak_in_flight_limit=16" in output
     assert "cost=0.12500000" in output
     assert "request_tokens=4096" in output
+    assert "aggregate_request_seconds=12.500" in output
     assert '[generate] pretrain signals={"arithmetic": 6, "task_code": 4}' in output
 
 
@@ -104,7 +105,7 @@ def test_print_sft_run_summary_emits_pretrain_style_stats(tmp_path, capsys):
                         "adaptive_peak_in_flight_limit": 128,
                         "adaptive_min_in_flight_limit": 8,
                         "max_adaptive_cooldown_seconds": 2.0,
-                        "elapsed_seconds": 90.5,
+                        "aggregate_request_seconds": 90.5,
                         "usage": {"cost": 1.25, "total_tokens": 12345},
                     },
                 },
@@ -126,6 +127,7 @@ def test_print_sft_run_summary_emits_pretrain_style_stats(tmp_path, capsys):
     assert "adaptive_peak_in_flight_limit=128" in output
     assert "cost=1.25000000" in output
     assert "request_tokens=12345" in output
+    assert "aggregate_request_seconds=90.500" in output
     assert '[generate] SFT families={"basic_arithmetic_qa": 64, "code_generation_function": 64}' in output
 
 

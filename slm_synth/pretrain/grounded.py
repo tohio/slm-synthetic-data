@@ -191,7 +191,7 @@ class GroundedBatchStore:
         completion_tokens = 0
         total_tokens = 0
         cost = 0.0
-        elapsed_seconds = 0.0
+        aggregate_request_seconds = 0.0
         retries = 0
         retryable_provider_retries = 0
         retry_sleep_seconds = 0.0
@@ -215,7 +215,7 @@ class GroundedBatchStore:
             completion_tokens += int(usage.get("completion_tokens", 0) or 0)
             total_tokens += int(usage.get("total_tokens", 0) or 0)
             cost += float(usage.get("cost", 0.0) or 0.0)
-            elapsed_seconds += float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
+            aggregate_request_seconds += _request_seconds(telemetry)
             retries += int(telemetry.get("retry_count", 0) or 0)
             retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
             retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
@@ -273,7 +273,7 @@ class GroundedBatchStore:
             completion_tokens += int(usage.get("completion_tokens", 0) or 0)
             total_tokens += int(usage.get("total_tokens", 0) or 0)
             cost += float(usage.get("cost", 0.0) or 0.0)
-            elapsed_seconds += float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
+            aggregate_request_seconds += _request_seconds(telemetry)
             retries += int(telemetry.get("retry_count", 0) or 0)
             retryable_provider_retries += int(telemetry.get("retryable_provider_retries", 0) or 0)
             retry_sleep_seconds += float(telemetry.get("retry_sleep_seconds", 0.0) or 0.0)
@@ -329,7 +329,7 @@ class GroundedBatchStore:
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
             "cost": cost,
-            "elapsed_seconds": elapsed_seconds,
+            "aggregate_request_seconds": round(aggregate_request_seconds, 3),
             "retry_count": retries,
             "retryable_provider_retries": retryable_provider_retries,
             "retry_sleep_seconds": round(retry_sleep_seconds, 3),
@@ -345,6 +345,12 @@ class GroundedBatchStore:
             "adaptive_batch_size_decreases": adaptive_batch_size_decreases,
             "adaptive_batch_size_failures": adaptive_batch_size_failures,
         }
+
+
+def _request_seconds(telemetry: dict[str, Any]) -> float:
+    if "aggregate_request_seconds" in telemetry:
+        return float(telemetry.get("aggregate_request_seconds", 0.0) or 0.0)
+    return float(telemetry.get("elapsed_seconds", 0.0) or 0.0)
 
 
 class GroundedSignalGenerator:

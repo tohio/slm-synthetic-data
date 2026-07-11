@@ -282,7 +282,8 @@ def test_generate_seed_multi_signal_run_aggregates_llm_telemetry_across_signals(
     assert telemetry["adaptive_peak_in_flight_limit"] == 16
     assert telemetry["adaptive_min_in_flight_limit"] == 2
     assert telemetry["max_adaptive_cooldown_seconds"] == 0.75
-    assert telemetry["elapsed_seconds"] == 7.0
+    assert telemetry["aggregate_request_seconds"] == 7.0
+    assert "elapsed_seconds" not in telemetry
 
 
 def test_generate_prompt_spec_multi_signal_run_uses_production_prompt_specs(tmp_path):

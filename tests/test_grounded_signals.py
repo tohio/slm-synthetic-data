@@ -464,6 +464,8 @@ def test_batch_store_persists_telemetry(tmp_path):
     assert store.telemetry_summary()["adaptive_peak_in_flight_limit"] == 256
     assert store.telemetry_summary()["adaptive_min_in_flight_limit"] == 64
     assert store.telemetry_summary()["max_adaptive_cooldown_seconds"] == 5.0
+    assert store.telemetry_summary()["aggregate_request_seconds"] == 1.5
+    assert "elapsed_seconds" not in store.telemetry_summary()
 
 
 def test_run_signal_materializes_raw_only_at_start_and_completion(monkeypatch, tmp_path):
