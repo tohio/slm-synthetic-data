@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-\"\"\"Delete Hugging Face dataset repositories.
-
-This utility is intentionally dry-run by default. Pass --yes to perform
-deletion. It deletes dataset repositories only; it does not delete local files.
-\"\"\"
+# Delete Hugging Face dataset repositories.
+#
+# Dry-run by default. Pass --yes to perform deletion.
+# Deletes dataset repositories only; it does not delete local files.
 
 from __future__ import annotations
 
@@ -90,7 +89,7 @@ def delete_repo(api: Any, repo_id: str) -> tuple[bool, str]:
 
         api.delete_repo(repo_id=repo_id, repo_type="dataset")
         return True, "deleted"
-    except Exception as exc:  # noqa: BLE001 - CLI reports per-repo failures and continues.
+    except Exception as exc:
         text = str(exc)
         if "404" in text or "Not Found" in text or "Repository Not Found" in text:
             return False, "missing"
@@ -144,7 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  - {repo}")
 
     if not args.yes:
-        print("\\nDRY RUN ONLY. Re-run with --yes to delete these dataset repos.")
+        print()
+        print("DRY RUN ONLY. Re-run with --yes to delete these dataset repos.")
         return 0
 
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
@@ -160,7 +160,8 @@ def main(argv: list[str] | None = None) -> int:
 
     api = HfApi(token=token)
 
-    print("\\nDeleting dataset repos:")
+    print()
+    print("Deleting dataset repos:")
     failures = 0
     for repo in repos:
         ok, status = delete_repo(api, repo)
@@ -169,10 +170,12 @@ def main(argv: list[str] | None = None) -> int:
             failures += 1
 
     if failures:
-        print(f"\\nCompleted with {failures} failure(s).", file=sys.stderr)
+        print()
+        print(f"Completed with {failures} failure(s).", file=sys.stderr)
         return 1
 
-    print("\\nCompleted.")
+    print()
+    print("Completed.")
     return 0
 
 
