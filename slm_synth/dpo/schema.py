@@ -17,8 +17,8 @@ def validate_dpo_row(row: Mapping[str, Any]) -> dict[str, Any]:
     Required row shape:
       - id: non-empty string
       - prompt: chat messages ending with a user message
-      - chosen: assistant message list
-      - rejected: assistant message list
+      - chosen: exactly one assistant message
+      - rejected: exactly one assistant message
       - metadata: shared taxonomy labels plus DPO failure_mode
     """
     if not isinstance(row, Mapping):
@@ -44,12 +44,14 @@ def validate_dpo_row(row: Mapping[str, Any]) -> dict[str, Any]:
         field_name="chosen",
         allowed_roles={"assistant"},
         required_roles={"assistant"},
+        exact_length=1,
     )
     rejected = validate_message_list(
         row["rejected"],
         field_name="rejected",
         allowed_roles={"assistant"},
         required_roles={"assistant"},
+        exact_length=1,
     )
 
     if chosen == rejected:
@@ -71,12 +73,15 @@ def validate_message_list(
     allowed_roles: set[str],
     required_roles: set[str],
     final_role: str | None = None,
+    exact_length: int | None = None,
 ) -> list[dict[str, str]]:
     """Validate one DPO message list."""
     if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)):
         raise TypeError(f"{field_name} must be a list")
     if not messages:
         raise ValueError(f"{field_name} must contain at least one message")
+    if exact_length is not None and len(messages) != exact_length:
+        raise ValueError(f"{field_name} must contain exactly {exact_length} message(s)")
 
     validated = [validate_message(message) for message in messages]
 

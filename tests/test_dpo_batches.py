@@ -329,3 +329,11 @@ def test_build_exact_target_dpo_batch_response_does_not_leak_list_answer():
     assert "green" not in prompt
     assert "blue" not in prompt
     validate_dpo_batch_response(response, expected_specs=[spec], expected_count=1, expected_ids=[spec["id"]])
+
+
+def test_dpo_batch_response_schema_requires_single_chosen_and_rejected_message():
+    row_schema = DPO_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]["properties"]
+    assert row_schema["chosen"]["minItems"] == 1
+    assert row_schema["chosen"]["maxItems"] == 1
+    assert row_schema["rejected"]["minItems"] == 1
+    assert row_schema["rejected"]["maxItems"] == 1

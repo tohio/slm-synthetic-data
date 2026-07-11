@@ -86,11 +86,35 @@ def test_validate_sft_row_rejects_unknown_category():
         validate_sft_row(row)
 
 
-def test_validate_sft_row_requires_user_message():
+def test_validate_sft_row_requires_user_assistant_role_contract():
     row = _valid_sft_row()
     row["messages"] = [{"role": "assistant", "content": "43"}]
 
-    with pytest.raises(ValueError, match="user message"):
+    with pytest.raises(ValueError, match="role contract"):
+        validate_sft_row(row)
+
+
+def test_validate_sft_row_rejects_multiple_user_messages():
+    row = _valid_sft_row()
+    row["messages"] = [
+        {"role": "user", "content": "Complete the function."},
+        {"role": "user", "content": "def add_numbers(a, b):"},
+        {"role": "assistant", "content": "return a + b"},
+    ]
+
+    with pytest.raises(ValueError, match="role contract"):
+        validate_sft_row(row)
+
+
+def test_validate_sft_row_rejects_multiple_assistant_messages():
+    row = _valid_sft_row()
+    row["messages"] = [
+        {"role": "user", "content": "Complete the function."},
+        {"role": "assistant", "content": "x = 1"},
+        {"role": "assistant", "content": "return x"},
+    ]
+
+    with pytest.raises(ValueError, match="role contract"):
         validate_sft_row(row)
 
 
@@ -102,7 +126,7 @@ def test_validate_sft_row_requires_final_assistant_message():
         {"role": "user", "content": "Thanks"},
     ]
 
-    with pytest.raises(ValueError, match="final SFT message"):
+    with pytest.raises(ValueError, match="role contract"):
         validate_sft_row(row)
 
 

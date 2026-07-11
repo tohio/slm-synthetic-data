@@ -48,6 +48,8 @@ SFT_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
                     "id": {"type": "string", "minLength": 1},
                     "messages": {
                         "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
                         "items": CHAT_MESSAGE_SCHEMA,
                     },
                     "metadata": SFT_METADATA_SCHEMA,

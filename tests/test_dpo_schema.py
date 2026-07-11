@@ -112,6 +112,28 @@ def test_validate_dpo_row_rejects_user_inside_chosen():
         validate_dpo_row(row)
 
 
+def test_validate_dpo_row_rejects_multiple_chosen_messages():
+    row = _valid_dpo_row()
+    row["chosen"] = [
+        {"role": "assistant", "content": "Restated prompt."},
+        {"role": "assistant", "content": "43"},
+    ]
+
+    with pytest.raises(ValueError, match="exactly 1 message"):
+        validate_dpo_row(row)
+
+
+def test_validate_dpo_row_rejects_multiple_rejected_messages():
+    row = _valid_dpo_row()
+    row["rejected"] = [
+        {"role": "assistant", "content": "Restated prompt."},
+        {"role": "assistant", "content": "44"},
+    ]
+
+    with pytest.raises(ValueError, match="exactly 1 message"):
+        validate_dpo_row(row)
+
+
 def test_validate_dpo_row_rejects_identical_chosen_and_rejected():
     row = _valid_dpo_row()
     row["rejected"] = list(row["chosen"])

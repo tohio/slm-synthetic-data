@@ -8,6 +8,10 @@ from typing import Any
 from slm_synth.taxonomy import validate_metadata
 
 SFT_ALLOWED_ROLES = frozenset({"system", "user", "assistant"})
+SFT_ALLOWED_ROLE_CONTRACTS = (
+    ("user", "assistant"),
+    ("system", "user", "assistant"),
+)
 SFT_REQUIRED_FIELDS = frozenset({"id", "messages", "metadata"})
 
 
@@ -16,7 +20,7 @@ def validate_sft_row(row: Mapping[str, Any]) -> dict[str, Any]:
 
     Required row shape:
       - id: non-empty string
-      - messages: chat message list ending with an assistant message
+      - messages: one user turn and one assistant turn, optionally prefixed by one system turn
       - metadata: category/difficulty/template/eval labels
     """
     if not isinstance(row, Mapping):
@@ -49,15 +53,10 @@ def validate_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, s
         raise ValueError("messages must contain at least one message")
 
     validated = [validate_message(message) for message in messages]
-
-    if not any(message["role"] == "user" for message in validated):
-        raise ValueError("messages must contain at least one user message")
-    if validated[-1]["role"] != "assistant":
-        raise ValueError("final SFT message must be from assistant")
-
-    assistant_count = sum(1 for message in validated if message["role"] == "assistant")
-    if assistant_count < 1:
-        raise ValueError("messages must contain at least one assistant message")
+    roles = tuple(message["role"] for message in validated)
+    if roles not in SFT_ALLOWED_ROLE_CONTRACTS:
+        supported = " or ".join(str(contract) for contract in SFT_ALLOWED_ROLE_CONTRACTS)
+        raise ValueError(f"SFT messages must follow role contract {supported}; got {roles}")
 
     return validated
 

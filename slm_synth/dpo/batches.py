@@ -69,10 +69,14 @@ DPO_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
                     },
                     "chosen": {
                         "type": "array",
+                        "minItems": 1,
+                        "maxItems": 1,
                         "items": DPO_ASSISTANT_MESSAGE_SCHEMA,
                     },
                     "rejected": {
                         "type": "array",
+                        "minItems": 1,
+                        "maxItems": 1,
                         "items": DPO_ASSISTANT_MESSAGE_SCHEMA,
                     },
                     "metadata": DPO_METADATA_SCHEMA,
