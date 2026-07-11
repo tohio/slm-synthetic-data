@@ -89,6 +89,7 @@ DISTILLATION_DPO_MAX_BACKFILL_ROUNDS ?= 2
 DISTILLATION_DPO_PUSH_RUN ?= $(DISTILLATION_DPO_REPORT_RUN)
 DISTILLATION_DPO_HF_NAMESPACE ?= $(HF_NAMESPACE)
 DISTILLATION_DPO_HF_PREFIX ?= slm-synthetic-distillation-dpo
+DISTILLATION_DPO_HF_REPO ?= $(DISTILLATION_DPO_HF_NAMESPACE)/slm-synthetic-distillation-dpo
 DISTILLATION_DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DISTILLATION_DPO_FAMILIES)),$(DISTILLATION_DPO_FAMILIES),$(DISTILLATION_DPO_SMOKE_FAMILIES))
 
 # SFT
@@ -187,7 +188,7 @@ help:
 > @echo "Push to Hugging Face:"
 > @echo "  make pretrain-push       Push pretraining deduped data"
 > @echo "  make distillation-sft-push        Push a distillation SFT run"
-> @echo "  make distillation-dpo-push        Push distillation DPO families"
+> @echo "  make distillation-dpo-push        Push a distillation DPO run"
 > @echo "  make sft-push            Push SFT families to slm-synthetic-sft-* repos"
 > @echo "  make dpo-push            Push DPO families to slm-synthetic-dpo-* repos"
 > @echo ""
@@ -212,7 +213,7 @@ help:
 > @echo "  DISTILLATION_SFT_HF_REPO=$(DISTILLATION_SFT_HF_REPO)"
 > @echo "  DISTILLATION_DPO_TARGET_PAIRS=$(DISTILLATION_DPO_TARGET_PAIRS)"
 > @echo "  DISTILLATION_DPO_HF_NAMESPACE=$(DISTILLATION_DPO_HF_NAMESPACE)"
-> @echo "  DISTILLATION_DPO_HF_PREFIX=$(DISTILLATION_DPO_HF_PREFIX)"
+> @echo "  DISTILLATION_DPO_HF_REPO=$(DISTILLATION_DPO_HF_REPO)"
 > @echo "  SFT_TARGET_ROWS=$(SFT_TARGET_ROWS)"
 > @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
 > @echo "  SFT_HF_NAMESPACE=$(SFT_HF_NAMESPACE)"
@@ -386,8 +387,7 @@ distillation-dpo-push:
 > $(PYTHON) -m slm_synth.distillation_dpo.push_hf \
 >   --dataset-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_PUSH_RUN)/datasets \
 >   --run-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_PUSH_RUN) \
->   --repo-owner $(DISTILLATION_DPO_HF_NAMESPACE) \
->   --repo-prefix $(DISTILLATION_DPO_HF_PREFIX) $(HF_PRIVATE_ARG)
+>   --repo-id $(DISTILLATION_DPO_HF_REPO) $(HF_PRIVATE_ARG)
 
 sft-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \

@@ -1,4 +1,4 @@
-"""Push distillation-DPO run outputs to per-family Hugging Face dataset repos."""
+"""Push distillation-DPO run outputs to Hugging Face dataset repos."""
 
 from __future__ import annotations
 
@@ -111,6 +111,13 @@ def repo_id_for_family(*, repo_owner: str, repo_prefix: str, family: str) -> str
     return f"{owner}/{prefix}-{slugify_family(family)}"
 
 
+def normalize_repo_id(repo_id: str) -> str:
+    clean_repo_id = repo_id.strip().strip("/")
+    if not clean_repo_id or "/" not in clean_repo_id:
+        raise ValueError("repo_id must include namespace, e.g. 'tohio/slm-synthetic-distillation-dpo'")
+    return clean_repo_id
+
+
 def _artifact_manifest_paths(*, run_dir: Path, family: str, run_manifest: Path | None, skip_manifests: bool) -> list[Path]:
     if skip_manifests:
         return []
@@ -130,7 +137,8 @@ def _artifact_manifest_paths(*, run_dir: Path, family: str, run_manifest: Path |
 def push_distillation_dpo_run(
     *,
     dataset_dir: str | Path,
-    repo_owner: str,
+    repo_id: str | None = None,
+    repo_owner: str | None = None,
     repo_prefix: str = "slm-synthetic-distillation-dpo",
     private: bool = False,
     env_file: str | None = None,
@@ -156,19 +164,76 @@ def push_distillation_dpo_run(
     for file_path in files:
         files_by_family.setdefault(family_from_dataset_path(file_path), []).append(file_path)
 
-    repos: dict[str, dict[str, Any]] = {}
-    for family, family_files in sorted(files_by_family.items()):
-        repo_id = repo_id_for_family(repo_owner=repo_owner, repo_prefix=repo_prefix, family=family)
-        create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
+    if repo_id is not None:
+        target_repo_id = normalize_repo_id(repo_id)
+        create_repo(repo_id=target_repo_id, repo_type="dataset", private=private, exist_ok=True)
         total_rows = 0
         uploaded_files: list[str] = []
-        operations = legacy_metadata_delete_operations(api, repo_id=repo_id)
+        operations = legacy_metadata_delete_operations(api, repo_id=target_repo_id)
+
+        for file_path in sorted(files):
+            row_count = count_and_validate_jsonl(file_path)
+            total_rows += row_count
+            path_in_repo = f"data/{file_path.relative_to(dataset_root).as_posix()}"
+            print(f"[push_hf] staging {file_path} -> {target_repo_id}/{path_in_repo} rows={row_count}")
+            operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
+            uploaded_files.append(path_in_repo)
+
+        if root is not None:
+            readme_path = root / "README.md"
+            if not readme_path.is_file():
+                raise FileNotFoundError(f"required HF dataset card source is missing: {readme_path}")
+            operations.append(CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=dataset_card_bytes(readme_path)))
+            coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json")
+            if coverage_op is not None:
+                operations.append(coverage_op)
+            if not skip_manifests and run_manifest is not None:
+                operations.append(
+                    CommitOperationAdd(
+                        path_in_repo=f"artifacts/manifests/{run_manifest.name}",
+                        path_or_fileobj=str(run_manifest),
+                    )
+                )
+            if not skip_manifests and (root / "manifests").exists():
+                for manifest_path in sorted((root / "manifests").glob("*.manifest.json")):
+                    if manifest_path == run_manifest or ".batch" in manifest_path.name:
+                        continue
+                    operations.append(
+                        CommitOperationAdd(
+                            path_in_repo=f"artifacts/manifests/{manifest_path.name}",
+                            path_or_fileobj=str(manifest_path),
+                        )
+                    )
+
+        print(f"[push_hf] committing {len(operations)} file operation(s) to {target_repo_id}")
+        create_dataset_commit(
+            api,
+            repo_id=target_repo_id,
+            operations=operations,
+            commit_message="Update distillation-DPO dataset",
+        )
+
+        repos = {"default": {"repo_id": target_repo_id, "files": uploaded_files, "rows": total_rows}}
+        result = {"repos": repos, "repo_count": 1, "rows": total_rows}
+        print(f"[push_hf] Completed distillation-DPO push repo={target_repo_id} files={len(uploaded_files)} rows={total_rows}")
+        return result
+
+    if repo_owner is None:
+        raise ValueError("repo_owner is required when repo_id is not provided")
+
+    repos: dict[str, dict[str, Any]] = {}
+    for family, family_files in sorted(files_by_family.items()):
+        repo_id_for_upload = repo_id_for_family(repo_owner=repo_owner, repo_prefix=repo_prefix, family=family)
+        create_repo(repo_id=repo_id_for_upload, repo_type="dataset", private=private, exist_ok=True)
+        total_rows = 0
+        uploaded_files: list[str] = []
+        operations = legacy_metadata_delete_operations(api, repo_id=repo_id_for_upload)
 
         for file_path in family_files:
             row_count = count_and_validate_jsonl(file_path)
             total_rows += row_count
             path_in_repo = f"data/{file_path.relative_to(dataset_root).as_posix()}"
-            print(f"[push_hf] staging {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")
+            print(f"[push_hf] staging {file_path} -> {repo_id_for_upload}/{path_in_repo} rows={row_count}")
             operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
             uploaded_files.append(path_in_repo)
 
@@ -193,16 +258,16 @@ def push_distillation_dpo_run(
                     )
                 )
 
-        print(f"[push_hf] committing {len(operations)} file operation(s) to {repo_id}")
+        print(f"[push_hf] committing {len(operations)} file operation(s) to {repo_id_for_upload}")
         create_dataset_commit(
             api,
-            repo_id=repo_id,
+            repo_id=repo_id_for_upload,
             operations=operations,
             commit_message=f"Update distillation-DPO family dataset: {family}",
         )
 
-        repos[family] = {"repo_id": repo_id, "files": uploaded_files, "rows": total_rows}
-        print(f"[push_hf] Completed distillation-DPO push repo={repo_id} files={len(uploaded_files)} rows={total_rows}")
+        repos[family] = {"repo_id": repo_id_for_upload, "files": uploaded_files, "rows": total_rows}
+        print(f"[push_hf] Completed distillation-DPO push repo={repo_id_for_upload} files={len(uploaded_files)} rows={total_rows}")
 
     result = {"repos": repos, "repo_count": len(repos), "rows": sum(item["rows"] for item in repos.values())}
     print(f"[push_hf] Completed distillation-DPO family push repos={len(repos)} rows={result['rows']}")
@@ -210,9 +275,10 @@ def push_distillation_dpo_run(
 
 
 def cli() -> None:
-    parser = argparse.ArgumentParser(description="Push distillation-DPO run outputs to per-family Hugging Face dataset repos.")
+    parser = argparse.ArgumentParser(description="Push distillation-DPO run outputs to Hugging Face.")
     parser.add_argument("--dataset-dir", required=True)
-    parser.add_argument("--repo-owner", required=True)
+    parser.add_argument("--repo-id", default=None)
+    parser.add_argument("--repo-owner", default=None)
     parser.add_argument("--repo-prefix", default="slm-synthetic-distillation-dpo")
     parser.add_argument("--run-dir", default=None)
     parser.add_argument("--private", action="store_true")
@@ -221,6 +287,7 @@ def cli() -> None:
     args = parser.parse_args()
     push_distillation_dpo_run(
         dataset_dir=args.dataset_dir,
+        repo_id=args.repo_id,
         repo_owner=args.repo_owner,
         repo_prefix=args.repo_prefix,
         private=args.private,

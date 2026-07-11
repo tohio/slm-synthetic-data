@@ -9,6 +9,7 @@ from slm_synth.distillation_dpo.io import read_jsonl
 from slm_synth.distillation_dpo.push_hf import (
     count_and_validate_jsonl,
     discover_jsonl_files,
+    normalize_repo_id,
     push_distillation_dpo_run,
     repo_id_for_family,
 )
@@ -225,9 +226,10 @@ def test_distillation_dpo_push_discovers_public_files_only(tmp_path):
         )
         == "tohio/slm-synthetic-distillation-dpo-teacher-response-preference"
     )
+    assert normalize_repo_id("/tohio/slm-synthetic-distillation-dpo/") == "tohio/slm-synthetic-distillation-dpo"
 
 
-def test_push_distillation_dpo_run_uploads_family_repo(tmp_path, monkeypatch):
+def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
     run_dir = tmp_path / "run"
     dataset_dir = run_dir / "datasets"
     manifest_dir = run_dir / "manifests"
@@ -255,12 +257,16 @@ def test_push_distillation_dpo_run_uploads_family_repo(tmp_path, monkeypatch):
     monkeypatch.setattr("slm_synth.distillation_dpo.push_hf.HfApi", FakeApi)
     monkeypatch.setattr("slm_synth.distillation_dpo.push_hf.create_repo", lambda **kwargs: calls.append(("repo", kwargs)))
 
-    result = push_distillation_dpo_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_owner="tohio")
+    result = push_distillation_dpo_run(
+        dataset_dir=dataset_dir,
+        run_dir=run_dir,
+        repo_id="tohio/slm-synthetic-distillation-dpo",
+    )
 
-    repo_id = "tohio/slm-synthetic-distillation-dpo-teacher-response-preference"
+    repo_id = "tohio/slm-synthetic-distillation-dpo"
     assert result["repo_count"] == 1
     assert result["rows"] == 1
-    assert result["repos"]["teacher_response_preference"]["repo_id"] == repo_id
+    assert result["repos"]["default"]["repo_id"] == repo_id
     commit_calls = [call for call in calls if call[0] == "commit"]
     assert len(commit_calls) == 1
     paths = commit_calls[0][2]
@@ -281,6 +287,15 @@ def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():
     assert "--target-pairs $(DISTILLATION_DPO_TARGET_PAIRS)" in block
     assert "$(OPENROUTER_ENV)" in block
     assert "slm_synth.dpo" not in block
+
+
+def test_distillation_dpo_push_target_uses_exact_repo_id():
+    makefile = Path("Makefile").read_text()
+    block = makefile.split("distillation-dpo-push:", 1)[1].split("sft-smoke:", 1)[0]
+
+    assert "DISTILLATION_DPO_HF_REPO ?= $(DISTILLATION_DPO_HF_NAMESPACE)/slm-synthetic-distillation-dpo" in makefile
+    assert "--repo-id $(DISTILLATION_DPO_HF_REPO)" in block
+    assert "--repo-prefix $(DISTILLATION_DPO_HF_PREFIX)" not in block
 
 
 def test_distillation_dpo_llm_run_fails_underfilled_after_backfill_budget(tmp_path):
