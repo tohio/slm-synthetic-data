@@ -31,6 +31,10 @@ tmp/
 *.jsonl
 *.parquet
 
+# Runtime logs
+logs/*
+!logs/.gitkeep
+
 # Patch/reject leftovers
 *.patch
 *.rej
