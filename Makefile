@@ -265,6 +265,7 @@ pretrain-report:
 > $(PYTHON) -m slm_synth.pretrain.report_duplicates --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
 > $(PYTHON) -m slm_synth.pretrain.report_lengths --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
 > @test -z "$(PRETRAIN_REPORT_RUN)" || $(PYTHON) -m slm_synth.cards build --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN)
+> @if [ -n "$(PRETRAIN_REPORT_RUN)" ]; then $(PYTHON) -m slm_synth.manifest_totals normalize --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN); fi
 
 pretrain-inspect:
 > @echo "== pretraining files =="
@@ -320,6 +321,7 @@ distillation-sft-report:
 >   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_SFT_DATASET_NAME)"
 > $(PYTHON) -m slm_synth.cards build --kind distillation-sft --run-dir data/distillation/runs/$(DISTILLATION_SFT_REPORT_RUN)
+> $(PYTHON) -m slm_synth.manifest_totals normalize --kind distillation-sft --run-dir data/distillation/runs/$(DISTILLATION_SFT_REPORT_RUN)
 
 distillation-sft-inspect:
 > @echo "== distillation files =="
@@ -379,6 +381,7 @@ distillation-dpo-report:
 >   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_DPO_DATASET_NAME)"
 > $(PYTHON) -m slm_synth.cards build --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
+> $(PYTHON) -m slm_synth.manifest_totals normalize --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
 
 distillation-dpo-inspect:
 > @echo "== distillation DPO files =="
@@ -433,6 +436,7 @@ sft-report:
 >   --input $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/datasets \
 >   --output $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.cards build --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)
+> $(PYTHON) -m slm_synth.manifest_totals normalize --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)
 
 sft-inspect:
 > @echo "== SFT files =="
@@ -488,6 +492,7 @@ dpo-report:
 >   --input $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/datasets \
 >   --output $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.cards build --kind dpo --run-dir data/dpo/runs/$(DPO_REPORT_RUN)
+> $(PYTHON) -m slm_synth.manifest_totals normalize --kind dpo --run-dir data/dpo/runs/$(DPO_REPORT_RUN)
 
 dpo-inspect:
 > @echo "== DPO files =="
