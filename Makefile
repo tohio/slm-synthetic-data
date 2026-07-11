@@ -179,11 +179,11 @@ help:
 > @echo "  make distillation-dpo-inspect     Show distillation DPO files and sample rows"
 > @echo "  make sft-inspect         Show SFT files and sample rows"
 > @echo "  make dpo-inspect         Show DPO files and sample rows"
-> @echo "  make pretrain-report     Rebuild pretraining reports"
+> @echo "  make pretrain-report     Rebuild pretraining reports and dataset card"
 > @echo "  make distillation-sft-report      Rebuild distillation SFT reports and dataset card"
 > @echo "  make distillation-dpo-report      Rebuild distillation DPO reports and dataset card"
-> @echo "  make sft-report          Rebuild SFT coverage"
-> @echo "  make dpo-report          Rebuild DPO coverage"
+> @echo "  make sft-report          Rebuild SFT coverage and dataset card"
+> @echo "  make dpo-report          Rebuild DPO coverage and dataset card"
 > @echo ""
 > @echo "Push to Hugging Face:"
 > @echo "  make pretrain-push       Push pretraining deduped data"
@@ -264,6 +264,7 @@ pretrain-report:
 >   --generation-run $(PRETRAIN_REPORT_RUN)
 > $(PYTHON) -m slm_synth.pretrain.report_duplicates --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
 > $(PYTHON) -m slm_synth.pretrain.report_lengths --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
+> @test -z "$(PRETRAIN_REPORT_RUN)" || $(PYTHON) -m slm_synth.cards build --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN)
 
 pretrain-inspect:
 > @echo "== pretraining files =="
@@ -318,6 +319,7 @@ distillation-sft-report:
 >   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_SFT_DATASET_NAME)"
+> $(PYTHON) -m slm_synth.cards build --kind distillation-sft --run-dir data/distillation/runs/$(DISTILLATION_SFT_REPORT_RUN)
 
 distillation-sft-inspect:
 > @echo "== distillation files =="
@@ -376,6 +378,7 @@ distillation-dpo-report:
 >   --run-manifest $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/manifests/$(DISTILLATION_DPO_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_DPO_DATASET_NAME)"
+> $(PYTHON) -m slm_synth.cards build --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
 
 distillation-dpo-inspect:
 > @echo "== distillation DPO files =="
@@ -429,6 +432,7 @@ sft-report:
 > $(PYTHON) -m slm_synth.sft.cli report-coverage \
 >   --input $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/datasets \
 >   --output $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/coverage.json
+> $(PYTHON) -m slm_synth.cards build --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)
 
 sft-inspect:
 > @echo "== SFT files =="
@@ -483,6 +487,7 @@ dpo-report:
 > $(PYTHON) -m slm_synth.dpo.cli report-coverage \
 >   --input $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/datasets \
 >   --output $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/coverage.json
+> $(PYTHON) -m slm_synth.cards build --kind dpo --run-dir data/dpo/runs/$(DPO_REPORT_RUN)
 
 dpo-inspect:
 > @echo "== DPO files =="
