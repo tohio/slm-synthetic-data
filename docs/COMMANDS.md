@@ -177,6 +177,74 @@ make distillation-sft-push DISTILLATION_SFT_HF_REPO=<namespace>/<repo>
 make distillation-dpo-push DISTILLATION_DPO_HF_NAMESPACE=<namespace>
 ```
 
+## Hugging Face Dataset Deletion
+
+Deletion targets remove Hugging Face **dataset repositories** only. They do not delete local run data under `data/`.
+
+All deletion targets are dry-run by default. Set `HF_DELETE_YES=1` to actually delete selected repos.
+
+### Dry-run examples
+
+```bash
+make hf-delete-distillation
+make hf-delete-legacy-distillation-dpo
+make hf-delete-sft
+make hf-delete-dpo
+```
+
+Delete target output should list selected repositories and print `DRY RUN ONLY`.
+
+### Actual deletion examples
+
+```bash
+HF_DELETE_YES=1 make hf-delete-distillation
+HF_DELETE_YES=1 make hf-delete-legacy-distillation-dpo
+```
+
+Delete an exact repo:
+
+```bash
+make hf-delete-datasets HF_DELETE_REPO=tohio/slm-synthetic-distillation-dpo
+HF_DELETE_YES=1 make hf-delete-datasets HF_DELETE_REPO=tohio/slm-synthetic-distillation-dpo
+```
+
+Delete repos from a file:
+
+```bash
+make hf-delete-datasets HF_DELETE_REPO_FILE=repos-to-delete.txt
+HF_DELETE_YES=1 make hf-delete-datasets HF_DELETE_REPO_FILE=repos-to-delete.txt
+```
+
+The repo file should contain one dataset repo id per line:
+
+```text
+tohio/slm-synthetic-distillation-sft
+tohio/slm-synthetic-distillation-dpo
+```
+
+### Delete targets
+
+| Target | Purpose |
+|---|---|
+| `make hf-delete-datasets` | Delete exact repos from `HF_DELETE_REPO` or `HF_DELETE_REPO_FILE`. |
+| `make hf-delete-sft` | Delete `slm-synthetic-sft-*` family dataset repos. |
+| `make hf-delete-dpo` | Delete `slm-synthetic-dpo-*` family dataset repos. |
+| `make hf-delete-distillation` | Delete `slm-synthetic-distillation-sft` and `slm-synthetic-distillation-dpo`. |
+| `make hf-delete-legacy-distillation-dpo` | Delete the old long distillation-DPO repo name. |
+
+### Delete variables
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `HF_DELETE_NAMESPACE` | `$(HF_NAMESPACE)` | Hugging Face namespace for generated delete targets. |
+| `HF_DELETE_REPO` | unset | Exact dataset repo id to delete. |
+| `HF_DELETE_REPO_FILE` | unset | File containing one exact dataset repo id per line. |
+| `HF_DELETE_YES` | unset | Set to `1`, `true`, or `yes` to actually delete. |
+| `SFT_HF_PREFIX` | `slm-synthetic-sft` | Prefix used by `make hf-delete-sft`. |
+| `DPO_HF_PREFIX` | `slm-synthetic-dpo` | Prefix used by `make hf-delete-dpo`. |
+
+Actual deletion requires `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` in the environment.
+
 ## Maintenance
 
 ```bash
