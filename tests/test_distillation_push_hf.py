@@ -103,8 +103,12 @@ def test_push_distillation_run_uploads_only_public_surface_files(tmp_path, monke
         def __init__(self, token):
             calls.append(("api", token))
 
-        def upload_file(self, **kwargs):
-            calls.append(("upload", kwargs["path_in_repo"]))
+        def list_repo_files(self, **kwargs):
+            calls.append(("list", kwargs["repo_id"]))
+            return ["coverage.json", "manifests/old.manifest.json", "README.md"]
+
+        def create_commit(self, **kwargs):
+            calls.append(("commit", kwargs["repo_id"], [operation.path_in_repo for operation in kwargs["operations"]]))
 
     monkeypatch.setenv("HF_TOKEN", "token")
     monkeypatch.setattr("slm_synth.distillation_sft.push_hf.HfApi", FakeApi)
@@ -113,12 +117,15 @@ def test_push_distillation_run_uploads_only_public_surface_files(tmp_path, monke
     result = push_distillation_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_id="org/distill")
 
     assert result == {"repo_id": "org/distill", "files": ["data/arithmetic.jsonl"], "rows": 1}
-    assert [call for call in calls if call[0] == "upload"] == [
-        ("upload", "data/arithmetic.jsonl"),
-        ("upload", "README.md"),
-        ("upload", "coverage.json"),
-        ("upload", "manifests/run.manifest.json"),
-    ]
+    commit_calls = [call for call in calls if call[0] == "commit"]
+    assert len(commit_calls) == 1
+    paths = commit_calls[0][2]
+    assert "data/arithmetic.jsonl" in paths
+    assert "README.md" in paths
+    assert "artifacts/coverage.json" in paths
+    assert "artifacts/manifests/run.manifest.json" in paths
+    assert "coverage.json" in paths
+    assert "manifests/old.manifest.json" in paths
 
 
 @pytest.mark.parametrize(
@@ -145,7 +152,10 @@ def test_push_distillation_run_requires_public_surface_files(tmp_path, monkeypat
         def __init__(self, token):
             pass
 
-        def upload_file(self, **kwargs):
+        def list_repo_files(self, **kwargs):
+            return []
+
+        def create_commit(self, **kwargs):
             pass
 
     monkeypatch.setenv("HF_TOKEN", "token")

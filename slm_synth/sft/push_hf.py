@@ -9,9 +9,15 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from huggingface_hub import HfApi, create_repo
+from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
 from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
+from slm_synth.hf_push import (
+    add_file_operation,
+    create_dataset_commit,
+    dataset_card_bytes,
+    legacy_metadata_delete_operations,
+)
 from slm_synth.sft.schema import validate_sft_row
 
 
@@ -105,23 +111,27 @@ def repo_id_for_family(*, repo_owner: str, repo_prefix: str, family: str) -> str
     return f"{owner}/{prefix}-{slugify_family(family)}"
 
 
-def upload_optional_file(api: HfApi, *, repo_id: str, path: Path, path_in_repo: str) -> None:
-    if not path.exists():
-        return
-    print(f"[push_hf] uploading {path} -> {repo_id}/{path_in_repo}")
-    api.upload_file(
-        path_or_fileobj=str(path),
-        path_in_repo=path_in_repo,
-        repo_id=repo_id,
-        repo_type="dataset",
-    )
+def _artifact_manifest_paths(*, run_dir: Path, family: str, run_manifest: Path | None, skip_manifests: bool) -> list[Path]:
+    if skip_manifests:
+        return []
+    manifest_dir = run_dir / "manifests"
+    paths: list[Path] = []
+    if run_manifest is not None:
+        paths.append(run_manifest)
+    if manifest_dir.exists():
+        for manifest_path in sorted(manifest_dir.glob("*.manifest.json")):
+            if manifest_path in paths or ".batch" in manifest_path.name:
+                continue
+            if manifest_path.name.startswith(f"{family}."):
+                paths.append(manifest_path)
+    return paths
 
 
 def push_sft_run(
     *,
     dataset_dir: str | Path,
     repo_owner: str,
-    repo_prefix: str = "slm-sft",
+    repo_prefix: str = "slm-synthetic-sft",
     private: bool = False,
     env_file: str | None = None,
     run_dir: str | Path | None = None,
@@ -136,9 +146,11 @@ def push_sft_run(
     api = HfApi(token=token)
 
     dataset_root = Path(dataset_dir)
-    if run_dir is not None:
-        manifest_path = discover_run_manifest(run_dir, dataset_type="sft")
-        require_publish_ready_manifest(manifest_path, artifact_name="SFT")
+    root = Path(run_dir) if run_dir is not None else None
+    run_manifest: Path | None = None
+    if root is not None:
+        run_manifest = discover_run_manifest(root, dataset_type="sft")
+        require_publish_ready_manifest(run_manifest, artifact_name="SFT")
     files = discover_jsonl_files(dataset_root)
     files_by_family: dict[str, list[Path]] = {}
     for file_path in files:
@@ -150,36 +162,44 @@ def push_sft_run(
         create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
         total_rows = 0
         uploaded_files: list[str] = []
+        operations = legacy_metadata_delete_operations(api, repo_id=repo_id)
 
         for file_path in family_files:
             row_count = count_and_validate_jsonl(file_path)
             total_rows += row_count
             path_in_repo = f"data/{file_path.relative_to(dataset_root).as_posix()}"
-            print(f"[push_hf] uploading {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")
-            api.upload_file(
-                path_or_fileobj=str(file_path),
-                path_in_repo=path_in_repo,
-                repo_id=repo_id,
-                repo_type="dataset",
-            )
+            print(f"[push_hf] staging {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")
+            operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
             uploaded_files.append(path_in_repo)
 
-        if run_dir is not None:
-            root = Path(run_dir)
-            upload_optional_file(api, repo_id=repo_id, path=root / "README.md", path_in_repo="README.md")
-            upload_optional_file(api, repo_id=repo_id, path=root / "coverage.json", path_in_repo="coverage.json")
-            if not skip_manifests:
-                manifests = sorted((root / "manifests").glob("*.json")) if (root / "manifests").exists() else []
-                for manifest_path in manifests:
-                    is_family_manifest = manifest_path.name.startswith(f"{family}.")
-                    is_run_manifest = manifest_path.name.endswith(".manifest.json") and ".batch" not in manifest_path.name
-                    if is_family_manifest or is_run_manifest:
-                        upload_optional_file(
-                            api,
-                            repo_id=repo_id,
-                            path=manifest_path,
-                            path_in_repo=f"manifests/{manifest_path.name}",
-                        )
+        if root is not None:
+            readme_path = root / "README.md"
+            if not readme_path.is_file():
+                raise FileNotFoundError(f"required HF dataset card source is missing: {readme_path}")
+            operations.append(CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=dataset_card_bytes(readme_path)))
+            coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json")
+            if coverage_op is not None:
+                operations.append(coverage_op)
+            for manifest_path in _artifact_manifest_paths(
+                run_dir=root,
+                family=family,
+                run_manifest=run_manifest,
+                skip_manifests=skip_manifests,
+            ):
+                operations.append(
+                    CommitOperationAdd(
+                        path_in_repo=f"artifacts/manifests/{manifest_path.name}",
+                        path_or_fileobj=str(manifest_path),
+                    )
+                )
+
+        print(f"[push_hf] committing {len(operations)} file operation(s) to {repo_id}")
+        create_dataset_commit(
+            api,
+            repo_id=repo_id,
+            operations=operations,
+            commit_message=f"Update SFT family dataset: {family}",
+        )
 
         repos[family] = {"repo_id": repo_id, "files": uploaded_files, "rows": total_rows}
         print(f"[push_hf] Completed SFT push repo={repo_id} files={len(uploaded_files)} rows={total_rows}")
@@ -193,7 +213,7 @@ def cli() -> None:
     parser = argparse.ArgumentParser(description="Push SFT run outputs to per-family Hugging Face dataset repos.")
     parser.add_argument("--dataset-dir", required=True)
     parser.add_argument("--repo-owner", required=True)
-    parser.add_argument("--repo-prefix", default="slm-sft")
+    parser.add_argument("--repo-prefix", default="slm-synthetic-sft")
     parser.add_argument("--run-dir", default=None)
     parser.add_argument("--private", action="store_true")
     parser.add_argument("--env-file", default=None)

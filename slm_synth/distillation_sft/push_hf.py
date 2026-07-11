@@ -9,10 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from huggingface_hub import HfApi, create_repo
+from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
 from slm_synth.accepted_target import require_publish_ready_manifest
 from slm_synth.distillation_sft.schema import validate_public_row
+from slm_synth.hf_push import (
+    add_file_operation,
+    create_dataset_commit,
+    dataset_card_bytes,
+    legacy_metadata_delete_operations,
+)
 
 
 INTERNAL_DATASET_DIR_NAMES = {
@@ -87,18 +93,6 @@ def count_and_validate_jsonl(path: str | Path) -> int:
     return count
 
 
-def upload_required_file(api: HfApi, *, repo_id: str, path: Path, path_in_repo: str) -> None:
-    if not path.is_file():
-        raise FileNotFoundError(f"required distillation public file is missing: {path}")
-    print(f"[push_hf] uploading {path} -> {repo_id}/{path_in_repo}")
-    api.upload_file(
-        path_or_fileobj=str(path),
-        path_in_repo=path_in_repo,
-        repo_id=repo_id,
-        repo_type="dataset",
-    )
-
-
 def discover_run_manifest(run_dir: str | Path) -> Path:
     root = Path(run_dir)
     manifest_dir = root / "manifests"
@@ -153,37 +147,49 @@ def push_distillation_run(
     create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
 
     dataset_root = Path(dataset_dir)
-    if run_dir is not None:
-        require_publish_ready_manifest(discover_run_manifest(run_dir), artifact_name="distillation SFT")
+    root = Path(run_dir) if run_dir is not None else None
+    run_manifest: Path | None = None
+    if root is not None:
+        run_manifest = discover_run_manifest(root)
+        require_publish_ready_manifest(run_manifest, artifact_name="distillation SFT")
     files = discover_jsonl_files(dataset_root)
     total_rows = 0
     uploaded_files: list[str] = []
+    operations = legacy_metadata_delete_operations(api, repo_id=repo_id)
 
     for file_path in files:
         row_count = count_and_validate_jsonl(file_path)
         total_rows += row_count
         path_in_repo = f"data/{file_path.relative_to(dataset_root).as_posix()}"
-        print(f"[push_hf] uploading {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")
-        api.upload_file(
-            path_or_fileobj=str(file_path),
-            path_in_repo=path_in_repo,
-            repo_id=repo_id,
-            repo_type="dataset",
-        )
+        print(f"[push_hf] staging {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")
+        operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
         uploaded_files.append(path_in_repo)
 
-    if run_dir is not None:
-        root = Path(run_dir)
-        upload_required_file(api, repo_id=repo_id, path=root / "README.md", path_in_repo="README.md")
-        upload_required_file(api, repo_id=repo_id, path=root / "coverage.json", path_in_repo="coverage.json")
+    if root is not None:
+        readme_path = root / "README.md"
+        if not readme_path.is_file():
+            raise FileNotFoundError(f"required HF dataset card source is missing: {readme_path}")
+        operations.append(CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=dataset_card_bytes(readme_path)))
+        coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json", required=True)
+        if coverage_op is not None:
+            operations.append(coverage_op)
         if not skip_manifests:
-            manifest_path = discover_run_manifest(root)
-            upload_required_file(
-                api,
-                repo_id=repo_id,
-                path=manifest_path,
-                path_in_repo=f"manifests/{manifest_path.name}",
+            if run_manifest is None:
+                raise FileNotFoundError("distillation run manifest is required")
+            operations.append(
+                CommitOperationAdd(
+                    path_in_repo=f"artifacts/manifests/{run_manifest.name}",
+                    path_or_fileobj=str(run_manifest),
+                )
             )
+
+    print(f"[push_hf] committing {len(operations)} file operation(s) to {repo_id}")
+    create_dataset_commit(
+        api,
+        repo_id=repo_id,
+        operations=operations,
+        commit_message="Update distillation SFT dataset",
+    )
 
     result = {"repo_id": repo_id, "files": uploaded_files, "rows": total_rows}
     print(f"[push_hf] Completed distillation push repo={repo_id} files={len(uploaded_files)} rows={total_rows}")

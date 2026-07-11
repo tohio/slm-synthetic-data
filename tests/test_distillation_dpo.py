@@ -220,10 +220,10 @@ def test_distillation_dpo_push_discovers_public_files_only(tmp_path):
     assert (
         repo_id_for_family(
             repo_owner="tohio",
-            repo_prefix="distillation-dpo",
+            repo_prefix="slm-synthetic-distillation-dpo",
             family="teacher_response_preference",
         )
-        == "tohio/distillation-dpo-teacher-response-preference"
+        == "tohio/slm-synthetic-distillation-dpo-teacher-response-preference"
     )
 
 
@@ -244,8 +244,12 @@ def test_push_distillation_dpo_run_uploads_family_repo(tmp_path, monkeypatch):
         def __init__(self, token):
             calls.append(("api", token))
 
-        def upload_file(self, **kwargs):
-            calls.append(("upload", kwargs["repo_id"], kwargs["path_in_repo"]))
+        def list_repo_files(self, **kwargs):
+            calls.append(("list", kwargs["repo_id"]))
+            return ["coverage.json", "manifests/old.manifest.json", "README.md"]
+
+        def create_commit(self, **kwargs):
+            calls.append(("commit", kwargs["repo_id"], [operation.path_in_repo for operation in kwargs["operations"]]))
 
     monkeypatch.setenv("HF_TOKEN", "token")
     monkeypatch.setattr("slm_synth.distillation_dpo.push_hf.HfApi", FakeApi)
@@ -253,14 +257,19 @@ def test_push_distillation_dpo_run_uploads_family_repo(tmp_path, monkeypatch):
 
     result = push_distillation_dpo_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_owner="tohio")
 
-    repo_id = "tohio/distillation-dpo-teacher-response-preference"
+    repo_id = "tohio/slm-synthetic-distillation-dpo-teacher-response-preference"
     assert result["repo_count"] == 1
     assert result["rows"] == 1
     assert result["repos"]["teacher_response_preference"]["repo_id"] == repo_id
-    assert ("upload", repo_id, "data/teacher_response_preference.jsonl") in calls
-    assert ("upload", repo_id, "README.md") in calls
-    assert ("upload", repo_id, "coverage.json") in calls
-    assert ("upload", repo_id, "manifests/distillation-dpo-smoke-001.manifest.json") in calls
+    commit_calls = [call for call in calls if call[0] == "commit"]
+    assert len(commit_calls) == 1
+    paths = commit_calls[0][2]
+    assert "data/teacher_response_preference.jsonl" in paths
+    assert "README.md" in paths
+    assert "artifacts/coverage.json" in paths
+    assert "artifacts/manifests/distillation-dpo-smoke-001.manifest.json" in paths
+    assert "coverage.json" in paths
+    assert "manifests/old.manifest.json" in paths
 
 
 def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():

@@ -31,10 +31,10 @@ def test_count_and_validate_sft_jsonl_rejects_bad_public_row(tmp_path):
         count_and_validate_jsonl(dataset)
 
 
-def test_repo_id_for_sft_family_uses_slm_sft_prefix():
+def test_repo_id_for_sft_family_uses_slm_synthetic_sft_prefix():
     assert (
-        repo_id_for_family(repo_owner="tohio", repo_prefix="slm-sft", family="basic_arithmetic_qa")
-        == "tohio/slm-sft-basic-arithmetic-qa"
+        repo_id_for_family(repo_owner="tohio", repo_prefix="slm-synthetic-sft", family="basic_arithmetic_qa")
+        == "tohio/slm-synthetic-sft-basic-arithmetic-qa"
     )
 
 
@@ -103,8 +103,18 @@ def test_push_sft_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
         def __init__(self, token):
             calls.append(("api", token))
 
-        def upload_file(self, **kwargs):
-            calls.append(("upload", kwargs["repo_id"], kwargs["path_in_repo"]))
+        def list_repo_files(self, **kwargs):
+            calls.append(("list", kwargs["repo_id"]))
+            return ["coverage.json", "manifests/old.manifest.json", "README.md"]
+
+        def create_commit(self, **kwargs):
+            calls.append(
+                (
+                    "commit",
+                    kwargs["repo_id"],
+                    [operation.path_in_repo for operation in kwargs["operations"]],
+                )
+            )
 
     monkeypatch.setenv("HF_TOKEN", "token")
     monkeypatch.setattr("slm_synth.sft.push_hf.HfApi", FakeApi)
@@ -114,17 +124,18 @@ def test_push_sft_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
 
     assert result["repo_count"] == 2
     assert result["rows"] == 3
-    assert result["repos"]["basic_arithmetic_qa"]["repo_id"] == "tohio/slm-sft-basic-arithmetic-qa"
-    assert result["repos"]["ai_concept_explanation"]["repo_id"] == "tohio/slm-sft-ai-concept-explanation"
-    assert ("repo", {"repo_id": "tohio/slm-sft-basic-arithmetic-qa", "repo_type": "dataset", "private": False, "exist_ok": True}) in calls
-    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "data/basic_arithmetic_qa.batch000001.jsonl") in calls
-    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "data/basic_arithmetic_qa.batch000002.jsonl") in calls
-    assert ("upload", "tohio/slm-sft-ai-concept-explanation", "data/ai_concept_explanation.batch000001.jsonl") in calls
-    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "README.md") in calls
-    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "coverage.json") in calls
-    assert (
-        "upload",
-        "tohio/slm-sft-basic-arithmetic-qa",
-        "manifests/basic_arithmetic_qa.batch000001.sft-run.manifest.json",
-    ) in calls
-    assert ("upload", "tohio/slm-sft-basic-arithmetic-qa", "manifests/sft-run.manifest.json") in calls
+    assert result["repos"]["basic_arithmetic_qa"]["repo_id"] == "tohio/slm-synthetic-sft-basic-arithmetic-qa"
+    assert result["repos"]["ai_concept_explanation"]["repo_id"] == "tohio/slm-synthetic-sft-ai-concept-explanation"
+    assert ("repo", {"repo_id": "tohio/slm-synthetic-sft-basic-arithmetic-qa", "repo_type": "dataset", "private": False, "exist_ok": True}) in calls
+    commit_calls = [call for call in calls if call[0] == "commit"]
+    assert len(commit_calls) == 2
+    basic_ops = next(call[2] for call in commit_calls if call[1] == "tohio/slm-synthetic-sft-basic-arithmetic-qa")
+    ai_ops = next(call[2] for call in commit_calls if call[1] == "tohio/slm-synthetic-sft-ai-concept-explanation")
+    assert "data/basic_arithmetic_qa.batch000001.jsonl" in basic_ops
+    assert "data/basic_arithmetic_qa.batch000002.jsonl" in basic_ops
+    assert "data/ai_concept_explanation.batch000001.jsonl" in ai_ops
+    assert "README.md" in basic_ops
+    assert "artifacts/coverage.json" in basic_ops
+    assert "artifacts/manifests/sft-run.manifest.json" in basic_ops or "artifacts/manifests/dpo-run.manifest.json" in basic_ops
+    assert "coverage.json" in basic_ops
+    assert "manifests/old.manifest.json" in basic_ops
