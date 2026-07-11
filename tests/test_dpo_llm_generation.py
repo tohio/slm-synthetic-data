@@ -3,10 +3,12 @@ import json
 import pytest
 
 from slm_synth.dpo.generation import (
+    generate_llm_batch,
     materialize_llm_batch,
     materialize_llm_batch_from_files,
     read_specs_jsonl,
 )
+from slm_synth.dpo.spec_builders import build_specs
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
@@ -176,3 +178,71 @@ def test_materialize_llm_batch_from_files(tmp_path):
 
     assert result.row_count == 1
     assert read_specs_jsonl(specs_path)[0]["id"] == "dpo_answer_only_arithmetic_000001"
+
+
+
+class FailingDPOBackend:
+    def __init__(self):
+        self.calls = []
+
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        self.calls.append({"prompt": prompt, "schema": schema, "schema_name": schema_name})
+        raise AssertionError("exact-target DPO batches must not call the teacher backend")
+
+
+def test_generate_llm_batch_materializes_exact_code_generation_without_teacher_call(tmp_path):
+    specs = build_specs(family="code_generation_function", count=2)
+    backend = FailingDPOBackend()
+
+    result = generate_llm_batch(
+        specs=specs,
+        output_path=tmp_path / "dpo.jsonl",
+        manifest_path=tmp_path / "dpo.manifest.json",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="dpo-exact-target-001",
+        max_tokens=1024,
+        backend=backend,
+    )
+
+    rows = [json.loads(line) for line in (tmp_path / "dpo.jsonl").read_text().splitlines()]
+    assert result.row_count == 2
+    assert backend.calls == []
+    assert rows[0]["chosen"][0]["content"] == specs[0]["variables"]["chosen_answer"]
+    assert rows[0]["rejected"][0]["content"] == specs[0]["variables"]["rejected_answer"]
+    assert rows[1]["chosen"][0]["content"] == specs[1]["variables"]["chosen_answer"]
+    manifest = json.loads((tmp_path / "dpo.manifest.json").read_text())
+    assert manifest["metadata"]["llm_telemetry"] == {"exact_target_materialized": True}
+
+
+def test_materialize_llm_batch_ignores_collapsed_teacher_response_for_exact_targets(tmp_path):
+    specs = build_specs(family="code_generation_function", count=3)
+    collapsed_response = {
+        "items": [
+            {
+                "id": specs[0]["id"],
+                "prompt": [{"role": "user", "content": "Write code."}],
+                "chosen": [{"role": "assistant", "content": "wrong"}],
+                "rejected": [{"role": "assistant", "content": "also wrong"}],
+                "metadata": specs[0]["metadata"],
+            }
+        ]
+    }
+
+    result = materialize_llm_batch(
+        specs=specs,
+        teacher_response=collapsed_response,
+        output_path=tmp_path / "dpo.jsonl",
+        manifest_path=tmp_path / "dpo.manifest.json",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="dpo-exact-target-001",
+    )
+
+    rows = [json.loads(line) for line in (tmp_path / "dpo.jsonl").read_text().splitlines()]
+    assert result.row_count == 3
+    assert [row["id"] for row in rows] == [spec["id"] for spec in specs]
+    assert [row["chosen"][0]["content"] for row in rows] == [
+        spec["variables"]["chosen_answer"] for spec in specs
+    ]
+    assert [row["rejected"][0]["content"] for row in rows] == [
+        spec["variables"]["rejected_answer"] for spec in specs
+    ]

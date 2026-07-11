@@ -13,6 +13,8 @@ from slm_synth.throughput_defaults import (
 )
 from slm_synth.dpo.batches import (
     DPO_BATCH_RESPONSE_SCHEMA,
+    build_exact_target_dpo_batch_response,
+    is_exact_target_dpo_spec,
     render_dpo_batch_prompt,
     validate_dpo_batch_response,
 )
@@ -132,6 +134,9 @@ def generate_teacher_batch_response_with_metadata(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call a teacher backend and return the response object plus operational telemetry."""
     validated_specs = [validate_dpo_spec(spec) for spec in specs]
+    if _all_exact_target_specs(validated_specs):
+        return build_exact_target_dpo_batch_response(validated_specs), {"exact_target_materialized": True}
+
     rendered_prompt = render_dpo_batch_prompt(validated_specs)
     result = backend.generate_structured_object_with_metadata(
         prompt=rendered_prompt,
@@ -282,10 +287,13 @@ def materialize_llm_batch(
     if len(expected_ids) != len(set(expected_ids)):
         raise ValueError("DPO specs contain duplicate id(s)")
 
-    repaired_response = _repair_identical_rejected_answers(
-        teacher_response=teacher_response,
-        specs=validated_specs,
-    )
+    if _all_exact_target_specs(validated_specs):
+        repaired_response = build_exact_target_dpo_batch_response(validated_specs)
+    else:
+        repaired_response = _repair_identical_rejected_answers(
+            teacher_response=teacher_response,
+            specs=validated_specs,
+        )
     rows = validate_dpo_batch_response(
         repaired_response,
         expected_ids=expected_ids,
@@ -344,6 +352,11 @@ def materialize_llm_batch_from_files(
         metadata=metadata,
         holdout_registry=holdout_registry,
     )
+
+
+def _all_exact_target_specs(specs: Iterable[Mapping[str, Any]]) -> bool:
+    specs_list = list(specs)
+    return bool(specs_list) and all(is_exact_target_dpo_spec(spec) for spec in specs_list)
 
 
 def _repair_identical_rejected_answers(

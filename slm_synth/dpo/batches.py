@@ -83,6 +83,91 @@ DPO_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+def is_exact_target_dpo_spec(spec: Mapping[str, Any]) -> bool:
+    """Return True when local chosen/rejected targets fully define the DPO pair."""
+    variables = spec.get("variables")
+    if not isinstance(variables, Mapping):
+        return False
+    return _optional_string(variables.get("chosen_answer")) is not None and _optional_string(
+        variables.get("rejected_answer")
+    ) is not None
+
+
+def build_exact_target_dpo_batch_response(specs: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Build deterministic DPO rows for exact-target specs without teacher rewriting."""
+    rows: list[dict[str, Any]] = []
+    for spec in specs:
+        validated = validate_dpo_spec(spec)
+        if not is_exact_target_dpo_spec(validated):
+            raise ValueError(f"DPO spec {validated['id']} is not an exact-target spec")
+        variables = validated["variables"]
+        chosen_answer = _optional_string(variables.get("chosen_answer"))
+        rejected_answer = _optional_string(variables.get("rejected_answer"))
+        if chosen_answer is None or rejected_answer is None:
+            raise ValueError(f"DPO spec {validated['id']} missing exact chosen/rejected target")
+        rows.append(
+            {
+                "id": validated["id"],
+                "prompt": _exact_target_prompt_messages(validated),
+                "chosen": [{"role": "assistant", "content": chosen_answer}],
+                "rejected": [{"role": "assistant", "content": rejected_answer}],
+                "metadata": validated["metadata"],
+            }
+        )
+    return {"items": rows}
+
+
+def _exact_target_prompt_messages(spec: Mapping[str, Any]) -> list[dict[str, str]]:
+    metadata = spec.get("metadata")
+    variables = spec.get("variables")
+    if not isinstance(metadata, Mapping) or not isinstance(variables, Mapping):
+        raise ValueError(f"DPO spec {spec.get('id')} cannot build exact-target prompt")
+    family = metadata.get("eval_family")
+    prompt = _exact_target_prompt_text(str(family), variables)
+    return [{"role": "user", "content": prompt}]
+
+
+def _exact_target_prompt_text(family: str, variables: Mapping[str, Any]) -> str:
+    if family == "basic_arithmetic_qa":
+        return f"What is {variables['a']} + {variables['b']}? Answer with only the number."
+    if family == "direct_subtraction":
+        return f"What is {variables['a']} - {variables['b']}? Answer with only the number."
+    if family == "direct_division":
+        return f"What is {variables['dividend']} divided by {variables['divisor']}? Answer with only the integer result."
+    if family == "capital_city_qa":
+        return f"What is the capital of {variables['country']}? Answer with only the capital city."
+    if family == "short_factual_stop_behavior":
+        return f"What is the capital of {variables['country']}? Answer with only the capital city."
+    if family == "clear_sky_color_qa":
+        return f"What color is {variables['topic']}? Answer with only the color."
+    if family == "code_expression_result":
+        return f"Evaluate this Python expression and answer with only the result:\n{variables['expression']}"
+    if family == "repeat_exact_n_times":
+        return (
+            f"Repeat {variables['word']} exactly {variables['count']} times. "
+            "Use single spaces only and do not add punctuation or extra text."
+        )
+    if family == "list_exact_n_items":
+        return (
+            f"List exactly {variables['count']} {variables['item_type']}. "
+            "Use comma-space separators and do not include numbering, bullets, prose, or extra items."
+        )
+    if family == "function_completion_body_only":
+        return (
+            "Complete this Python function body only.\n"
+            f"Signature:\n{variables['function_signature']}\n"
+            "Return only the function body. Do not include the signature, prose, or Markdown fences."
+        )
+    if family == "code_generation_function":
+        return (
+            "Write a complete Python function with this exact signature.\n"
+            f"Signature:\n{variables['function_signature']}\n"
+            f"Requirement: {variables['requirement']}\n"
+            "Return Python code only. Do not include prose or Markdown fences."
+        )
+    raise ValueError(f"Unsupported exact-target DPO eval_family: {family}")
+
+
 def build_dpo_teacher_request_items(specs: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Return batchable DPO specs that are safe to send to the LLM."""
     items: list[dict[str, Any]] = []

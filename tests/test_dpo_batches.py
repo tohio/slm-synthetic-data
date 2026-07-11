@@ -4,6 +4,7 @@ from slm_synth.dpo.batches import (
     DPO_BATCH_RESPONSE_SCHEMA,
     build_dpo_teacher_request_items,
     build_dpo_teacher_request_object,
+    build_exact_target_dpo_batch_response,
     render_dpo_batch_prompt,
     validate_dpo_batch_response,
 )
@@ -267,3 +268,64 @@ def test_validate_dpo_batch_response_rejects_assistant_prompt_role():
 
     with pytest.raises(ValueError, match="prompt contains unsupported role"):
         validate_dpo_batch_response({"items": [row]})
+
+
+
+def test_build_exact_target_dpo_batch_response_preserves_code_generation_targets():
+    spec = {
+        "id": "dpo_code_generation_function_000001",
+        "instruction": "Create a Python function generation request and answer with code only.",
+        "metadata": {
+            "category": "code_generation",
+            "difficulty": 2,
+            "template_family": "python_function_code_only",
+            "eval_family": "code_generation_function",
+            "failure_mode": "code_includes_explanation",
+        },
+        "variables": {
+            "function_name": "add_numbers",
+            "requirement": "Return the sum of two numbers.",
+            "function_signature": "def add_numbers(a, b):",
+            "chosen_answer": "def add_numbers(a, b):\n    return a + b",
+            "rejected_answer": "Here is the function:\n```python\ndef add_numbers(a, b):\n    return a + b\n```",
+        },
+    }
+
+    response = build_exact_target_dpo_batch_response([spec])
+    row = response["items"][0]
+
+    assert row["chosen"][0]["content"] == "def add_numbers(a, b):\n    return a + b"
+    assert row["rejected"][0]["content"].startswith("Here is the function:")
+    assert row["prompt"][0]["role"] == "user"
+    assert "def add_numbers(a, b):" in row["prompt"][0]["content"]
+    assert "Markdown fences" in row["prompt"][0]["content"]
+
+
+def test_build_exact_target_dpo_batch_response_does_not_leak_list_answer():
+    spec = {
+        "id": "dpo_list_exact_n_items_000001",
+        "instruction": "Create an instruction to list exact items.",
+        "metadata": {
+            "category": "exact_output_format_control",
+            "difficulty": 1,
+            "template_family": "list_exact_count",
+            "eval_family": "list_exact_n_items",
+            "failure_mode": "format_violation",
+        },
+        "variables": {
+            "item_type": "colors",
+            "count": 3,
+            "items": ["red", "green", "blue"],
+            "answer": "red, green, blue",
+            "chosen_answer": "red, green, blue",
+            "rejected_answer": "red, green, blue, purple",
+        },
+    }
+
+    response = build_exact_target_dpo_batch_response([spec])
+    prompt = response["items"][0]["prompt"][0]["content"].lower()
+
+    assert "red" not in prompt
+    assert "green" not in prompt
+    assert "blue" not in prompt
+    validate_dpo_batch_response(response, expected_specs=[spec], expected_count=1, expected_ids=[spec["id"]])

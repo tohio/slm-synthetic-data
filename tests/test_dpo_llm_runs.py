@@ -52,7 +52,7 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     backend = FakeDPOBackend()
 
     result = generate_llm_run(
-        families=["basic_arithmetic_qa"],
+        families=["ai_concept_explanation"],
         count_per_family=3,
         batch_size=2,
         output_dir=tmp_path / "datasets",
@@ -65,13 +65,13 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     )
 
     assert result.row_count == 3
-    assert result.families == ("basic_arithmetic_qa",)
+    assert result.families == ("ai_concept_explanation",)
     assert len(result.results) == 2
     assert len(backend.calls) == 2
-    assert (tmp_path / "datasets" / "basic_arithmetic_qa.jsonl").exists()
-    assert not (tmp_path / "datasets" / "basic_arithmetic_qa.batch000001.jsonl").exists()
-    assert (tmp_path / "batches" / "basic_arithmetic_qa.batch000001.jsonl").exists()
-    assert (tmp_path / "batches" / "basic_arithmetic_qa.batch000002.jsonl").exists()
+    assert (tmp_path / "datasets" / "ai_concept_explanation.jsonl").exists()
+    assert not (tmp_path / "datasets" / "ai_concept_explanation.batch000001.jsonl").exists()
+    assert (tmp_path / "batches" / "ai_concept_explanation.batch000001.jsonl").exists()
+    assert (tmp_path / "batches" / "ai_concept_explanation.batch000002.jsonl").exists()
 
     manifest = json.loads(result.manifest_path.read_text())
     assert manifest["dataset_type"] == "dpo"
@@ -85,10 +85,10 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 2
     assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 24
     assert [item["row_count"] for item in manifest["datasets"]] == [3]
-    assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "basic_arithmetic_qa.jsonl")
+    assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "ai_concept_explanation.jsonl")
     assert manifest["datasets"][0]["batch_count"] == 2
     assert len(manifest["datasets"][0]["batch_manifests"]) == 2
-    batch_manifest = json.loads((tmp_path / "manifests" / "basic_arithmetic_qa.batch000001.dpo-live-run-001.manifest.json").read_text())
+    batch_manifest = json.loads((tmp_path / "manifests" / "ai_concept_explanation.batch000001.dpo-live-run-001.manifest.json").read_text())
     assert batch_manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 12
 
 
@@ -96,7 +96,7 @@ def test_generate_dpo_llm_run_supports_multiple_families(tmp_path):
     backend = FakeDPOBackend()
 
     result = generate_llm_run(
-        families=["basic_arithmetic_qa", "repeat_exact_n_times"],
+        families=["ai_concept_explanation", "private_or_unverifiable_company_fact"],
         count_per_family=1,
         batch_size=1,
         output_dir=tmp_path / "datasets",
@@ -108,17 +108,17 @@ def test_generate_dpo_llm_run_supports_multiple_families(tmp_path):
     )
 
     assert result.row_count == 2
-    assert result.families == ("basic_arithmetic_qa", "repeat_exact_n_times")
+    assert result.families == ("ai_concept_explanation", "private_or_unverifiable_company_fact")
     assert len(backend.calls) == 2
-    assert (tmp_path / "datasets" / "basic_arithmetic_qa.jsonl").exists()
-    assert (tmp_path / "datasets" / "repeat_exact_n_times.jsonl").exists()
+    assert (tmp_path / "datasets" / "ai_concept_explanation.jsonl").exists()
+    assert (tmp_path / "datasets" / "private_or_unverifiable_company_fact.jsonl").exists()
 
 
 def test_generate_dpo_llm_run_reduces_batch_size_after_failure(tmp_path):
     backend = SplitOnLargeDPOBackend()
 
     result = generate_llm_run(
-        families=["basic_arithmetic_qa"],
+        families=["ai_concept_explanation"],
         count_per_family=3,
         batch_size=3,
         output_dir=tmp_path / "datasets",
@@ -176,7 +176,7 @@ def test_generate_dpo_llm_run_accepts_target_pairs_and_records_planning(tmp_path
     backend = FakeDPOBackend()
 
     result = generate_llm_run(
-        families=["basic_arithmetic_qa", "repeat_exact_n_times"],
+        families=["ai_concept_explanation", "private_or_unverifiable_company_fact"],
         target_pairs=3,
         batch_size=2,
         output_dir=tmp_path / "datasets",
@@ -195,8 +195,8 @@ def test_generate_dpo_llm_run_accepts_target_pairs_and_records_planning(tmp_path
     assert manifest["metadata"]["accepted_pairs"] == 3
     assert manifest["metadata"]["rejected_pairs"] == 0
     assert manifest["metadata"]["pairs_per_family"] == {
-        "basic_arithmetic_qa": 2,
-        "repeat_exact_n_times": 1,
+        "ai_concept_explanation": 2,
+        "private_or_unverifiable_company_fact": 1,
     }
     assert manifest["metadata"]["count_per_family"] is None
 
@@ -219,12 +219,12 @@ def test_generate_dpo_llm_run_rejects_multiple_planning_strategies(tmp_path):
 
 def test_generate_dpo_llm_run_fails_when_public_pairs_underfill_after_budget(tmp_path, monkeypatch):
     def write_underfilled_public_family_files(*, jobs, output_dir):
-        dataset_path = output_dir / "basic_arithmetic_qa.jsonl"
+        dataset_path = output_dir / "ai_concept_explanation.jsonl"
         dataset_path.parent.mkdir(parents=True, exist_ok=True)
         dataset_path.write_text("", encoding="utf-8")
         return [
             {
-                "family": "basic_arithmetic_qa",
+                "family": "ai_concept_explanation",
                 "dataset_path": dataset_path,
                 "row_count": 1,
                 "batch_count": len(jobs),
@@ -239,7 +239,7 @@ def test_generate_dpo_llm_run_fails_when_public_pairs_underfill_after_budget(tmp
 
     with pytest.raises(UnderfilledRunError, match="DPO.*underfilled.*remaining=1"):
         generate_llm_run(
-            families=["basic_arithmetic_qa"],
+            families=["ai_concept_explanation"],
             count_per_family=2,
             batch_size=2,
             output_dir=tmp_path / "datasets",
