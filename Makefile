@@ -146,6 +146,15 @@ DPO_HF_NAMESPACE ?= $(HF_NAMESPACE)
 DPO_HF_PREFIX ?= slm-synthetic-dpo
 DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES)),$(DPO_FAMILIES),$(DPO_SMOKE_FAMILIES))
 
+# Hugging Face dataset deletion
+HF_DELETE_NAMESPACE ?= $(HF_NAMESPACE)
+HF_DELETE_REPO ?=
+HF_DELETE_REPO_FILE ?=
+HF_DELETE_YES ?=
+HF_DELETE_YES_ARG := $(if $(filter true yes 1,$(HF_DELETE_YES)),--yes,)
+HF_DELETE_REPO_ARG := $(if $(HF_DELETE_REPO),--repo $(HF_DELETE_REPO),)
+HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_REPO_FILE),)
+
 .PHONY: help \
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
 	distillation-sft-smoke distillation-sft-generate \
@@ -154,6 +163,7 @@ DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES
 	distillation-dpo-report distillation-dpo-inspect distillation-dpo-push \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
 	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
+	hf-delete-datasets hf-delete-sft hf-delete-dpo hf-delete-distillation hf-delete-legacy-distillation-dpo \
 	test clean
 
 help:
@@ -192,6 +202,14 @@ help:
 > @echo "  make sft-push            Push SFT families to slm-synthetic-sft-* repos"
 > @echo "  make dpo-push            Push DPO families to slm-synthetic-dpo-* repos"
 > @echo ""
+> @echo "Delete Hugging Face datasets:"
+> @echo "  make hf-delete-datasets                Dry-run exact repos from HF_DELETE_REPO/HF_DELETE_REPO_FILE"
+> @echo "  make hf-delete-sft                     Dry-run SFT family dataset repo deletion"
+> @echo "  make hf-delete-dpo                     Dry-run DPO family dataset repo deletion"
+> @echo "  make hf-delete-distillation            Dry-run distillation dataset repo deletion"
+> @echo "  make hf-delete-legacy-distillation-dpo Dry-run old long distillation-DPO repo deletion"
+> @echo "  Set HF_DELETE_YES=1 to actually delete"
+> @echo ""
 > @echo "Maintenance:"
 > @echo "  make test                Run tests"
 > @echo "  make clean               Remove generated data"
@@ -222,6 +240,10 @@ help:
 > @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
 > @echo "  DPO_HF_NAMESPACE=$(DPO_HF_NAMESPACE)"
 > @echo "  DPO_HF_PREFIX=$(DPO_HF_PREFIX)"
+> @echo "  HF_DELETE_NAMESPACE=$(HF_DELETE_NAMESPACE)"
+> @echo "  HF_DELETE_REPO=$(HF_DELETE_REPO)"
+> @echo "  HF_DELETE_REPO_FILE=$(HF_DELETE_REPO_FILE)"
+> @echo "  HF_DELETE_YES=$(HF_DELETE_YES)"
 > @echo ""
 
 pretrain-smoke:
@@ -506,6 +528,39 @@ dpo-push:
 >   --run-dir $(DPO_RUN_ROOT)/$(DPO_PUSH_RUN) \
 >   --repo-owner $(DPO_HF_NAMESPACE) \
 >   --repo-prefix $(DPO_HF_PREFIX) $(HF_PRIVATE_ARG)
+
+hf-delete-datasets:
+> $(PYTHON) scripts/delete_hf_datasets.py \
+>   --namespace $(HF_DELETE_NAMESPACE) \
+>   $(HF_DELETE_REPO_ARG) \
+>   $(HF_DELETE_REPO_FILE_ARG) \
+>   $(HF_DELETE_YES_ARG)
+
+hf-delete-sft:
+> $(PYTHON) scripts/delete_hf_datasets.py \
+>   --namespace $(HF_DELETE_NAMESPACE) \
+>   --sft-prefix $(SFT_HF_PREFIX) \
+>   --include-sft \
+>   $(HF_DELETE_YES_ARG)
+
+hf-delete-dpo:
+> $(PYTHON) scripts/delete_hf_datasets.py \
+>   --namespace $(HF_DELETE_NAMESPACE) \
+>   --dpo-prefix $(DPO_HF_PREFIX) \
+>   --include-dpo \
+>   $(HF_DELETE_YES_ARG)
+
+hf-delete-distillation:
+> $(PYTHON) scripts/delete_hf_datasets.py \
+>   --namespace $(HF_DELETE_NAMESPACE) \
+>   --include-distillation \
+>   $(HF_DELETE_YES_ARG)
+
+hf-delete-legacy-distillation-dpo:
+> $(PYTHON) scripts/delete_hf_datasets.py \
+>   --namespace $(HF_DELETE_NAMESPACE) \
+>   --include-legacy-distillation-dpo \
+>   $(HF_DELETE_YES_ARG)
 
 test:
 > $(PYTHON) -m compileall -q slm_synth tests
