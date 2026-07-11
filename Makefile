@@ -64,7 +64,7 @@ DISTILLATION_SFT_MODEL ?= $(MODEL)
 DISTILLATION_SFT_MAX_TOKENS ?= 4096
 DISTILLATION_SFT_DATASET_NAME ?= SLM Synthetic Distillation
 DISTILLATION_SFT_PUSH_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
-DISTILLATION_SFT_HF_REPO ?= $(HF_REPO)
+DISTILLATION_SFT_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(HF_NAMESPACE)/slm-synthetic-distillation-sft)
 
 # Distillation DPO
 DISTILLATION_DPO_RUN ?= distillation-dpo-smoke-001
@@ -188,8 +188,8 @@ help:
 > @echo "  make pretrain-push       Push pretraining deduped data"
 > @echo "  make distillation-sft-push        Push a distillation SFT run"
 > @echo "  make distillation-dpo-push        Push distillation DPO families"
-> @echo "  make sft-push            Push SFT families to slm-sft-* repos"
-> @echo "  make dpo-push            Push DPO families to slm-dpo-* repos"
+> @echo "  make sft-push            Push SFT families to slm-synthetic-sft-* repos"
+> @echo "  make dpo-push            Push DPO families to slm-synthetic-dpo-* repos"
 > @echo ""
 > @echo "Maintenance:"
 > @echo "  make test                Run tests"
