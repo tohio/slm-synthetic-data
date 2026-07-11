@@ -131,18 +131,30 @@ def _count_public_rows(*, public_dir: Path, family: str | None) -> int:
 def _normalize_manifest_file(*, kind: str, manifest_path: Path, count: int) -> Path:
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    total_field = _KIND_TOTAL_FIELD[kind]
-    data[total_field] = count
-
-    # Compatibility field for older pretrain consumers that looked for row totals.
-    if kind == "pretrain":
-        data["total_rows"] = count
+    _set_canonical_total_fields(kind=kind, manifest=data, count=count)
 
     _validate_accepted_target(kind=kind, manifest_path=manifest_path, manifest=data, count=count)
 
     manifest_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest_path
 
+
+
+def _set_canonical_total_fields(*, kind: str, manifest: dict[str, Any], count: int) -> None:
+    # Set only the canonical total field for this generation kind.
+    #
+    # Pretrain keeps total_rows as a compatibility alias. Pair-based datasets do
+    # not keep total_rows because their public unit is pairs, not rows.
+
+    if kind == "pretrain":
+        manifest["total_records"] = count
+        manifest["total_rows"] = count
+        manifest["total_pairs"] = None
+        return
+
+    total_field = _KIND_TOTAL_FIELD[kind]
+    for field in ("total_rows", "total_pairs", "total_records"):
+        manifest[field] = count if field == total_field else None
 
 def _validate_accepted_target(*, kind: str, manifest_path: Path, manifest: dict[str, Any], count: int) -> None:
     accepted_target = manifest.get("metadata", {}).get("accepted_target")

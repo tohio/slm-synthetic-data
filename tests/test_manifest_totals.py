@@ -119,3 +119,44 @@ def test_normalize_fails_when_accepted_target_mismatches_public_count(tmp_path: 
         assert "count=1" in str(exc)
     else:
         raise AssertionError("expected accepted target mismatch to fail")
+
+
+def test_normalize_dpo_clears_noncanonical_total_rows(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-001"
+    _write_jsonl(run_dir / "datasets" / "alpha.jsonl", 4)
+
+    run_manifest = run_dir / "manifests" / "run-001.manifest.json"
+    _write_manifest(run_manifest, unit="pairs", accepted=4)
+
+    data = json.loads(run_manifest.read_text())
+    data["total_rows"] = 999
+    data["total_pairs"] = None
+    run_manifest.write_text(json.dumps(data) + "\n", encoding="utf-8")
+
+    normalize_run(kind="dpo", run_dir=run_dir)
+
+    normalized = json.loads(run_manifest.read_text())
+    assert normalized["total_rows"] is None
+    assert normalized["total_pairs"] == 4
+    assert normalized["total_records"] is None
+
+
+def test_normalize_distillation_dpo_clears_noncanonical_total_rows(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-001"
+    _write_jsonl(run_dir / "datasets" / "teacher_response_preference.jsonl", 5)
+
+    run_manifest = run_dir / "manifests" / "run-001.manifest.json"
+    _write_manifest(run_manifest, unit="pairs", accepted=5)
+
+    data = json.loads(run_manifest.read_text())
+    data["total_rows"] = 999
+    data["total_pairs"] = None
+    run_manifest.write_text(json.dumps(data) + "\n", encoding="utf-8")
+
+    normalize_run(kind="distillation-dpo", run_dir=run_dir)
+
+    normalized = json.loads(run_manifest.read_text())
+    assert normalized["total_rows"] is None
+    assert normalized["total_pairs"] == 5
+    assert normalized["total_records"] is None
+
