@@ -133,7 +133,9 @@ def test_dpo_batch_schema_matches_response_contract():
     for field in ("prompt", "chosen", "rejected"):
         message_schema = item_schema["properties"][field]["items"]
         assert message_schema["required"] == ["role", "content"]
-        assert message_schema["properties"]["role"]["enum"] == ["user", "assistant"]
+    assert item_schema["properties"]["prompt"]["items"]["properties"]["role"]["enum"] == ["system", "user"]
+    assert item_schema["properties"]["chosen"]["items"]["properties"]["role"]["enum"] == ["assistant"]
+    assert item_schema["properties"]["rejected"]["items"]["properties"]["role"]["enum"] == ["assistant"]
     metadata_schema = item_schema["properties"]["metadata"]
     assert metadata_schema["additionalProperties"] is False
     assert metadata_schema["required"] == [
@@ -232,3 +234,36 @@ def test_validate_dpo_batch_response_accepts_exact_targeted_spec():
     rows = validate_dpo_batch_response({"items": [row]}, expected_specs=[spec])
 
     assert rows == [row]
+
+
+def test_dpo_batch_schema_separates_prompt_and_response_roles():
+    item_schema = DPO_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
+
+    prompt_schema = item_schema["properties"]["prompt"]["items"]
+    chosen_schema = item_schema["properties"]["chosen"]["items"]
+    rejected_schema = item_schema["properties"]["rejected"]["items"]
+
+    assert prompt_schema["properties"]["role"]["enum"] == ["system", "user"]
+    assert chosen_schema["properties"]["role"]["enum"] == ["assistant"]
+    assert rejected_schema["properties"]["role"]["enum"] == ["assistant"]
+
+
+def test_validate_dpo_batch_response_repairs_chosen_and_rejected_roles():
+    row = _dpo_row()
+    row["chosen"] = [{"role": "user", "content": "43"}]
+    row["rejected"] = [{"role": "system", "content": "The answer is 43 because 17 plus 26 equals 43."}]
+
+    rows = validate_dpo_batch_response({"items": [row]})
+
+    assert rows[0]["chosen"] == [{"role": "assistant", "content": "43"}]
+    assert rows[0]["rejected"] == [
+        {"role": "assistant", "content": "The answer is 43 because 17 plus 26 equals 43."}
+    ]
+
+
+def test_validate_dpo_batch_response_rejects_assistant_prompt_role():
+    row = _dpo_row()
+    row["prompt"] = [{"role": "assistant", "content": "Answer with only the number: What is 17 + 26?"}]
+
+    with pytest.raises(ValueError, match="prompt contains unsupported role"):
+        validate_dpo_batch_response({"items": [row]})

@@ -10,12 +10,22 @@ from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
 
 DISTILLATION_DPO_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
-CHAT_MESSAGE_SCHEMA: dict[str, Any] = {
+DISTILLATION_DPO_PROMPT_MESSAGE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["role", "content"],
     "properties": {
-        "role": {"type": "string", "enum": ["system", "user", "assistant"]},
+        "role": {"type": "string", "enum": ["system", "user"]},
+        "content": {"type": "string", "minLength": 1},
+    },
+}
+
+DISTILLATION_DPO_ASSISTANT_MESSAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["role", "content"],
+    "properties": {
+        "role": {"type": "string", "enum": ["assistant"]},
         "content": {"type": "string", "minLength": 1},
     },
 }
@@ -52,9 +62,9 @@ DISTILLATION_DPO_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
                 "required": ["id", "prompt", "chosen", "rejected", "metadata"],
                 "properties": {
                     "id": {"type": "string", "minLength": 1},
-                    "prompt": {"type": "array", "items": CHAT_MESSAGE_SCHEMA},
-                    "chosen": {"type": "array", "items": CHAT_MESSAGE_SCHEMA},
-                    "rejected": {"type": "array", "items": CHAT_MESSAGE_SCHEMA},
+                    "prompt": {"type": "array", "items": DISTILLATION_DPO_PROMPT_MESSAGE_SCHEMA},
+                    "chosen": {"type": "array", "items": DISTILLATION_DPO_ASSISTANT_MESSAGE_SCHEMA},
+                    "rejected": {"type": "array", "items": DISTILLATION_DPO_ASSISTANT_MESSAGE_SCHEMA},
                     "metadata": DISTILLATION_DPO_METADATA_SCHEMA,
                 },
             },
@@ -108,6 +118,11 @@ def render_distillation_dpo_batch_prompt(rows: Iterable[Mapping[str, Any]]) -> s
         "Rules:\n"
         "- Do not add, remove, rename, or reorder ids.\n"
         "- Preserve prompt and metadata values from each input spec exactly.\n"
+        "- prompt must contain only system/user messages and must end with a user message.\n"
+        "- Do not put assistant messages in prompt.\n"
+        "- chosen must contain exactly one message whose role is assistant.\n"
+        "- rejected must contain exactly one message whose role is assistant.\n"
+        "- Never use role=user or role=system inside chosen or rejected.\n"
         "- The chosen response is the teacher-quality preferred answer.\n"
         "- The rejected response is a controlled weak answer and must reflect metadata.failure_mode.\n"
         "- The chosen and rejected responses must differ.\n"
@@ -143,9 +158,40 @@ def validate_distillation_dpo_batch_response(
     if expected_count is not None and len(items) != expected_count:
         raise ValueError(f"distillation-DPO batch response expected {expected_count} item(s), got {len(items)}")
 
-    rows = [validate_distillation_dpo_row(item) for item in items]
+    normalized_items = [_normalize_response_role_fields(item) for item in items]
+    rows = [validate_distillation_dpo_row(item) for item in normalized_items]
     _validate_response_ids([row["id"] for row in rows], expected_ids=expected_ids)
     return rows
+
+
+
+def _normalize_response_role_fields(item: Any) -> Any:
+    if not isinstance(item, Mapping):
+        return item
+    normalized = dict(item)
+    for field_name in ("chosen", "rejected"):
+        normalized[field_name] = _coerce_single_response_message_to_assistant(normalized.get(field_name))
+    return normalized
+
+
+
+def _coerce_single_response_message_to_assistant(messages: Any) -> Any:
+    """Repair the common teacher error of tagging answer content as user/system."""
+    if not isinstance(messages, list) or len(messages) != 1:
+        return messages
+    message = messages[0]
+    if not isinstance(message, Mapping):
+        return messages
+    role = message.get("role")
+    if role == "assistant":
+        return messages
+    content = message.get("content")
+    if role in {"user", "system"} and isinstance(content, str) and content.strip():
+        repaired = dict(message)
+        repaired["role"] = "assistant"
+        return [repaired]
+    return messages
+
 
 
 def _validate_response_ids(row_ids: list[str], *, expected_ids: Iterable[str] | None) -> None:
