@@ -10,7 +10,6 @@ from slm_synth.dpo.schema import validate_dpo_row
 from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 
 DPO_BATCH_RESPONSE_FIELDS = frozenset({"items"})
-DPO_ASSISTANT_CONTENT_MAX_LENGTH = 1200
 
 DPO_PROMPT_MESSAGE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -28,7 +27,7 @@ DPO_ASSISTANT_MESSAGE_SCHEMA: dict[str, Any] = {
     "required": ["role", "content"],
     "properties": {
         "role": {"type": "string", "enum": ["assistant"]},
-        "content": {"type": "string", "minLength": 1, "maxLength": DPO_ASSISTANT_CONTENT_MAX_LENGTH},
+        "content": {"type": "string", "minLength": 1},
     },
 }
 
@@ -222,11 +221,6 @@ def render_dpo_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "- The chosen response must be correct and preferred.\n"
         "- The rejected response must be realistic and reflect metadata.failure_mode.\n"
         "- The chosen and rejected responses must differ.\n"
-        "- Keep chosen.content and rejected.content compact. Avoid unnecessary detail.\n"
-        "- For metadata.eval_family=code_explanation_no_code, chosen.content and rejected.content must be single-line strings under 220 characters each.\n"
-        "- For metadata.eval_family=code_explanation_no_code, do not use Markdown fences, JSON, literal newlines, quotes, or backslashes inside content.\n"
-        "- For metadata.eval_family=code_explanation_no_code, chosen.content must be a plain-English explanation without code.\n"
-        "- For metadata.eval_family=code_explanation_no_code, rejected.content must be concise and must reflect metadata.failure_mode.\n"
         "- If variables.chosen_answer is present, use it exactly for the chosen assistant content.\n"
         "- If variables.rejected_answer is present, use it exactly for the rejected assistant content.\n"
         "- Do not copy known eval prompts exactly.\n"
