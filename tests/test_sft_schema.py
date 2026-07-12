@@ -105,8 +105,7 @@ def test_validate_sft_row_normalizes_adjacent_user_messages():
     validated = validate_sft_row(row)
 
     assert [message["role"] for message in validated["messages"]] == ["user", "assistant"]
-    assert validated["messages"][0]["content"] == "Complete the function.
-def add_numbers(a, b):"
+    assert validated["messages"][0]["content"] == "Complete the function.\ndef add_numbers(a, b):"
 
 
 def test_validate_sft_row_normalizes_adjacent_assistant_messages():
@@ -120,8 +119,7 @@ def test_validate_sft_row_normalizes_adjacent_assistant_messages():
     validated = validate_sft_row(row)
 
     assert [message["role"] for message in validated["messages"]] == ["user", "assistant"]
-    assert validated["messages"][1]["content"] == "x = 1
-return x"
+    assert validated["messages"][1]["content"] == "x = 1\nreturn x"
 
 
 def test_validate_sft_row_rejects_non_adjacent_multiturn_messages():
