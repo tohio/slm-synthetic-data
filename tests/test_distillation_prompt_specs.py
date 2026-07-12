@@ -3,6 +3,8 @@ import json
 import pytest
 
 from slm_synth.distillation_sft.signals import DISTILLATION_SIGNALS
+from slm_synth.distillation_sft.prompt_quality import validate_prompt_preflight
+from slm_synth.distillation_sft.seeds import build_seed_prompt_records
 from slm_synth.distillation_sft.spec_builders import (
     build_and_write_prompt_specs,
     build_prompt_spec_records,
@@ -31,6 +33,48 @@ def test_production_prompt_specs_are_deterministic_and_not_builtin_seed_records(
         "arithmetic-000013",
     ]
     assert all(row["metadata"]["template_family"].startswith("integer_") for row in first)
+
+
+def test_distillation_smoke_target_has_unique_prompt_text():
+    records = [
+        row
+        for signal in sorted(DISTILLATION_SIGNALS)
+        for row in build_seed_prompt_records(signal=signal, count=200)
+    ]
+
+    summary = validate_prompt_preflight(records, require_unique_prompt_text=True)
+
+    assert summary.prompt_count == 2_000
+    assert summary.duplicate_prompt_text_count == 0
+    assert summary.near_duplicate_prompt_count == 0
+
+
+def test_distillation_production_target_has_unique_prompt_text():
+    records = [
+        row
+        for signal in sorted(DISTILLATION_SIGNALS)
+        for row in build_prompt_spec_records(signal=signal, count=3_000)
+    ]
+
+    summary = validate_prompt_preflight(records, require_unique_prompt_text=True)
+
+    assert summary.prompt_count == 30_000
+    assert summary.duplicate_prompt_text_count == 0
+    assert summary.near_duplicate_prompt_count == 0
+
+    backfill_records = [
+        row
+        for signal in sorted(DISTILLATION_SIGNALS)
+        for row in build_prompt_spec_records(signal=signal, count=5, start_index=3_001)
+    ]
+    backfill_summary = validate_prompt_preflight(
+        records + backfill_records,
+        require_unique_prompt_text=True,
+    )
+
+    assert backfill_summary.prompt_count == 30_050
+    assert backfill_summary.duplicate_prompt_text_count == 0
+    assert backfill_summary.near_duplicate_prompt_count == 0
 
 
 def test_build_and_write_prompt_specs_writes_valid_jsonl(tmp_path):
