@@ -190,7 +190,7 @@ def generate_seed_multi_signal_run(
         max_backfill_rounds=max_backfill_rounds,
         prompt_record_builder=build_seed_prompt_records,
         prompt_source="builtin_seed",
-        require_unique_prompt_text=False,
+        require_unique_prompt_text=True,
     )
 
 

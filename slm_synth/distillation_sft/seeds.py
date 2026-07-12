@@ -6,7 +6,6 @@ are merged with validated teacher outputs and stripped to the public schema.
 
 from __future__ import annotations
 
-from itertools import islice
 from typing import Iterator
 
 from slm_synth.distillation_sft.prompts import build_prompt_record
@@ -273,7 +272,13 @@ def iter_seed_prompts(signal: str) -> Iterator[str]:
 
 
 def build_seed_prompt_records(*, signal: str, count: int, start_index: int = 1) -> list[dict[str, object]]:
-    """Build deterministic local prompt records by cycling signal seed prompts."""
+    """Build deterministic local prompt records for smoke runs.
+
+    Small smoke runs use the hand-written built-in seeds directly. Larger smoke
+    runs continue with the production prompt-spec builders instead of cycling
+    the same seed text. This keeps smoke runs cheap while preventing repeated
+    prompts such as a 2,000-row smoke with only ~200 unique prompt texts.
+    """
     normalized_signal = validate_signal(signal)
     if not isinstance(count, int) or count < 0:
         raise ValueError("count must be a non-negative integer")
@@ -281,19 +286,45 @@ def build_seed_prompt_records(*, signal: str, count: int, start_index: int = 1) 
         raise ValueError("start_index must be a positive integer")
 
     seeds = DISTILLATION_PROMPT_SEEDS[normalized_signal]
-    cycled_prompts = (seeds[index % len(seeds)] for index in range(count))
+    seed_count = min(count, len(seeds))
 
     records: list[dict[str, object]] = []
-    for offset, prompt in enumerate(islice(cycled_prompts, count)):
+    for offset, prompt in enumerate(seeds[:seed_count]):
         records.append(
             build_prompt_record(
                 signal=normalized_signal,
                 prompt=prompt,
                 index=start_index + offset,
                 metadata={
+                    "prompt_source": "builtin_seed",
                     "seed_source": "builtin",
-                    "seed_index": offset % len(seeds),
+                    "seed_index": offset,
                 },
             )
         )
+
+    remaining = count - seed_count
+    if remaining:
+        records.extend(
+            _build_parameterized_seed_prompt_records(
+                signal=normalized_signal,
+                count=remaining,
+                start_index=start_index + seed_count,
+            )
+        )
+
     return records
+
+
+def _build_parameterized_seed_prompt_records(*, signal: str, count: int, start_index: int) -> list[dict[str, object]]:
+    """Build overflow smoke prompts with scalable production templates."""
+    from slm_synth.distillation_sft.spec_builders import build_prompt_spec_records
+
+    records = build_prompt_spec_records(signal=signal, count=count, start_index=start_index)
+    parameterized_records: list[dict[str, object]] = []
+    for record in records:
+        metadata = dict(record.get("metadata", {}))
+        metadata["prompt_source"] = "smoke_parameterized_seed"
+        metadata["seed_source"] = "parameterized_spec"
+        parameterized_records.append({**record, "metadata": metadata})
+    return parameterized_records

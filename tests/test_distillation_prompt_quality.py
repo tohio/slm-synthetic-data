@@ -31,14 +31,15 @@ def test_prompt_preflight_rejects_near_duplicate_prompt_text():
         validate_prompt_preflight(records, require_unique_prompt_text=True)
 
 
-def test_prompt_preflight_allows_cycled_seed_text_when_prompt_uniqueness_is_not_required():
-    count = len(DISTILLATION_PROMPT_SEEDS["cloud"]) + 1
+def test_seed_prompts_expand_with_parameterized_unique_prompts_for_larger_smoke_runs():
+    count = len(DISTILLATION_PROMPT_SEEDS["cloud"]) + 3
     records = build_seed_prompt_records(signal="cloud", count=count)
 
-    summary = validate_prompt_preflight(records, require_unique_prompt_text=False)
+    summary = validate_prompt_preflight(records, require_unique_prompt_text=True)
 
     assert summary.prompt_count == count
     assert summary.duplicate_id_count == 0
-    assert summary.duplicate_prompt_text_count == 1
-    assert summary.near_duplicate_prompt_count == 1
-    assert summary.to_dict()["checks"] == ["id"]
+    assert summary.duplicate_prompt_text_count == 0
+    assert summary.near_duplicate_prompt_count == 0
+    assert summary.to_dict()["checks"] == ["id", "normalized_prompt_text"]
+    assert records[-1]["metadata"]["seed_source"] == "parameterized_spec"

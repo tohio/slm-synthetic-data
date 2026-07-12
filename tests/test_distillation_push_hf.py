@@ -7,6 +7,7 @@ from slm_synth.distillation_sft.push_hf import (
     discover_jsonl_files,
     discover_run_manifest,
     push_distillation_run,
+    require_publish_prompt_uniqueness,
 )
 
 
@@ -164,3 +165,28 @@ def test_push_distillation_run_requires_public_surface_files(tmp_path, monkeypat
 
     with pytest.raises(FileNotFoundError, match=message):
         push_distillation_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_id="org/distill")
+
+def test_require_publish_prompt_uniqueness_rejects_low_diversity(tmp_path):
+    dataset = tmp_path / "distill.jsonl"
+    rows = [_distillation_row(f"distill-{index}") for index in range(10)]
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="prompt uniqueness gate failed"):
+        require_publish_prompt_uniqueness([dataset], min_unique_prompts=0, min_unique_ratio=0.75)
+
+
+def test_require_publish_prompt_uniqueness_accepts_diverse_prompts(tmp_path):
+    dataset = tmp_path / "distill.jsonl"
+    rows = []
+    for index in range(10):
+        row = _distillation_row(f"distill-{index}")
+        row["prompt"] = f"Unique prompt {index}"
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    summary = require_publish_prompt_uniqueness([dataset], min_unique_prompts=0, min_unique_ratio=0.75)
+
+    assert summary["row_count"] == 10
+    assert summary["unique_prompt_count"] == 10
+    assert summary["duplicate_prompt_count"] == 0
+
