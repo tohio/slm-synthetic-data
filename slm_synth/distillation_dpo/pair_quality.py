@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
+from slm_synth.distillation_dpo.code_quality import validate_code_generation_pair_quality
 from slm_synth.distillation_dpo.seeds import validate_family
 
 PAIR_QUALITY_CHECKS = (
@@ -21,6 +22,7 @@ PAIR_QUALITY_CHECKS = (
     "non_contrastive_pair",
     "prompt_copy_pair",
     "schema_leakage",
+    "code_generation_chosen_quality",
 )
 
 _SCHEMA_FIELD_RE = re.compile(r'"(?:id|prompt|chosen|rejected|metadata|role|content)"\s*:')
@@ -106,6 +108,8 @@ def validate_pair_quality(row: Mapping[str, Any]) -> tuple[str, ...]:
 
     if _has_schema_leakage(chosen) or _has_schema_leakage(rejected):
         reasons.append("schema_leakage")
+
+    reasons.extend(validate_code_generation_pair_quality(row))
 
     return tuple(dict.fromkeys(reasons))
 
