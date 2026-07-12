@@ -8,6 +8,7 @@ from slm_synth.distillation_sft.push_hf import (
     discover_run_manifest,
     push_distillation_run,
     require_publish_prompt_uniqueness,
+    require_publish_response_diversity,
 )
 
 
@@ -195,3 +196,32 @@ def test_require_publish_prompt_uniqueness_accepts_diverse_prompts(tmp_path):
     assert summary["row_count"] == 10
     assert summary["unique_prompt_count"] == 10
     assert summary["duplicate_prompt_count"] == 0
+
+
+def test_require_publish_response_diversity_rejects_low_diversity_signal(tmp_path):
+    dataset = tmp_path / "debugging.jsonl"
+    rows = []
+    for index in range(10):
+        row = _distillation_row(f"distill-{index}")
+        row["prompt"] = f"Unique debugging prompt {index}"
+        row["response"] = "Repeated debugging response"
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="response diversity gate failed"):
+        require_publish_response_diversity([dataset], min_unique_ratio=0.75)
+
+
+def test_require_publish_response_diversity_accepts_diverse_signal(tmp_path):
+    dataset = tmp_path / "debugging.jsonl"
+    rows = []
+    for index in range(10):
+        row = _distillation_row(f"distill-{index}")
+        row["prompt"] = f"Unique debugging prompt {index}"
+        row["response"] = f"Distinct debugging response {index}"
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    summary = require_publish_response_diversity([dataset], min_unique_ratio=0.75)
+
+    assert summary["signals"]["debugging"]["unique_response_ratio"] == 1.0

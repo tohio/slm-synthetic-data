@@ -1,4 +1,5 @@
 import json
+import re
 from collections import Counter, defaultdict
 
 import pytest
@@ -109,6 +110,27 @@ def test_distillation_production_target_has_unique_prompt_text():
     assert backfill_summary.prompt_count == 30_050
     assert backfill_summary.duplicate_prompt_text_count == 0
     assert backfill_summary.near_duplicate_prompt_count == 0
+
+
+def test_debugging_and_factual_specs_use_substantive_30k_scale_variation():
+    debugging = build_prompt_spec_records(signal="debugging", count=3_000)
+    factual = build_prompt_spec_records(signal="factual_restraint", count=3_000)
+
+    debugging_without_case_ids = {
+        re.sub(r"^Diagnostic case \d+: ", "", row["prompt"])
+        for row in debugging
+    }
+    factual_without_case_ids = {
+        re.sub(r"^Restraint case \d+: ", "", row["prompt"])
+        for row in factual
+    }
+
+    assert len(debugging_without_case_ids) == 3_000
+    assert len(factual_without_case_ids) == 3_000
+    assert all("def " in row["prompt"] for row in debugging)
+    assert all("Keep the answer under 60 words." in row["prompt"] for row in factual)
+    assert set(Counter(row["metadata"]["template_family"] for row in debugging).values()) == {600}
+    assert set(Counter(row["metadata"]["template_family"] for row in factual).values()) == {600}
 
 
 def test_distillation_inventory_scales_to_100k_rows():

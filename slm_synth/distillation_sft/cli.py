@@ -21,6 +21,10 @@ from slm_synth.distillation_sft.prompts import validate_prompt_record
 from slm_synth.distillation_sft.generation import generate_and_materialize_signal_batch
 from slm_synth.distillation_sft.orchestration import generate_prompt_spec_multi_signal_run, generate_seed_multi_signal_run
 from slm_synth.distillation_sft.report import build_coverage_report, write_coverage_report
+from slm_synth.distillation_sft.response_diversity import (
+    DEFAULT_DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO,
+    require_response_diversity,
+)
 from slm_synth.distillation_sft.runs import materialize_teacher_batch
 from slm_synth.distillation_sft.seeds import build_seed_prompt_records
 from slm_synth.distillation_sft.spec_builders import build_prompt_spec_records
@@ -266,6 +270,18 @@ def cmd_report_coverage(args: argparse.Namespace) -> int:
         print(f"wrote distillation coverage report to {output_path}")
     else:
         print(json.dumps(report, ensure_ascii=False, indent=2))
+    if args.require_response_diversity:
+        files = [Path(path) for path in report["dataset_paths"].values()]
+        summary = require_response_diversity(
+            files,
+            min_unique_ratio=args.min_unique_response_ratio,
+        )
+        print(
+            "validated distillation response diversity "
+            f"rows={summary['row_count']} "
+            f"unique_responses={summary['unique_response_count']} "
+            f"unique_ratio={summary['unique_response_ratio']:.3f}"
+        )
     return 0
 
 
@@ -411,6 +427,12 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument("--run-manifest", required=True)
     coverage_parser.add_argument("--output", default=None)
+    coverage_parser.add_argument("--require-response-diversity", action="store_true")
+    coverage_parser.add_argument(
+        "--min-unique-response-ratio",
+        type=float,
+        default=DEFAULT_DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO,
+    )
     coverage_parser.set_defaults(func=cmd_report_coverage)
 
     return parser

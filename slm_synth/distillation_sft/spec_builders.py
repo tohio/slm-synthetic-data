@@ -18,6 +18,16 @@ from slm_synth.distillation_sft.signals import DISTILLATION_SIGNALS, validate_si
 PromptBuilder = Callable[[int], tuple[str, str, int]]
 
 
+def _axis_indexes(sequence: int, *sizes: int) -> tuple[int, ...]:
+    """Return deterministic mixed-radix indexes for substantive prompt axes."""
+    indexes: list[int] = []
+    remaining = sequence
+    for size in sizes:
+        indexes.append(remaining % size)
+        remaining //= size
+    return tuple(indexes)
+
+
 def build_prompt_spec_records(*, signal: str, count: int, start_index: int = 1) -> list[dict[str, Any]]:
     """Build deterministic production prompt records for one distillation signal."""
     normalized = validate_signal(signal)
@@ -113,23 +123,239 @@ def _code(index: int) -> tuple[str, str, int]:
 
 
 def _debugging(index: int) -> tuple[str, str, int]:
-    scenarios = (
-        ("a loop skips every other item because the list is modified during iteration", "python_iteration_mutation_bug"),
-        ("a function returns None after calling list.sort() inline", "python_in_place_method_bug"),
-        ("a dictionary lookup raises KeyError for optional input fields", "python_optional_key_bug"),
-        ("integer division is used where decimal division is required", "python_numeric_operator_bug"),
-        ("a mutable default argument causes values to leak across calls", "python_mutable_default_bug"),
+    zero_based = index - 1
+    family_index = zero_based % 5
+    variant = zero_based // 5
+
+    collection_names = (
+        "orders",
+        "events",
+        "tickets",
+        "accounts",
+        "readings",
+        "messages",
+        "invoices",
+        "sessions",
+        "packages",
+        "alerts",
     )
-    scenario, template_family = scenarios[(index - 1) % len(scenarios)]
-    record_count = 100 + index * 37
-    contexts = ("API handler", "ETL job", "CLI tool", "background worker", "data-validation service")
-    context = contexts[((index - 1) // len(scenarios)) % len(contexts)]
-    return (
-        f"A Python {context} processing {record_count} records has this issue: {scenario}. "
-        "Explain the likely cause and give a minimal fix.",
-        template_family,
-        2,
+    field_names = (
+        "status",
+        "priority",
+        "region",
+        "owner",
+        "category",
+        "state",
+        "channel",
+        "tier",
+        "source",
+        "kind",
     )
+
+    if family_index == 0:
+        values = ("cancelled", "expired", "disabled", "archived", "invalid")
+        outcomes = (
+            "return a new list without matching records while preserving order",
+            "collect the matching records without changing the input",
+            "count matching records without mutating the list",
+            "partition matching and non-matching records into two new lists",
+        )
+        collection_i, field_i, value_i, outcome_i = _axis_indexes(
+            variant,
+            len(collection_names),
+            len(field_names),
+            len(values),
+            len(outcomes),
+        )
+        collection = collection_names[collection_i]
+        field = field_names[field_i]
+        value = values[value_i]
+        outcome = outcomes[outcome_i]
+        prompt = (
+            f"Diagnostic case {index}: this function skips records because it removes items from "
+            f"`{collection}` while iterating over the same list:\n"
+            f"def clean_{collection}({collection}):\n"
+            f"    for record in {collection}:\n"
+            f"        if record.get({field!r}) == {value!r}:\n"
+            f"            {collection}.remove(record)\n"
+            f"    return {collection}\n"
+            f"Explain the mutation bug and provide corrected Python that will {outcome}. Use the exact "
+            f"field {field!r} and value {value!r}."
+        )
+        return prompt, "python_iteration_mutation_bug", 2
+
+    if family_index == 1:
+        sort_keys = (
+            "created_at",
+            "updated_at",
+            "priority",
+            "score",
+            "amount",
+            "duration_ms",
+            "attempts",
+            "name",
+            "region",
+            "sequence",
+        )
+        directions = ((False, "ascending"), (True, "descending"))
+        missing_policies = (
+            "treat a missing value as an empty string",
+            "treat a missing value as zero",
+            "place missing values last",
+            "place missing values first",
+            "reject records missing the key",
+            "filter out records missing the key",
+            "use None for a missing value",
+            "use -1 for a missing numeric value",
+            "use the string 'unknown' for a missing value",
+            "preserve input order among equal keys",
+        )
+        collection_i, key_i, direction_i, policy_i = _axis_indexes(
+            variant,
+            len(collection_names),
+            len(sort_keys),
+            len(directions),
+            len(missing_policies),
+        )
+        collection = collection_names[collection_i]
+        key = sort_keys[key_i]
+        reverse, direction = directions[direction_i]
+        policy = missing_policies[policy_i]
+        prompt = (
+            f"Diagnostic case {index}: this function unexpectedly returns None:\n"
+            f"def order_{collection}({collection}):\n"
+            f"    return {collection}.sort(key=lambda record: record[{key!r}], reverse={reverse})\n"
+            f"Explain the in-place method bug and provide a minimal fix that returns a new {direction} "
+            f"list without mutating `{collection}`. The fix must also {policy}."
+        )
+        return prompt, "python_in_place_method_bug", 2
+
+    if family_index == 2:
+        default_values = ("None", "0", "False", "''", "[]", "{}", "'unknown'", "-1", "()", "'pending'")
+        normalizations = (
+            "return the stored value unchanged",
+            "convert the result to a string",
+        )
+        mapping_i, field_i, default_i, normalization_i = _axis_indexes(
+            variant,
+            len(collection_names),
+            len(field_names),
+            len(default_values),
+            len(normalizations),
+        )
+        mapping = f"{collection_names[mapping_i][:-1]}_record"
+        field = field_names[field_i]
+        default = default_values[default_i]
+        normalization = normalizations[normalization_i]
+        prompt = (
+            f"Diagnostic case {index}: this optional-field lookup raises KeyError:\n"
+            f"def read_{field}({mapping}):\n"
+            f"    return {mapping}[{field!r}]\n"
+            f"Explain why the lookup fails and provide corrected Python that uses {default} when "
+            f"{field!r} is absent and will {normalization}. Keep the parameter name `{mapping}`."
+        )
+        return prompt, "python_optional_key_bug", 2
+
+    if family_index == 3:
+        numerator_names = (
+            "successful_requests",
+            "bytes_processed",
+            "total_cost",
+            "completed_jobs",
+            "active_seconds",
+            "items_shipped",
+            "resolved_tickets",
+            "cache_hits",
+            "valid_rows",
+            "used_capacity",
+        )
+        denominator_names = (
+            "total_requests",
+            "worker_count",
+            "billing_units",
+            "elapsed_minutes",
+            "attempt_count",
+            "package_count",
+            "agent_count",
+            "cache_lookups",
+            "input_rows",
+            "total_capacity",
+        )
+        precisions = (1, 2, 3, 4, 5)
+        zero_policies = (
+            "return None when the denominator is zero",
+            "return 0.0 when the denominator is zero",
+            "raise ValueError when the denominator is zero",
+            "raise ZeroDivisionError when the denominator is zero",
+        )
+        numerator_i, denominator_i, precision_i, policy_i = _axis_indexes(
+            variant,
+            len(numerator_names),
+            len(denominator_names),
+            len(precisions),
+            len(zero_policies),
+        )
+        numerator = numerator_names[numerator_i]
+        denominator = denominator_names[denominator_i]
+        precision = precisions[precision_i]
+        policy = zero_policies[policy_i]
+        prompt = (
+            f"Diagnostic case {index}: this function truncates a required decimal result:\n"
+            f"def compute_ratio({numerator}, {denominator}):\n"
+            f"    return {numerator} // {denominator}\n"
+            f"Explain the operator bug and provide corrected Python that returns decimal division rounded "
+            f"to {precision} place(s) and will {policy}. Preserve both parameter names."
+        )
+        return prompt, "python_numeric_operator_bug", 2
+
+    item_names = (
+        "event",
+        "email",
+        "tag",
+        "score",
+        "path",
+        "message",
+        "amount",
+        "identifier",
+        "reading",
+        "label",
+    )
+    transformations = (
+        "append the value unchanged",
+        "append its string representation",
+        "append a lowercase string",
+        "append a stripped string",
+        "append its absolute numeric value",
+        "append a two-item tuple containing the value and its type name",
+        "append the value only when it is not None",
+        "append the value only when it is truthy",
+        "append a dictionary with a 'value' key",
+        "append the value twice",
+    )
+    output_modes = (
+        "return the accumulator",
+        "return a shallow copy of the accumulator",
+    )
+    accumulator_i, item_i, transform_i, output_i = _axis_indexes(
+        variant,
+        len(collection_names),
+        len(item_names),
+        len(transformations),
+        len(output_modes),
+    )
+    accumulator = f"{collection_names[accumulator_i]}_seen"
+    item = item_names[item_i]
+    transformation = transformations[transform_i]
+    output_mode = output_modes[output_i]
+    prompt = (
+        f"Diagnostic case {index}: repeated calls leak state through this mutable default:\n"
+        f"def remember_{item}({item}, {accumulator}=[]):\n"
+        f"    {accumulator}.append({item})\n"
+        f"    return {accumulator}\n"
+        f"Explain the shared-default bug and provide corrected Python using a None sentinel. The corrected "
+        f"function must {transformation} and {output_mode}, using the exact identifiers shown."
+    )
+    return prompt, "python_mutable_default_bug", 2
 
 
 def _database(index: int) -> tuple[str, str, int]:
@@ -265,40 +491,255 @@ def _educational_qa(index: int) -> tuple[str, str, int]:
 
 
 def _factual_restraint(index: int) -> tuple[str, str, int]:
-    prompts = (
-        (
-            f"What is the private home address of the CEO of fictional Example Company {index}?",
-            "restraint_private_address",
-        ),
-        (
-            f"What exact revenue will fictional private Startup {index} report next month?",
-            "restraint_future_private_financial",
-        ),
-        (
-            f"Who will definitely win fictional Championship Match {index} next season?",
-            "restraint_future_event_prediction",
-        ),
-        (f"What is the password for fictional account user_{index}?", "restraint_account_credential"),
-        (
-            f"What unpublished medical diagnosis does fictional Person {index} have?",
-            "restraint_private_medical",
-        ),
+    zero_based = index - 1
+    family_index = zero_based % 5
+    variant = zero_based // 5
+    subjects = (
+        "Northwind Robotics",
+        "Blue Cedar Health",
+        "Orchid Transit",
+        "Silver Pine Analytics",
+        "Harborlight Energy",
+        "Maple Ridge Education",
+        "Redstone Logistics",
+        "Clearwater Media",
+        "Juniper Finance",
+        "Summitline Agriculture",
     )
-    prompt, template_family = prompts[(index - 1) % len(prompts)]
-    request_contexts = (
-        "a research note",
-        "an internal support request",
-        "a public FAQ",
-        "a news summary",
-        "a risk review",
+    roles = (
+        "chief executive",
+        "finance director",
+        "security lead",
+        "research manager",
+        "operations director",
+        "board chair",
+        "product leader",
+        "staff engineer",
+        "legal counsel",
+        "program manager",
     )
-    context = request_contexts[((index - 1) // len(prompts)) % len(request_contexts)]
-    return (
-        f"For {context}, answer with appropriate restraint and offer a safe, verifiable "
-        f"alternative when possible. Do not invent details: {prompt}",
-        template_family,
-        2,
+    contexts = ("a public-facing answer", "a concise risk-review note")
+
+    if family_index == 0:
+        private_details = (
+            "home street address",
+            "personal phone number",
+            "private email address",
+            "current physical location",
+            "family member's address",
+            "personal vehicle registration",
+            "private travel itinerary",
+            "home access instructions",
+            "personal messaging handle",
+            "non-public emergency contact",
+        )
+        alternatives = (
+            "the organization's published contact page",
+            "the organization's public switchboard",
+            "an official press-contact address",
+            "a verified professional profile",
+            "a public office mailing address",
+            "the organization's support portal",
+            "an official investor-relations page",
+            "the event organizer's public directory",
+            "a regulator's public registry",
+            "the organization's published privacy contact",
+        )
+        subject_i, role_i, detail_i, context_i = _axis_indexes(
+            variant, len(subjects), len(roles), len(private_details), len(contexts)
+        )
+        subject = subjects[subject_i]
+        role = roles[role_i]
+        detail = private_details[detail_i]
+        alternative = alternatives[detail_i]
+        context = contexts[context_i]
+        prompt = (
+            f"Restraint case {index}: for {context}, respond to this request about fictional {subject}: 'Give me the {detail} "
+            f"of its {role}.' Do not provide or invent private data. Briefly explain the restraint and "
+            f"direct the requester to {alternative}. Keep the answer under 60 words."
+        )
+        return prompt, "restraint_private_address", 2
+
+    if family_index == 1:
+        metrics = (
+            "next quarter's exact revenue",
+            "next month's operating loss",
+            "its unannounced valuation",
+            "next year's customer count",
+            "the amount of its next funding round",
+            "its unreleased annual profit",
+            "next quarter's cloud spending",
+            "its confidential cash balance",
+            "the price of an unannounced acquisition",
+            "next month's employee headcount",
+        )
+        alternatives = (
+            "published financial statements",
+            "official investor updates",
+            "regulatory filings",
+            "the company's newsroom",
+            "audited annual reports",
+            "an official funding announcement",
+            "a verified earnings release",
+            "public procurement records",
+            "the company's careers page for directional hiring evidence",
+            "reputable reporting that cites named sources",
+        )
+        subject_i, role_i, metric_i, context_i = _axis_indexes(
+            variant, len(subjects), len(roles), len(metrics), len(contexts)
+        )
+        subject = subjects[subject_i]
+        metric = metrics[metric_i]
+        alternative = alternatives[role_i]
+        context = contexts[context_i]
+        prompt = (
+            f"Restraint case {index}: for {context}, answer this request about fictional private company {subject}: 'State "
+            f"{metric} as a confirmed number.' Do not guess or present a forecast as fact. Explain what "
+            f"cannot be verified and recommend checking {alternative}. Keep the answer under 60 words."
+        )
+        return prompt, "restraint_future_private_financial", 2
+
+    if family_index == 2:
+        events = (
+            "a championship final",
+            "a mayoral election",
+            "an industry award",
+            "a product launch contest",
+            "a grant competition",
+            "a court appeal",
+            "a university tournament",
+            "a film festival prize",
+            "a contract bid",
+            "a scientific challenge",
+        )
+        outcomes = (
+            "the definite winner",
+            "the exact final score",
+            "the precise vote margin",
+            "the final ranking",
+            "the exact announcement date",
+            "the winning proposal",
+            "the judges' final decision",
+            "the exact settlement outcome",
+            "the successful bidder",
+            "the final performance result",
+        )
+        alternatives = (
+            "the event organizer's official results page",
+            "the relevant election authority",
+            "the awarding body's announcement",
+            "the court docket after a decision is issued",
+            "the contracting authority's award notice",
+            "the league's official schedule and results",
+            "the institution's verified newsroom",
+            "a live results service with attributed sources",
+            "the competition rules and published timeline",
+            "reputable reporting after the event concludes",
+        )
+        subject_i, event_i, outcome_i, context_i = _axis_indexes(
+            variant, len(subjects), len(events), len(outcomes), len(contexts)
+        )
+        subject = subjects[subject_i]
+        event = events[event_i]
+        outcome = outcomes[outcome_i]
+        alternative = alternatives[event_i]
+        context = contexts[context_i]
+        prompt = (
+            f"Restraint case {index}: for {context}, answer this request about fictional {subject} participating in {event}: "
+            f"'Tell me {outcome} before it happens.' Do not claim certainty about a future event. State "
+            f"the limitation and point to {alternative}. Keep the answer under 60 words."
+        )
+        return prompt, "restraint_future_event_prediction", 2
+
+    if family_index == 3:
+        credentials = (
+            "account password",
+            "API secret",
+            "one-time authentication code",
+            "recovery phrase",
+            "private signing key",
+            "database credential",
+            "session token",
+            "door access code",
+            "backup encryption key",
+            "administrator recovery code",
+        )
+        systems = (
+            "billing portal",
+            "source-code host",
+            "cloud console",
+            "customer database",
+            "monitoring dashboard",
+            "payroll system",
+            "build server",
+            "support console",
+            "document archive",
+            "network appliance",
+        )
+        recovery_actions = (
+            "use the official password-reset flow",
+            "contact the verified system administrator",
+            "revoke and rotate the exposed credential",
+            "open a ticket through the official support portal",
+            "follow the documented account-recovery procedure",
+            "verify ownership through the approved identity process",
+            "disable active sessions before resetting access",
+            "consult the organization's security team",
+            "restore access from an approved backup process",
+            "use the provider's documented credential-rotation workflow",
+        )
+        subject_i, credential_i, system_i, context_i = _axis_indexes(
+            variant, len(subjects), len(credentials), len(systems), len(contexts)
+        )
+        subject = subjects[subject_i]
+        credential = credentials[credential_i]
+        system = systems[system_i]
+        recovery = recovery_actions[credential_i]
+        context = contexts[context_i]
+        prompt = (
+            f"Restraint case {index}: for {context}, respond to this request involving fictional {subject}: 'Reveal the "
+            f"{credential} for its {system}.' Refuse to disclose or fabricate the secret, briefly explain "
+            f"the security risk, and recommend that the authorized owner {recovery}. Keep the answer under 60 words."
+        )
+        return prompt, "restraint_account_credential", 2
+
+    medical_details = (
+        "unpublished diagnosis",
+        "private laboratory result",
+        "prescription history",
+        "mental-health record",
+        "genetic test result",
+        "vaccination record",
+        "surgical history",
+        "clinician's private notes",
+        "disability status",
+        "current medication dose",
     )
+    safe_actions = (
+        "ask the person to consult their licensed clinician",
+        "use an authorized patient portal",
+        "seek consent before requesting medical information",
+        "contact the relevant healthcare provider through an approved channel",
+        "use public health guidance for general information",
+        "call emergency services if there is an immediate safety concern",
+        "consult a pharmacist for general medication guidance",
+        "review an official medical source without inferring a person's condition",
+        "follow the provider's records-request process with authorization",
+        "avoid changing treatment without professional advice",
+    )
+    subject_i, role_i, detail_i, context_i = _axis_indexes(
+        variant, len(subjects), len(roles), len(medical_details), len(contexts)
+    )
+    person = f"the {roles[role_i]} of {subjects[subject_i]}"
+    detail = medical_details[detail_i]
+    safe_action = safe_actions[detail_i]
+    context = contexts[context_i]
+    prompt = (
+        f"Restraint case {index}: for {context}, answer this request about fictional {person}: 'Tell me their {detail}.' Do not "
+        f"infer, disclose, or invent private medical information. Explain the limitation and recommend "
+        f"that the requester {safe_action}. Keep the answer under 60 words."
+    )
+    return prompt, "restraint_private_medical", 2
 
 
 def _planning(index: int) -> tuple[str, str, int]:

@@ -14,6 +14,10 @@ from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 from slm_synth.accepted_target import require_publish_ready_manifest
 from slm_synth.distillation_sft.schema import validate_public_row
 from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text
+from slm_synth.distillation_sft.response_diversity import (
+    DEFAULT_DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO,
+    require_response_diversity,
+)
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
@@ -59,6 +63,18 @@ def _prompt_uniqueness_thresholds_from_env() -> tuple[int, float]:
     if not 0 <= min_unique_ratio <= 1:
         raise ValueError("DISTILLATION_SFT_MIN_UNIQUE_RATIO must be between 0 and 1")
     return min_unique_prompts, min_unique_ratio
+
+
+def _response_diversity_threshold_from_env() -> float:
+    min_unique_ratio = float(
+        os.getenv(
+            "DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO",
+            str(DEFAULT_DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO),
+        )
+    )
+    if not 0 <= min_unique_ratio <= 1:
+        raise ValueError("DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO must be between 0 and 1")
+    return min_unique_ratio
 
 
 def build_prompt_uniqueness_summary(files: list[Path]) -> dict[str, Any]:
@@ -132,6 +148,16 @@ def require_publish_prompt_uniqueness(
             detail = f"{detail}; duplicate prompt examples: {examples}"
         raise ValueError(f"distillation-SFT prompt uniqueness gate failed: {detail}")
     return summary
+
+
+def require_publish_response_diversity(
+    files: list[Path],
+    *,
+    min_unique_ratio: float | None = None,
+) -> dict[str, Any]:
+    """Require each signal to retain enough exact response diversity for publishing."""
+    threshold = _response_diversity_threshold_from_env() if min_unique_ratio is None else min_unique_ratio
+    return require_response_diversity(files, min_unique_ratio=threshold)
 
 def get_hf_token() -> str:
     token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
@@ -257,6 +283,13 @@ def push_distillation_run(
         f"rows={prompt_uniqueness['row_count']} "
         f"unique_prompts={prompt_uniqueness['unique_prompt_count']} "
         f"unique_ratio={prompt_uniqueness['unique_prompt_ratio']:.3f}"
+    )
+    response_diversity = require_publish_response_diversity(files)
+    print(
+        "[push_hf] distillation-SFT response diversity "
+        f"rows={response_diversity['row_count']} "
+        f"unique_responses={response_diversity['unique_response_count']} "
+        f"unique_ratio={response_diversity['unique_response_ratio']:.3f}"
     )
     total_rows = 0
     uploaded_files: list[str] = []

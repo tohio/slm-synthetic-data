@@ -134,6 +134,7 @@ make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-targ
 | `DISTILLATION_SFT_SIGNALS` | unset | Optional signal list. |
 | `DISTILLATION_SFT_MODEL` | `$(MODEL)` | Teacher model. |
 | `DISTILLATION_SFT_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget after response quality gates. |
+| `DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO` | `0.75` | Minimum exact unique-response ratio required for every signal by report and publish gates. |
 
 ## Distillation DPO
 

@@ -470,12 +470,73 @@ def test_report_coverage_cli_writes_json(tmp_path, capsys):
     assert json.loads(output.read_text(encoding="utf-8"))["signals"] == {"cloud": 1}
     assert "wrote distillation coverage report" in capsys.readouterr().out
 
+
+def test_report_coverage_cli_enforces_response_diversity_when_requested(tmp_path):
+    dataset = tmp_path / "debugging.jsonl"
+    run_manifest = tmp_path / "smoke-001.manifest.json"
+    output = tmp_path / "coverage.json"
+    rows = [
+        {
+            "id": f"debugging-{index:06d}",
+            "prompt": f"Unique debugging prompt {index}",
+            "reasoning": None,
+            "response": "Repeated debugging response.",
+            "metadata": {
+                "category": "general_instruction_following",
+                "difficulty": 2,
+                "template_family": "python_optional_key_bug",
+                "eval_family": None,
+            },
+        }
+        for index in range(1, 5)
+    ]
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generation_run": "smoke-001",
+                "teacher_model": "openai/gpt-4.1-mini",
+                "teacher_provider": "openrouter",
+                "datasets": [
+                    {
+                        "signal": "debugging",
+                        "dataset_path": str(dataset),
+                        "manifest_path": str(tmp_path / "debugging.manifest.json"),
+                        "row_count": 4,
+                    }
+                ],
+                "total_rows": 4,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="response diversity gate failed"):
+        main(
+            [
+                "report-coverage",
+                "--run-manifest",
+                str(run_manifest),
+                "--output",
+                str(output),
+                "--require-response-diversity",
+                "--min-unique-response-ratio",
+                "0.75",
+            ]
+        )
+
+    assert json.loads(output.read_text(encoding="utf-8"))["response_diversity"]["unique_response_ratio"] == 0.25
+
 def test_distillation_sft_generate_make_target_uses_production_prompt_specs():
     makefile = Path("Makefile").read_text()
     block = makefile.split("distillation-sft-generate:", 1)[1].split("distillation-sft-report:", 1)[0]
+    report_block = makefile.split("distillation-sft-report:", 1)[1].split("distillation-sft-inspect:", 1)[0]
 
     assert "generate-production-run" in block
     assert "--target-rows $(DISTILLATION_SFT_TARGET_ROWS)" in block
     assert "$(OPENROUTER_ROUTING_ARGS)" in block
     assert "--target-preset" not in block
     assert "generate-seed-run" not in block
+    assert "--require-response-diversity" in report_block
+    assert "--min-unique-response-ratio $(DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO)" in report_block

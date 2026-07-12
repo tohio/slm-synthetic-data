@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.distillation_sft.card import load_run_manifest
+from slm_synth.distillation_sft.response_diversity import build_response_diversity_summary
 from slm_synth.distillation_sft.schema import validate_public_row
 
 
@@ -49,6 +50,10 @@ def build_coverage_report(run_manifest_path: str | Path) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         metadata = {}
 
+    response_diversity = build_response_diversity_summary(
+        path for path in dataset_paths.values() if Path(path).is_file()
+    )
+
     return {
         "dataset_type": "distillation",
         "generation_run": _require_non_empty_string(manifest.get("generation_run"), "generation_run"),
@@ -66,6 +71,7 @@ def build_coverage_report(run_manifest_path: str | Path) -> dict[str, Any]:
         "eval_families": _count_metadata(rows, "eval_family"),
         "template_families": _count_metadata(rows, "template_family"),
         "difficulty_counts": _count_metadata(rows, "difficulty"),
+        "response_diversity": response_diversity,
         "dataset_paths": {signal: dataset_paths[signal] for signal in sorted(dataset_paths)},
         "manifest_paths": {signal: manifest_paths[signal] for signal in sorted(manifest_paths)},
     }

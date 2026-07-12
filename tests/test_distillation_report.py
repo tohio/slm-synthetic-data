@@ -96,6 +96,11 @@ def test_build_distillation_coverage_report_from_run_manifest(tmp_path):
         "sql_grouping_query": 3,
     }
     assert report["difficulty_counts"] == {"2": 5}
+    assert report["response_diversity"]["row_count"] == 5
+    assert report["response_diversity"]["unique_response_count"] == 1
+    assert report["response_diversity"]["duplicate_response_count"] == 4
+    assert report["response_diversity"]["signals"]["cloud"]["unique_response_ratio"] == 0.5
+    assert report["response_diversity"]["signals"]["database"]["unique_response_ratio"] == pytest.approx(1 / 3)
     assert report["dataset_paths"]["cloud"] == str(tmp_path / "datasets" / "cloud.jsonl")
     assert report["manifest_paths"]["database"] == str(tmp_path / "manifests" / "database.smoke-001.manifest.json")
 

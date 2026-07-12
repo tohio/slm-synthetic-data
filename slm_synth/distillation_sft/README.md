@@ -19,6 +19,7 @@ distillation_sft/
 ├── batches.py          # teacher batch prompt and response contract
 ├── generation.py       # one-signal teacher generation
 ├── response_quality.py # lightweight response gates
+├── response_diversity.py # aggregate/per-signal exact response diversity
 ├── orchestration.py    # multi-signal smoke and production runs
 ├── schema.py           # public row and teacher-output validation
 ├── io.py               # JSONL and manifest writers
@@ -57,8 +58,9 @@ Teacher/provider/run/cost/retry details stay in manifests. Public rows always us
 
 The production inventory contains 50 template families across 10 signals. Every
 signal has at least four template families, and no template exceeds 30% of its
-signal allocation. The limiting factor at larger sizes is semantic template
-concentration, not exact prompt uniqueness.
+signal allocation. Debugging and factual-restraint prompts use substantive task,
+code, claim, and safe-alternative combinations instead of varying only record
+counts, fictional identifiers, or application labels.
 
 | Accepted rows | Scaling posture |
 | ---: | --- |
@@ -70,7 +72,11 @@ concentration, not exact prompt uniqueness.
 
 Regression checks require zero exact or normalized prompt duplicates at 30,000
 and 100,000 rows, at least four template families per signal, exactly 50 template
-families overall, and a maximum 30% template share within each signal.
+families overall, and a maximum 30% template share within each signal. Coverage
+reports include aggregate and per-signal exact response-diversity statistics.
+Publishing requires every signal to retain at least a 75% normalized exact-response ratio.
+`DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO` can override that threshold for an
+explicitly reviewed dataset.
 
 To scale beyond the current ceiling:
 
