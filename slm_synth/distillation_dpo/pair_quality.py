@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import unicodedata
@@ -21,10 +22,18 @@ PAIR_QUALITY_CHECKS = (
     "non_contrastive_pair",
     "prompt_copy_pair",
     "schema_leakage",
+    "chosen_code_complete",
+    "rejected_code_failure_mode",
+    "chosen_restraint_concise",
 )
+
+MAX_PRIVATE_RESTRAINT_WORDS = 60
 
 _SCHEMA_FIELD_RE = re.compile(r'"(?:id|prompt|chosen|rejected|metadata|role|content)"\s*:')
 _WORD_RE = re.compile(r"[a-z0-9]+")
+_SIGNATURE_ONLY_RE = re.compile(r"^\s*(?:async\s+)?def\s+[A-Za-z_]\w*\s*\([^\n]*\)\s*:\s*$")
+_EXPECTED_FUNCTION_RE = re.compile(r"\bnamed\s+([A-Za-z_]\w*)\b", re.IGNORECASE)
+_FUNCTION_DEF_RE = re.compile(r"\b(?:async\s+)?def\s+[A-Za-z_]\w*\s*\(")
 
 
 @dataclass(frozen=True)
@@ -106,6 +115,22 @@ def validate_pair_quality(row: Mapping[str, Any]) -> tuple[str, ...]:
 
     if _has_schema_leakage(chosen) or _has_schema_leakage(rejected):
         reasons.append("schema_leakage")
+
+    metadata = row.get("metadata", {})
+    if isinstance(metadata, Mapping):
+        category = metadata.get("category")
+        failure_mode = metadata.get("failure_mode")
+        if category == "code_generation":
+            reasons.extend(
+                _validate_code_generation_pair(
+                    prompt=prompt,
+                    chosen=chosen,
+                    rejected=rejected,
+                    failure_mode=failure_mode,
+                )
+            )
+        if category == "private_info_restraint" and _word_count(chosen) > MAX_PRIVATE_RESTRAINT_WORDS:
+            reasons.append("chosen_restraint_too_verbose")
 
     return tuple(dict.fromkeys(reasons))
 
@@ -190,3 +215,79 @@ def _has_schema_leakage(text: str) -> bool:
             return True
         return isinstance(parsed, (dict, list))
     return False
+
+
+def _validate_code_generation_pair(
+    *,
+    prompt: str,
+    chosen: str,
+    rejected: str,
+    failure_mode: Any,
+) -> list[str]:
+    reasons: list[str] = []
+    stripped_chosen = chosen.strip()
+    if _SIGNATURE_ONLY_RE.fullmatch(stripped_chosen):
+        return ["chosen_code_signature_only"]
+
+    try:
+        chosen_tree = ast.parse(stripped_chosen)
+    except SyntaxError:
+        return ["chosen_code_syntax_error"]
+
+    functions = [
+        node
+        for node in ast.walk(chosen_tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    expected_match = _EXPECTED_FUNCTION_RE.search(prompt)
+    if not functions:
+        reasons.append("chosen_code_missing_function")
+    elif expected_match is not None:
+        expected_name = expected_match.group(1)
+        expected_functions = [function for function in functions if function.name == expected_name]
+        if not expected_functions:
+            reasons.append("chosen_code_wrong_function_name")
+        elif not any(_function_has_implementation(function) for function in expected_functions):
+            reasons.append("chosen_code_incomplete_function")
+    elif not any(_function_has_implementation(function) for function in functions):
+        reasons.append("chosen_code_incomplete_function")
+
+    if failure_mode == "code_syntax_error":
+        stripped_rejected = rejected.strip()
+        if not _FUNCTION_DEF_RE.search(stripped_rejected):
+            reasons.append("rejected_code_not_python_function")
+        else:
+            try:
+                ast.parse(stripped_rejected)
+            except SyntaxError:
+                pass
+            else:
+                reasons.append("rejected_code_missing_expected_syntax_error")
+    return reasons
+
+
+def _function_has_implementation(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for statement in function.body:
+        if isinstance(statement, ast.Pass):
+            continue
+        if isinstance(statement, ast.Expr):
+            value = statement.value
+            if isinstance(value, ast.Constant) and (isinstance(value.value, str) or value.value is Ellipsis):
+                continue
+        if isinstance(statement, ast.Raise) and _raises_not_implemented(statement):
+            continue
+        return True
+    return False
+
+
+def _raises_not_implemented(statement: ast.Raise) -> bool:
+    value = statement.exc
+    if isinstance(value, ast.Name):
+        return value.id == "NotImplementedError"
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+        return value.func.id == "NotImplementedError"
+    return False
+
+
+def _word_count(text: str) -> int:
+    return len(_WORD_RE.findall(text.casefold()))

@@ -39,3 +39,7 @@ target_consumer: slm-distillation
 ```
 
 Public rows omit provider, retry, cost, and run internals.
+
+Pair-quality gates require complete syntax-valid chosen Python for code-generation
+rows, require declared `code_syntax_error` rejected examples to be Python-shaped
+and syntax-invalid, and reject overly verbose private-information chosen responses.
