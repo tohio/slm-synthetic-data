@@ -12,10 +12,10 @@ from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
 from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
+from slm_synth.family_cards import build_family_dataset_card
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
-    dataset_card_bytes,
     legacy_metadata_delete_operations,
 )
 from slm_synth.sft.schema import validate_sft_row
@@ -173,10 +173,17 @@ def push_sft_run(
             uploaded_files.append(path_in_repo)
 
         if root is not None:
-            readme_path = root / "README.md"
-            if not readme_path.is_file():
-                raise FileNotFoundError(f"required HF dataset card source is missing: {readme_path}")
-            operations.append(CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=dataset_card_bytes(readme_path)))
+            family_readme = build_family_dataset_card(
+                kind="sft",
+                family=family,
+                jsonl_paths=family_files,
+            )
+            operations.append(
+                CommitOperationAdd(
+                    path_in_repo="README.md",
+                    path_or_fileobj=family_readme.encode("utf-8"),
+                )
+            )
             coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json")
             if coverage_op is not None:
                 operations.append(coverage_op)
