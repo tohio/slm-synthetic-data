@@ -94,7 +94,7 @@ def test_validate_sft_row_requires_user_assistant_role_contract():
         validate_sft_row(row)
 
 
-def test_validate_sft_row_rejects_multiple_user_messages():
+def test_validate_sft_row_normalizes_adjacent_user_messages():
     row = _valid_sft_row()
     row["messages"] = [
         {"role": "user", "content": "Complete the function."},
@@ -102,16 +102,35 @@ def test_validate_sft_row_rejects_multiple_user_messages():
         {"role": "assistant", "content": "return a + b"},
     ]
 
-    with pytest.raises(ValueError, match="role contract"):
-        validate_sft_row(row)
+    validated = validate_sft_row(row)
+
+    assert [message["role"] for message in validated["messages"]] == ["user", "assistant"]
+    assert validated["messages"][0]["content"] == "Complete the function.
+def add_numbers(a, b):"
 
 
-def test_validate_sft_row_rejects_multiple_assistant_messages():
+def test_validate_sft_row_normalizes_adjacent_assistant_messages():
     row = _valid_sft_row()
     row["messages"] = [
         {"role": "user", "content": "Complete the function."},
         {"role": "assistant", "content": "x = 1"},
         {"role": "assistant", "content": "return x"},
+    ]
+
+    validated = validate_sft_row(row)
+
+    assert [message["role"] for message in validated["messages"]] == ["user", "assistant"]
+    assert validated["messages"][1]["content"] == "x = 1
+return x"
+
+
+def test_validate_sft_row_rejects_non_adjacent_multiturn_messages():
+    row = _valid_sft_row()
+    row["messages"] = [
+        {"role": "user", "content": "First prompt."},
+        {"role": "assistant", "content": "First answer."},
+        {"role": "user", "content": "Second prompt."},
+        {"role": "assistant", "content": "Second answer."},
     ]
 
     with pytest.raises(ValueError, match="role contract"):

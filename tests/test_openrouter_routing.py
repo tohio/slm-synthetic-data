@@ -3,6 +3,21 @@ import sys
 
 import pytest
 
+OPENROUTER_ENV_KEYS = (
+    "OPENROUTER_ROUTING_MODE",
+    "OPENROUTER_PROVIDER",
+    "OPENROUTER_PROVIDER_ORDER",
+    "OPENROUTER_PROVIDER_ONLY",
+    "OPENROUTER_PROVIDER_IGNORE",
+    "OPENROUTER_PROVIDER_SORT",
+)
+
+
+@pytest.fixture(autouse=True)
+def clear_openrouter_env(monkeypatch):
+    for key in OPENROUTER_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
 try:
     import openai  # noqa: F401
 except ModuleNotFoundError:
