@@ -45,3 +45,12 @@ def test_distillation_sft_publish_uniqueness_gate_accepts_diverse_prompts(tmp_pa
 
     assert summary["row_count"] == 10
     assert summary["unique_prompt_count"] == 10
+
+def test_seed_smoke_backfill_start_index_does_not_recycle_builtin_seeds() -> None:
+    records = build_seed_prompt_records(signal="database", count=201)
+    backfill = build_seed_prompt_records(signal="database", count=1, start_index=201)
+
+    normalized = [normalize_prompt_text(str(record["prompt"])) for record in records + backfill]
+
+    assert len(normalized) == len(set(normalized))
+    assert normalize_prompt_text(str(backfill[0]["prompt"])) != normalize_prompt_text(str(records[0]["prompt"]))

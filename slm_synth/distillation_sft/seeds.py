@@ -272,12 +272,12 @@ def iter_seed_prompts(signal: str) -> Iterator[str]:
 
 
 def build_seed_prompt_records(*, signal: str, count: int, start_index: int = 1) -> list[dict[str, object]]:
-    """Build deterministic local prompt records for smoke runs.
+    """Build deterministic smoke prompt records without cycling duplicate text.
 
-    Small smoke runs use the hand-written built-in seeds directly. Larger smoke
-    runs continue with the production prompt-spec builders instead of cycling
-    the same seed text. This keeps smoke runs cheap while preventing repeated
-    prompts such as a 2,000-row smoke with only ~200 unique prompt texts.
+    Built-in seeds are used only for their original global positions. Any request
+    whose global record index exceeds the built-in seed inventory uses the
+    production prompt spec builder. This keeps retry/backfill records unique
+    when they start at indexes such as 201.
     """
     normalized_signal = validate_signal(signal)
     if not isinstance(count, int) or count < 0:
@@ -286,33 +286,66 @@ def build_seed_prompt_records(*, signal: str, count: int, start_index: int = 1) 
         raise ValueError("start_index must be a positive integer")
 
     seeds = DISTILLATION_PROMPT_SEEDS[normalized_signal]
-    seed_count = min(count, len(seeds))
-
     records: list[dict[str, object]] = []
-    for offset, prompt in enumerate(seeds[:seed_count]):
-        records.append(
-            build_prompt_record(
-                signal=normalized_signal,
-                prompt=prompt,
-                index=start_index + offset,
-                metadata={
-                    "prompt_source": "builtin_seed",
-                    "seed_source": "builtin",
-                    "seed_index": offset,
-                },
-            )
-        )
+    pending_spec_runs: list[tuple[int, int]] = []
 
-    remaining = count - seed_count
-    if remaining:
-        records.extend(
-            _build_parameterized_seed_prompt_records(
-                signal=normalized_signal,
-                count=remaining,
-                start_index=start_index + seed_count,
-            )
-        )
+    spec_run_start: int | None = None
+    spec_run_count = 0
 
+    def flush_spec_run() -> None:
+        nonlocal spec_run_start, spec_run_count
+        if spec_run_start is not None and spec_run_count:
+            pending_spec_runs.append((spec_run_start, spec_run_count))
+        spec_run_start = None
+        spec_run_count = 0
+
+    for offset in range(count):
+        record_index = start_index + offset
+        seed_offset = record_index - 1
+        if 0 <= seed_offset < len(seeds):
+            flush_spec_run()
+            records.append(
+                build_prompt_record(
+                    signal=normalized_signal,
+                    prompt=seeds[seed_offset],
+                    index=record_index,
+                    metadata={
+                        "prompt_source": "builtin_seed",
+                        "seed_source": "builtin",
+                        "seed_index": seed_offset,
+                    },
+                )
+            )
+            continue
+
+        if spec_run_start is None:
+            spec_run_start = record_index
+            spec_run_count = 1
+        else:
+            spec_run_count += 1
+
+    flush_spec_run()
+
+    if pending_spec_runs:
+        from slm_synth.distillation_sft.spec_builders import build_prompt_spec_records
+
+        spec_records_by_id: dict[str, dict[str, object]] = {}
+        for run_start, run_count in pending_spec_runs:
+            for record in build_prompt_spec_records(
+                signal=normalized_signal,
+                count=run_count,
+                start_index=run_start,
+            ):
+                spec_records_by_id[str(record["id"])] = record
+
+        for offset in range(count):
+            record_index = start_index + offset
+            if record_index - 1 < len(seeds):
+                continue
+            record_id = f"{normalized_signal}-{record_index:06d}"
+            records.append(spec_records_by_id[record_id])
+
+    records.sort(key=lambda record: str(record["id"]))
     return records
 
 
