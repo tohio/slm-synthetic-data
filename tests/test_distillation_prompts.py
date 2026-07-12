@@ -32,7 +32,13 @@ def test_build_prompt_record_tracks_internal_signal_and_metadata():
         "id": "cloud-000003",
         "prompt": "Explain autoscaling.",
         "signal": "cloud",
-        "metadata": {"source": "unit-test"},
+        "metadata": {
+            "source": "unit-test",
+            "category": "general_instruction_following",
+            "difficulty": 2,
+            "template_family": "cloud_architecture_explanation",
+            "eval_family": None,
+        },
     }
 
 

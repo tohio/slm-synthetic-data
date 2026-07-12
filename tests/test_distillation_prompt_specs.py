@@ -18,6 +18,15 @@ def test_production_prompt_specs_cover_all_distillation_signals():
         assert all(row["signal"] == signal for row in rows)
         assert all(row["metadata"]["prompt_source"] == "production_spec" for row in rows)
         assert all("seed_source" not in row["metadata"] for row in rows)
+        assert all(
+            set(row["metadata"]) >= {
+                "category",
+                "difficulty",
+                "template_family",
+                "eval_family",
+            }
+            for row in rows
+        )
         assert len({row["prompt"] for row in rows}) == 2
 
 
@@ -33,6 +42,23 @@ def test_production_prompt_specs_are_deterministic_and_not_builtin_seed_records(
         "arithmetic-000013",
     ]
     assert all(row["metadata"]["template_family"].startswith("integer_") for row in first)
+    assert {row["metadata"]["category"] for row in first} == {"direct_arithmetic"}
+    assert {row["metadata"]["eval_family"] for row in first} == {
+        "basic_arithmetic_qa",
+        "direct_division",
+        "direct_subtraction",
+    }
+
+
+def test_factual_restraint_specs_expose_filterable_categories():
+    rows = build_prompt_spec_records(signal="factual_restraint", count=5)
+
+    assert {row["metadata"]["category"] for row in rows} == {
+        "future_event_restraint",
+        "private_info_restraint",
+    }
+    assert {row["metadata"]["template_family"] for row in rows} == {"factual_restraint"}
+    assert {row["metadata"]["eval_family"] for row in rows} == {None}
 
 
 def test_distillation_smoke_target_has_unique_prompt_text():

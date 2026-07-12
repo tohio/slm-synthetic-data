@@ -5,6 +5,21 @@ import pytest
 from slm_synth.distillation_sft.report import build_coverage_report, write_coverage_report
 
 
+def _row(row_id, *, template_family):
+    return {
+        "id": row_id,
+        "prompt": "Explain the requested database or cloud behavior.",
+        "reasoning": None,
+        "response": "A concise validated response.",
+        "metadata": {
+            "category": "general_instruction_following",
+            "difficulty": 2,
+            "template_family": template_family,
+            "eval_family": None,
+        },
+    }
+
+
 def _write_run_manifest(path, datasets):
     path.write_text(
         json.dumps(
@@ -32,6 +47,16 @@ def _write_run_manifest(path, datasets):
 
 def test_build_distillation_coverage_report_from_run_manifest(tmp_path):
     run_manifest = tmp_path / "smoke-001.manifest.json"
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    (dataset_dir / "cloud.jsonl").write_text(
+        "".join(json.dumps(_row(f"cloud-{index}", template_family="cloud_architecture_explanation")) + "\n" for index in range(2)),
+        encoding="utf-8",
+    )
+    (dataset_dir / "database.jsonl").write_text(
+        "".join(json.dumps(_row(f"database-{index}", template_family="sql_grouping_query")) + "\n" for index in range(3)),
+        encoding="utf-8",
+    )
     _write_run_manifest(
         run_manifest,
         [
@@ -64,6 +89,13 @@ def test_build_distillation_coverage_report_from_run_manifest(tmp_path):
     assert report["row_count"] == 5
     assert report["signals"] == {"cloud": 2, "database": 3}
     assert report["rows_per_signal"] == {"cloud": 2, "database": 3}
+    assert report["categories"] == {"general_instruction_following": 5}
+    assert report["eval_families"] == {"null": 5}
+    assert report["template_families"] == {
+        "cloud_architecture_explanation": 2,
+        "sql_grouping_query": 3,
+    }
+    assert report["difficulty_counts"] == {"2": 5}
     assert report["dataset_paths"]["cloud"] == str(tmp_path / "datasets" / "cloud.jsonl")
     assert report["manifest_paths"]["database"] == str(tmp_path / "manifests" / "database.smoke-001.manifest.json")
 

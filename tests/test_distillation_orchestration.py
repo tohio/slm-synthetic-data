@@ -221,7 +221,12 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
     assert database_row["id"] == "database-000001"
     assert database_row["response"] == "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id."
     assert "signal" not in cloud_row
-    assert "metadata" not in cloud_row
+    assert cloud_row["metadata"] == {
+        "category": "general_instruction_following",
+        "difficulty": 2,
+        "template_family": "cloud_architecture_explanation",
+        "eval_family": None,
+    }
 
     cloud_manifest = json.loads((tmp_path / "manifests" / "cloud.smoke-001.manifest.json").read_text())
     database_manifest = json.loads((tmp_path / "manifests" / "database.smoke-001.manifest.json").read_text())

@@ -41,8 +41,9 @@ def write_signal_dataset(
 ) -> Path:
     """Write one signal-specific public distillation dataset.
 
-    Public rows contain only id, prompt, reasoning, and response. Signal names
-    are represented by the dataset file path, not repeated inside each row.
+    Public rows contain id, prompt, reasoning, response, and audit metadata.
+    Signal names are represented by the dataset file path, not repeated inside
+    each row.
     """
     normalized_signal = validate_signal(signal)
     output_root = Path(output_dir)

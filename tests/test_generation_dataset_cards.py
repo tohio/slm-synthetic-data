@@ -119,5 +119,7 @@ def test_distillation_card_uses_teacher_model_but_not_provider(tmp_path: Path) -
 
     assert "Teacher model: `teacher/model`" in text
     assert "Signals: `arithmetic`" in text
+    assert '"metadata": {' in text
+    assert '"eval_family": "string | null"' in text
     assert "openrouter" not in text.lower()
     assert "distill-example" not in text

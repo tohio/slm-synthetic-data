@@ -1,7 +1,8 @@
 """Local prompt records for response distillation.
 
-Prompt records are internal inputs to teacher generation. They carry signal and
-metadata locally, but those fields are not emitted in public training rows.
+Prompt records are internal inputs to teacher generation. They carry signal,
+public audit metadata, and generation-only metadata locally. Only the validated
+public metadata subset is emitted in training rows.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from slm_synth.distillation_sft.public_metadata import build_public_metadata
 from slm_synth.distillation_sft.signals import validate_signal
 
 
@@ -87,9 +89,20 @@ def validate_prompt_record(record: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(metadata, Mapping):
         raise ValueError("prompt record field 'metadata' must be a mapping when provided")
 
+    normalized_signal = validate_signal(record["signal"])
+    normalized_metadata = dict(metadata)
+    normalized_metadata.update(
+        build_public_metadata(
+            signal=normalized_signal,
+            prompt=record["prompt"],
+            template_family=normalized_metadata.get("template_family"),
+            difficulty=normalized_metadata.get("difficulty"),
+        )
+    )
+
     return {
         "id": record["id"],
         "prompt": record["prompt"],
-        "signal": validate_signal(record["signal"]),
-        "metadata": dict(metadata),
+        "signal": normalized_signal,
+        "metadata": normalized_metadata,
     }

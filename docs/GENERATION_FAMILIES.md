@@ -96,7 +96,7 @@ slm_synth/sft/spec_builders.py
 
 ## Distillation SFT Signals
 
-Distillation SFT creates teacher prompt/response rows. Public rows are per-signal JSONL files under `data/distillation/runs/<run>/datasets/`.
+Distillation SFT creates teacher prompt/response rows. Public rows are per-signal JSONL files under `data/distillation/runs/<run>/datasets/` and include filterable `category`, `difficulty`, `template_family`, and `eval_family` metadata.
 
 | Signal | Purpose |
 |---|---|
@@ -117,6 +117,7 @@ Implementation source of truth:
 slm_synth/distillation_sft/signals.py
 slm_synth/distillation_sft/seeds.py
 slm_synth/distillation_sft/spec_builders.py
+slm_synth/distillation_sft/public_metadata.py
 ```
 
 ## Distillation DPO Families

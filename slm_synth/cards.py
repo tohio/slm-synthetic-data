@@ -90,7 +90,13 @@ CARD_SPECS: dict[str, dict[str, str]] = {
   "id": "string",
   "prompt": "string",
   "reasoning": null,
-  "response": "string"
+  "response": "string",
+  "metadata": {
+    "category": "string",
+    "difficulty": 1,
+    "template_family": "string",
+    "eval_family": "string | null"
+  }
 }""",
         "schema_note": "`reasoning` is present for schema compatibility and is currently always `null`.",
         "intended_use": "Use this dataset for supervised fine-tuning experiments that distill teacher responses into a smaller model.",

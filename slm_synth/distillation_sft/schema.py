@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-PUBLIC_ROW_FIELDS = frozenset({"id", "prompt", "reasoning", "response"})
+from slm_synth.taxonomy import validate_metadata
+
+
+PUBLIC_ROW_FIELDS = frozenset({"id", "prompt", "reasoning", "response", "metadata"})
 FORBIDDEN_PUBLIC_ROW_FIELDS = frozenset(
     {
         "signal",
-        "metadata",
         "teacher_model",
         "teacher_provider",
         "generation_run",
@@ -26,9 +28,9 @@ def _require_string(row: Mapping[str, Any], field: str) -> None:
 def validate_public_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """Validate and return a normalized public distillation row.
 
-    Public rows intentionally contain only the fields needed for training:
-    id, prompt, reasoning fixed to null, and response. Internal metadata and
-    teacher provenance must stay in local manifests or dataset cards.
+    Public rows contain the fields needed for training plus audit metadata:
+    id, prompt, reasoning fixed to null, response, and public taxonomy metadata.
+    Teacher provenance and generation-only metadata stay in manifests or cards.
     """
     if not isinstance(row, Mapping):
         raise TypeError("public distillation row must be a mapping")
@@ -59,4 +61,5 @@ def validate_public_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "prompt": row["prompt"],
         "reasoning": None,
         "response": row["response"],
+        "metadata": validate_metadata(row["metadata"]),
     }

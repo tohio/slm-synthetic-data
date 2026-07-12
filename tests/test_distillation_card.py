@@ -57,8 +57,10 @@ def test_render_dataset_card_includes_run_provenance_and_schema():
     assert "| cloud | 2 | `data/distillation/datasets/cloud.jsonl` |" in text
     assert '"id": "string"' in text
     assert '"reasoning": null' in text
+    assert '"metadata": {' in text
+    assert '"template_family": "string"' in text
     assert "`reasoning` may also be a list of strings" not in text
-    assert "intentionally excluded from public training rows" in text
+    assert "prompt-source details" in text
 
 
 def test_write_dataset_card_reads_manifest_and_writes_markdown(tmp_path):

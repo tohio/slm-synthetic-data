@@ -77,9 +77,14 @@ def test_generate_and_materialize_signal_batch_writes_public_dataset_and_manifes
         "prompt": "Create a concise plan for preparing a small dataset for model fine-tuning.",
         "reasoning": None,
         "response": "Start by identifying dependencies, then order tasks by risk and unblockers.",
+        "metadata": {
+            "category": "general_instruction_following",
+            "difficulty": 2,
+            "template_family": "operational_planning_checklist",
+            "eval_family": None,
+        },
     }
     assert "signal" not in public_row
-    assert "metadata" not in public_row
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["teacher_provider"] == "openrouter"

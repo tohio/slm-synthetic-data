@@ -16,7 +16,7 @@ def test_build_teacher_request_items_exposes_only_id_and_prompt():
                 "id": "arithmetic-000001",
                 "prompt": "What is 2 + 2?",
                 "signal": "arithmetic",
-                "metadata": {"difficulty": "easy"},
+                "metadata": {"difficulty": 1},
             }
         ]
     )
@@ -50,7 +50,7 @@ def test_render_teacher_batch_prompt_contains_contract_and_no_local_metadata_pay
                 "id": "planning-000001",
                 "prompt": "Plan a three-step migration.",
                 "signal": "planning",
-                "metadata": {"difficulty": "medium"},
+                "metadata": {"difficulty": 2},
             }
         ],
     )

@@ -5,6 +5,21 @@ import pytest
 from slm_synth.distillation_sft.io import write_jsonl, write_manifest, write_run_manifest, write_signal_dataset
 
 
+def _metadata(
+    *,
+    category="general_instruction_following",
+    difficulty=1,
+    template_family="instruction_rewrite",
+    eval_family=None,
+):
+    return {
+        "category": category,
+        "difficulty": difficulty,
+        "template_family": template_family,
+        "eval_family": eval_family,
+    }
+
+
 def test_write_jsonl_writes_public_rows_only(tmp_path):
     path = tmp_path / "arithmetic.jsonl"
     count = write_jsonl(
@@ -14,6 +29,11 @@ def test_write_jsonl_writes_public_rows_only(tmp_path):
                 "prompt": "What is 2 + 2?",
                 "reasoning": None,
                 "response": "4",
+                "metadata": _metadata(
+                    category="direct_arithmetic",
+                    template_family="integer_addition",
+                    eval_family="basic_arithmetic_qa",
+                ),
             }
         ],
         path,
@@ -27,6 +47,11 @@ def test_write_jsonl_writes_public_rows_only(tmp_path):
             "prompt": "What is 2 + 2?",
             "reasoning": None,
             "response": "4",
+            "metadata": _metadata(
+                category="direct_arithmetic",
+                template_family="integer_addition",
+                eval_family="basic_arithmetic_qa",
+            ),
         }
     ]
 
@@ -40,6 +65,10 @@ def test_write_jsonl_rejects_internal_public_fields(tmp_path):
                     "prompt": "Explain autoscaling.",
                     "reasoning": None,
                     "response": "Autoscaling adjusts capacity.",
+                    "metadata": _metadata(
+                        difficulty=2,
+                        template_family="cloud_architecture_explanation",
+                    ),
                     "teacher_model": "internal-only",
                 }
             ],
@@ -56,6 +85,7 @@ def test_write_signal_dataset_uses_signal_filename(tmp_path):
                 "prompt": "What is photosynthesis?",
                 "reasoning": None,
                 "response": "Photosynthesis is how plants convert light into chemical energy.",
+                "metadata": _metadata(template_family="educational_explanation"),
             }
         ],
         output_dir=tmp_path,
@@ -74,6 +104,7 @@ def test_write_manifest_keeps_teacher_details_outside_public_rows(tmp_path):
                 "prompt": "Rewrite this clearly.",
                 "reasoning": None,
                 "response": "Clear rewrite.",
+                "metadata": _metadata(),
             }
         ],
         dataset_path,

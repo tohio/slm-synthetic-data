@@ -59,7 +59,7 @@ Small-scale target overrides should be validated before any full production targ
 |---|---|
 | SFT | `id`, `messages`, `metadata` |
 | DPO | `id`, `prompt`, `chosen`, `rejected`, `metadata` |
-| Distillation SFT | `id`, `prompt`, `reasoning`, `response` |
+| Distillation SFT | `id`, `prompt`, `reasoning`, `response`, `metadata` |
 | Distillation DPO | `id`, `prompt`, `chosen`, `rejected`, `metadata` |
 
 Teacher, provider, run, cost, retry, routing, and internal prompt-spec details belong in local manifests, not public dataset rows.

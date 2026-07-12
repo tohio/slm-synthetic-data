@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from slm_synth.distillation_sft.prompts import validate_prompt_record
+from slm_synth.distillation_sft.public_metadata import extract_public_metadata
 from slm_synth.distillation_sft.schema import validate_public_row
 
 TEACHER_OUTPUT_FIELDS = frozenset({"id", "reasoning", "response"})
@@ -66,8 +67,9 @@ def merge_teacher_outputs(
 ) -> list[dict[str, Any]]:
     """Merge local prompt records with validated teacher outputs.
 
-    The returned rows are public training rows only. Signal, metadata, teacher
-    model, provider, retry, cost, and run details stay outside this function.
+    The returned rows include training-facing taxonomy metadata. Signal,
+    generation-only metadata, teacher model, provider, retry, cost, and run
+    details stay outside this function.
     """
     prompts = [validate_prompt_record(record) for record in prompt_records]
     prompt_ids = [record["id"] for record in prompts]
@@ -97,6 +99,7 @@ def merge_teacher_outputs(
                     "prompt": prompt["prompt"],
                     "reasoning": None,
                     "response": output["response"],
+                    "metadata": extract_public_metadata(prompt["metadata"]),
                 }
             )
         )

@@ -12,6 +12,7 @@ It does not create DPO pairs, sample student outputs, train models, export model
 distillation_sft/
 ├── signals.py          # supported distillation signal names
 ├── prompts.py          # prompt-record validation
+├── public_metadata.py  # public category/template/eval metadata mapping
 ├── seeds.py            # smoke seed prompts
 ├── spec_builders.py    # production prompt-spec builders
 ├── prompt_quality.py   # duplicate/near-duplicate prompt preflight
@@ -36,7 +37,18 @@ Public artifacts use the `distillation-sft-*` naming surface. The Python package
 Public rows have this contract:
 
 ```json
-{"id": "string", "prompt": "string", "reasoning": null, "response": "string"}
+{
+  "id": "string",
+  "prompt": "string",
+  "reasoning": null,
+  "response": "string",
+  "metadata": {
+    "category": "string",
+    "difficulty": 1,
+    "template_family": "string",
+    "eval_family": "string | null"
+  }
+}
 ```
 
 Teacher/provider/run/cost/retry details stay in manifests. Public rows always use `reasoning: null`.

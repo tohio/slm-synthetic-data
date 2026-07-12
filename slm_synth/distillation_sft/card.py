@@ -80,8 +80,8 @@ def render_dataset_card(
         "## Summary",
         (
             "Signal-specific response-distillation datasets generated from local prompts "
-            "and teacher responses. Public rows contain only `id`, `prompt`, `reasoning`, "
-            "and `response`; `reasoning` is always null."
+            "and teacher responses. Public rows contain `id`, `prompt`, `reasoning`, "
+            "`response`, and audit `metadata`; `reasoning` is always null."
         ),
         "## Generation",
         "\n".join(generation_lines),
@@ -93,15 +93,26 @@ def render_dataset_card(
                 "Each JSONL row uses this public schema:",
                 "",
                 "```json",
-                '{ "id": "string", "prompt": "string", "reasoning": null, "response": "string" }',
+                '{',
+                '  "id": "string",',
+                '  "prompt": "string",',
+                '  "reasoning": null,',
+                '  "response": "string",',
+                '  "metadata": {',
+                '    "category": "string",',
+                '    "difficulty": 1,',
+                '    "template_family": "string",',
+                '    "eval_family": "string | null"',
+                '  }',
+                '}',
                 "```",
             ]
         ),
         "## Excluded From Rows",
         (
             "Signal names, teacher details, provider details, generation-run metadata, "
-            "difficulty labels, and internal metadata are intentionally excluded from "
-            "public training rows."
+            "prompt-source details, and other internal fields are excluded from public "
+            "training rows."
         ),
     ]
     return "\n\n".join(sections).rstrip() + "\n"

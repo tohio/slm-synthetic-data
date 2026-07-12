@@ -103,9 +103,14 @@ def test_materialize_batch_cli_writes_public_dataset_and_manifest(tmp_path):
         "prompt": "Explain one practical use of autoscaling in a cloud application.",
         "reasoning": None,
         "response": "Use autoscaling to add capacity when traffic increases.",
+        "metadata": {
+            "category": "general_instruction_following",
+            "difficulty": 2,
+            "template_family": "cloud_architecture_explanation",
+            "eval_family": None,
+        },
     }
     assert "signal" not in public_row
-    assert "metadata" not in public_row
 
     manifest = json.loads((manifest_dir / "cloud.smoke-001.manifest.json").read_text(encoding="utf-8"))
     assert manifest["teacher_provider"] == "openrouter"

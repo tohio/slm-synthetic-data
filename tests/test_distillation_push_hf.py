@@ -17,6 +17,12 @@ def _distillation_row(row_id="distill-1"):
         "prompt": "What is 2 + 2?",
         "reasoning": None,
         "response": "4",
+        "metadata": {
+            "category": "direct_arithmetic",
+            "difficulty": 1,
+            "template_family": "integer_addition",
+            "eval_family": "basic_arithmetic_qa",
+        },
     }
 
 
@@ -189,4 +195,3 @@ def test_require_publish_prompt_uniqueness_accepts_diverse_prompts(tmp_path):
     assert summary["row_count"] == 10
     assert summary["unique_prompt_count"] == 10
     assert summary["duplicate_prompt_count"] == 0
-

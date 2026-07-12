@@ -23,7 +23,7 @@ def test_materialize_teacher_batch_writes_public_dataset_and_manifest(tmp_path):
                 "id": "arithmetic-000001",
                 "prompt": "What is 2 + 2?",
                 "signal": "arithmetic",
-                "metadata": {"difficulty": "easy"},
+                "metadata": {"difficulty": 1},
             }
         ],
         teacher_response={
@@ -54,9 +54,14 @@ def test_materialize_teacher_batch_writes_public_dataset_and_manifest(tmp_path):
         "prompt": "What is 2 + 2?",
         "reasoning": None,
         "response": "4",
+        "metadata": {
+            "category": "direct_arithmetic",
+            "difficulty": 1,
+            "template_family": "integer_addition",
+            "eval_family": "basic_arithmetic_qa",
+        },
     }
     assert "signal" not in public_row
-    assert "metadata" not in public_row
     assert "teacher_model" not in public_row
     assert "teacher_provider" not in public_row
     assert "generation_run" not in public_row

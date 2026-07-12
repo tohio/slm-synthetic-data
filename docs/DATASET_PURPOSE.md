@@ -77,10 +77,21 @@ Distillation SFT rows are teacher prompt/response examples. Public artifacts are
 Public distillation SFT rows use this schema:
 
 ```json
-{"id": "string", "prompt": "string", "reasoning": null, "response": "string"}
+{
+  "id": "string",
+  "prompt": "string",
+  "reasoning": null,
+  "response": "string",
+  "metadata": {
+    "category": "string",
+    "difficulty": 1,
+    "template_family": "string",
+    "eval_family": "string | null"
+  }
+}
 ```
 
-`reasoning` is always null in public rows. Signal, prompt-source, provider, teacher model, routing, retries, cost, planning, and response-gate details stay in manifests and dataset cards.
+`reasoning` is always null in public rows. Public metadata supports record-level filtering and audit. Signal, prompt-source, provider, teacher model, routing, retries, cost, planning, and response-gate details stay in manifests and dataset cards.
 
 ## Distillation DPO Data
 
@@ -110,9 +121,9 @@ Production distillation DPO pairs use teacher-quality chosen responses and contr
 
 | Field | Meaning | Used by |
 |---|---|---|
-| `category` | Training objective. | SFT, DPO, distillation DPO |
-| `eval_family` | Eval-shaped behavior pattern. | SFT, DPO, holdout checks |
-| `template_family` | Generation/template surface. | SFT, DPO, distillation DPO |
+| `category` | Training objective. | SFT, DPO, distillation SFT, distillation DPO |
+| `eval_family` | Eval-shaped behavior pattern. | SFT, DPO, distillation SFT, holdout checks |
+| `template_family` | Generation/template surface. | SFT, DPO, distillation SFT, distillation DPO |
 | `failure_mode` | Rejected-answer behavior. | DPO, distillation DPO |
 | `holdout_key` | Exact structured holdout guard. | Spec validation and materialization |
 

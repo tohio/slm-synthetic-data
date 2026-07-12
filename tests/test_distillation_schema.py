@@ -5,6 +5,21 @@ from slm_synth.distillation_sft.signals import DISTILLATION_SIGNALS, validate_si
 from slm_synth.distillation_sft.validate import merge_teacher_outputs, validate_teacher_output
 
 
+def _metadata(
+    *,
+    category="direct_arithmetic",
+    difficulty=1,
+    template_family="integer_addition",
+    eval_family="basic_arithmetic_qa",
+):
+    return {
+        "category": category,
+        "difficulty": difficulty,
+        "template_family": template_family,
+        "eval_family": eval_family,
+    }
+
+
 def test_distillation_signals_are_fixed_scope():
     assert DISTILLATION_SIGNALS == {
         "arithmetic",
@@ -28,6 +43,7 @@ def test_public_row_accepts_response_only_distillation():
             "prompt": "What is 2 + 2?",
             "reasoning": None,
             "response": "4",
+            "metadata": _metadata(),
         }
     )
 
@@ -36,6 +52,7 @@ def test_public_row_accepts_response_only_distillation():
         "prompt": "What is 2 + 2?",
         "reasoning": None,
         "response": "4",
+        "metadata": _metadata(),
     }
 
 
@@ -47,6 +64,7 @@ def test_public_row_rejects_step_by_step_reasoning():
                 "prompt": "What is 12 * 3?",
                 "reasoning": ["12 * 3 means three groups of 12.", "12 + 12 + 12 = 36."],
                 "response": "36",
+                "metadata": _metadata(template_family="integer_multiplication"),
             }
         )
 
@@ -55,7 +73,6 @@ def test_public_row_rejects_step_by_step_reasoning():
     "field",
     [
         "signal",
-        "metadata",
         "teacher_model",
         "teacher_provider",
         "generation_run",
@@ -70,6 +87,11 @@ def test_public_row_rejects_internal_fields(field):
                 "prompt": "Summarize this.",
                 "reasoning": None,
                 "response": "Summary.",
+                "metadata": _metadata(
+                    category="general_instruction_following",
+                    template_family="instruction_rewrite",
+                    eval_family=None,
+                ),
                 field: "internal",
             }
         )
@@ -110,14 +132,14 @@ def test_teacher_output_rejects_unexpected_prompt_or_metadata():
         )
 
 
-def test_merge_teacher_outputs_returns_public_rows_only():
+def test_merge_teacher_outputs_returns_public_rows_with_audit_metadata():
     rows = merge_teacher_outputs(
         [
             {
                 "id": "cloud-000001",
                 "prompt": "Explain one benefit of autoscaling.",
                 "signal": "cloud",
-                "metadata": {"difficulty": "easy"},
+                "metadata": {"difficulty": 2},
             }
         ],
         [
@@ -135,6 +157,12 @@ def test_merge_teacher_outputs_returns_public_rows_only():
             "prompt": "Explain one benefit of autoscaling.",
             "reasoning": None,
             "response": "Autoscaling can add or remove capacity as demand changes.",
+            "metadata": _metadata(
+                category="general_instruction_following",
+                difficulty=2,
+                template_family="cloud_architecture_explanation",
+                eval_family=None,
+            ),
         }
     ]
 
@@ -183,8 +211,25 @@ def test_merge_teacher_outputs_writes_null_public_reasoning():
             "prompt": "What is 2 + 2?",
             "reasoning": None,
             "response": "4",
+            "metadata": _metadata(),
         }
     ]
+
+
+def test_public_row_rejects_generation_only_metadata():
+    metadata = _metadata()
+    metadata["prompt_source"] = "production_spec"
+
+    with pytest.raises(ValueError, match="unsupported field"):
+        validate_public_row(
+            {
+                "id": "arithmetic-000001",
+                "prompt": "What is 2 + 2?",
+                "reasoning": None,
+                "response": "4",
+                "metadata": metadata,
+            }
+        )
 
 
 def test_merge_teacher_outputs_rejects_missing_duplicate_and_unexpected_ids():

@@ -77,8 +77,8 @@ def materialize_teacher_batch(
 
     The teacher response must be the strict batch object produced by the teacher
     contract: {"items": [{"id", "reasoning", "response"}]}. Public JSONL rows
-    contain only id, prompt, reasoning, and response. Provider/model/run details
-    are written only to the local manifest.
+    contain id, prompt, reasoning, response, and locally reattached audit
+    metadata. Provider/model/run details are written only to the local manifest.
     """
     normalized_signal = validate_signal(signal)
     records = _validate_prompt_records_for_signal(signal=normalized_signal, prompt_records=prompt_records)

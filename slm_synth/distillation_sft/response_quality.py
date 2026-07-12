@@ -24,7 +24,7 @@ RESPONSE_QUALITY_CHECKS = (
     "factual_restraint",
 )
 
-_SCHEMA_FIELD_RE = re.compile(r'"(?:id|prompt|reasoning|response)"\s*:')
+_SCHEMA_FIELD_RE = re.compile(r'"(?:id|prompt|reasoning|response|metadata)"\s*:')
 _REFUSAL_RE = re.compile(
     r"\b(?:"
     r"i\s+can(?:not|'?t)|"
