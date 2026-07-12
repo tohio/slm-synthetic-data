@@ -1,4 +1,5 @@
 import json
+from collections import Counter, defaultdict
 
 import pytest
 
@@ -57,7 +58,13 @@ def test_factual_restraint_specs_expose_filterable_categories():
         "future_event_restraint",
         "private_info_restraint",
     }
-    assert {row["metadata"]["template_family"] for row in rows} == {"factual_restraint"}
+    assert {row["metadata"]["template_family"] for row in rows} == {
+        "restraint_account_credential",
+        "restraint_future_event_prediction",
+        "restraint_future_private_financial",
+        "restraint_private_address",
+        "restraint_private_medical",
+    }
     assert {row["metadata"]["eval_family"] for row in rows} == {None}
 
 
@@ -87,6 +94,7 @@ def test_distillation_production_target_has_unique_prompt_text():
     assert summary.prompt_count == 30_000
     assert summary.duplicate_prompt_text_count == 0
     assert summary.near_duplicate_prompt_count == 0
+    _assert_template_scale(rows=records, count_per_signal=3_000)
 
     backfill_records = [
         row
@@ -101,6 +109,50 @@ def test_distillation_production_target_has_unique_prompt_text():
     assert backfill_summary.prompt_count == 30_050
     assert backfill_summary.duplicate_prompt_text_count == 0
     assert backfill_summary.near_duplicate_prompt_count == 0
+
+
+def test_distillation_inventory_scales_to_100k_rows():
+    records = [
+        row
+        for signal in sorted(DISTILLATION_SIGNALS)
+        for row in build_prompt_spec_records(signal=signal, count=10_000)
+    ]
+
+    summary = validate_prompt_preflight(records, require_unique_prompt_text=True)
+
+    assert summary.prompt_count == 100_000
+    assert summary.duplicate_prompt_text_count == 0
+    assert summary.near_duplicate_prompt_count == 0
+    _assert_template_scale(rows=records, count_per_signal=10_000)
+
+    backfill_records = [
+        row
+        for signal in sorted(DISTILLATION_SIGNALS)
+        for row in build_prompt_spec_records(signal=signal, count=100, start_index=10_001)
+    ]
+    backfill_summary = validate_prompt_preflight(
+        records + backfill_records,
+        require_unique_prompt_text=True,
+    )
+
+    assert backfill_summary.prompt_count == 101_000
+    assert backfill_summary.near_duplicate_prompt_count == 0
+
+
+def _assert_template_scale(*, rows, count_per_signal):
+    counts_by_signal = defaultdict(Counter)
+    all_templates = set()
+    for row in rows:
+        signal = row["signal"]
+        template_family = row["metadata"]["template_family"]
+        counts_by_signal[signal][template_family] += 1
+        all_templates.add(template_family)
+
+    assert len(all_templates) == 50
+    assert set(counts_by_signal) == DISTILLATION_SIGNALS
+    for counts in counts_by_signal.values():
+        assert len(counts) >= 4
+        assert max(counts.values()) / count_per_signal <= 0.30
 
 
 def test_build_and_write_prompt_specs_writes_valid_jsonl(tmp_path):

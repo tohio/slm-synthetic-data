@@ -52,3 +52,29 @@ Public rows have this contract:
 ```
 
 Teacher/provider/run/cost/retry details stay in manifests. Public rows always use `reasoning: null`.
+
+## Scaling
+
+The production inventory contains 50 template families across 10 signals. Every
+signal has at least four template families, and no template exceeds 30% of its
+signal allocation. The limiting factor at larger sizes is semantic template
+concentration, not exact prompt uniqueness.
+
+| Accepted rows | Scaling posture |
+| ---: | --- |
+| 30,000 | Strong default target. Approximately 600–750 rows per template. |
+| 50,000 | Strong. Approximately 1,000–1,250 rows per template. |
+| 100,000 | Current design ceiling. Approximately 2,000–2,500 rows per template. |
+| Above 100,000 | Review template concentration and response diversity before generation. |
+| Above 150,000 | Add template families or external prompt sources first. |
+
+Regression checks require zero exact or normalized prompt duplicates at 30,000
+and 100,000 rows, at least four template families per signal, exactly 50 template
+families overall, and a maximum 30% template share within each signal.
+
+To scale beyond the current ceiling:
+
+1. Add task structures within the affected signals rather than only new parameter values.
+2. Keep new template families balanced within each signal.
+3. Re-run the uniqueness and template-concentration checks at the proposed target and backfill range.
+4. Run a paid smoke job and inspect teacher-response acceptance and quality before production.

@@ -83,7 +83,13 @@ def test_build_seed_prompt_records_uses_unique_validation_sized_prompt_window():
 
     assert rows[0]["id"] == "arithmetic-000007"
     assert rows[-1]["id"] == f"arithmetic-{6 + MIN_SEED_PROMPTS_PER_SIGNAL:06d}"
-    assert [row["metadata"]["seed_index"] for row in rows] == list(range(MIN_SEED_PROMPTS_PER_SIGNAL))
+    builtin_rows = [row for row in rows if row["metadata"].get("seed_source") == "builtin"]
+    parameterized_rows = [
+        row for row in rows if row["metadata"].get("seed_source") == "parameterized_spec"
+    ]
+    assert [row["metadata"]["seed_index"] for row in builtin_rows] == list(
+        range(6, MIN_SEED_PROMPTS_PER_SIGNAL)
+    )
+    assert len(parameterized_rows) == 6
     assert len({row["prompt"] for row in rows}) == MIN_SEED_PROMPTS_PER_SIGNAL
-    assert all(row["metadata"]["seed_source"] == "builtin" for row in rows)
     assert all("response" not in row for row in rows)

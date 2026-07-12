@@ -327,11 +327,9 @@ def build_seed_prompt_records(*, signal: str, count: int, start_index: int = 1) 
     flush_spec_run()
 
     if pending_spec_runs:
-        from slm_synth.distillation_sft.spec_builders import build_prompt_spec_records
-
         spec_records_by_id: dict[str, dict[str, object]] = {}
         for run_start, run_count in pending_spec_runs:
-            for record in build_prompt_spec_records(
+            for record in _build_parameterized_seed_prompt_records(
                 signal=normalized_signal,
                 count=run_count,
                 start_index=run_start,

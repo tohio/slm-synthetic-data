@@ -92,172 +92,271 @@ def _arithmetic(index: int) -> tuple[str, str, int]:
 
 
 def _code(index: int) -> tuple[str, str, int]:
-    tasks = [
-        ("normalize_email", "return a stripped, lowercase email string"),
-        ("count_words", "return the number of whitespace-separated words in text"),
-        ("clamp", "return a number constrained between a minimum and maximum"),
-        ("unique_preserve_order", "return unique items while preserving first occurrence order"),
-        ("safe_get", "return a dictionary value or a provided default"),
-    ]
-    name, behavior = tasks[(index - 1) % len(tasks)]
-    suffix = 1 + index // len(tasks)
+    tasks = (
+        ("normalize_email", "return a stripped, lowercase email string", "python_string_normalization"),
+        ("count_words", "return the number of whitespace-separated words in text", "python_text_aggregation"),
+        ("clamp", "return a number constrained between a minimum and maximum", "python_boundary_validation"),
+        (
+            "unique_preserve_order",
+            "return unique items while preserving first occurrence order",
+            "python_order_preserving_collection",
+        ),
+        ("safe_get", "return a dictionary value or a provided default", "python_mapping_lookup"),
+    )
+    name, behavior, template_family = tasks[(index - 1) % len(tasks)]
+    suffix = ((index - 1) // len(tasks)) + 1
     return (
         f"Write a concise Python function named {name}_{suffix} that should {behavior}. Return code only, no Markdown.",
-        "python_function_generation",
+        template_family,
         2,
     )
 
 
 def _debugging(index: int) -> tuple[str, str, int]:
-    scenarios = [
-        "a loop skips every other item because the list is modified during iteration",
-        "a function returns None after calling list.sort() inline",
-        "a dictionary lookup raises KeyError for optional input fields",
-        "integer division is used where decimal division is required",
-        "a mutable default argument causes values to leak across calls",
-    ]
-    modules = ["parser", "billing", "scheduler", "loader", "notifier", "reporting"]
-    scenario = scenarios[(index - 1) % len(scenarios)]
-    module = modules[(index - 1) % len(modules)]
-    case_id = 1000 + index
+    scenarios = (
+        ("a loop skips every other item because the list is modified during iteration", "python_iteration_mutation_bug"),
+        ("a function returns None after calling list.sort() inline", "python_in_place_method_bug"),
+        ("a dictionary lookup raises KeyError for optional input fields", "python_optional_key_bug"),
+        ("integer division is used where decimal division is required", "python_numeric_operator_bug"),
+        ("a mutable default argument causes values to leak across calls", "python_mutable_default_bug"),
+    )
+    scenario, template_family = scenarios[(index - 1) % len(scenarios)]
+    record_count = 100 + index * 37
+    contexts = ("API handler", "ETL job", "CLI tool", "background worker", "data-validation service")
+    context = contexts[((index - 1) // len(scenarios)) % len(contexts)]
     return (
-        f"Debug case {case_id} in the {module} module: {scenario}. Explain the likely cause and give a minimal fix.",
-        "python_debugging_explanation",
+        f"A Python {context} processing {record_count} records has this issue: {scenario}. "
+        "Explain the likely cause and give a minimal fix.",
+        template_family,
         2,
     )
 
 
 def _database(index: int) -> tuple[str, str, int]:
-    entities = [
-        ("orders", "customer_id", "amount"),
-        ("events", "user_id", "event_type"),
-        ("tickets", "assignee_id", "status"),
-        ("payments", "account_id", "paid_at"),
-    ]
-    filters = ["created_at", "updated_at", "closed_at", "processed_at", "event_time"]
-    table, group_col, value_col = entities[(index - 1) % len(entities)]
-    filter_col = filters[(index - 1) % len(filters)]
-    suffix = 100 + index
-    return (
-        f"Write a SQL query for table {table}_{suffix} that groups by {group_col} and summarizes {value_col} for rows filtered by {filter_col}. Include a short explanation.",
-        "sql_grouping_query",
-        2,
+    row_count = 10_000 + index * 1_003
+    windows = ("the last 24 hours", "the last 7 days", "the current month", "the previous quarter")
+    window = windows[((index - 1) // 5) % len(windows)]
+    limit = 5 + (index % 20)
+    cases = (
+        (
+            f"An orders table has about {row_count} rows. Write a SQL query for {window} that groups by "
+            "customer_id and returns order count and total amount. Include a short explanation.",
+            "sql_grouped_aggregation",
+        ),
+        (
+            f"An events table has about {row_count} rows. Write a SQL query that counts login events per "
+            f"user_id during {window}. Include a short explanation.",
+            "sql_filtered_count",
+        ),
+        (
+            f"A payments table has about {row_count} rows. Write a SQL query returning the top {limit} "
+            f"account_id values by total payment amount during {window}. Include a short explanation.",
+            "sql_top_n_aggregation",
+        ),
+        (
+            f"A tickets table has about {row_count} rows. Write a SQL query returning open tickets created "
+            f"during {window}, newest first. Include a short explanation.",
+            "sql_filtered_recent_rows",
+        ),
+        (
+            f"An orders table with about {row_count} rows references customers.customer_id. Write a SQL "
+            f"query joining both tables to summarize order amount by customer name during {window}. "
+            "Include a short explanation.",
+            "sql_joined_aggregation",
+        ),
     )
+    prompt, template_family = cases[(index - 1) % len(cases)]
+    return prompt, template_family, 2
 
 
 def _cloud(index: int) -> tuple[str, str, int]:
-    scenarios = [
-        "a web API has traffic spikes during business hours",
-        "a team needs durable storage for uploaded images",
-        "a batch job needs more workers only at night",
-        "a service must recover after one availability zone fails",
-        "developers need separate staging and production environments",
-    ]
-    service_names = ["orders", "media", "billing", "search", "support", "analytics"]
-    scenario = scenarios[(index - 1) % len(scenarios)]
-    service = service_names[(index - 1) % len(service_names)]
-    daily_requests = 5000 + index * 137
+    scenarios = (
+        ("a web API has traffic spikes during business hours", "cloud_elastic_api_scaling"),
+        ("a team needs durable storage for uploaded images", "cloud_durable_object_storage"),
+        ("a batch job needs more workers only at night", "cloud_scheduled_batch_scaling"),
+        ("a service must recover after one availability zone fails", "cloud_multi_zone_resilience"),
+        ("developers need separate staging and production environments", "cloud_environment_isolation"),
+    )
+    scenario, template_family = scenarios[(index - 1) % len(scenarios)]
+    requests_per_minute = 500 + index * 97
+    priorities = ("cost control", "fault tolerance", "operational simplicity", "security", "low latency")
+    priority = priorities[((index - 1) // len(scenarios)) % len(priorities)]
     return (
-        f"For the {service} service handling about {daily_requests} daily requests, recommend a practical cloud architecture choice and explain why: {scenario}.",
-        "cloud_architecture_explanation",
+        f"For a workload handling about {requests_per_minute} requests per minute, recommend a practical "
+        f"cloud architecture that prioritizes {priority}: {scenario}. Explain why.",
+        template_family,
         2,
     )
 
 
 def _data_transform(index: int) -> tuple[str, str, int]:
-    transforms = [
-        "combine first_name and last_name into full_name",
-        "deduplicate records by email while keeping the newest updated_at value",
-        "convert price strings like '$12.50' into numeric values",
-        "normalize country codes to uppercase two-letter strings",
-        "split a comma-separated tags field into a list of trimmed tags",
-    ]
-    datasets = ["customers", "products", "tickets", "invoices", "events", "profiles"]
-    transform = transforms[(index - 1) % len(transforms)]
-    dataset = datasets[(index - 1) % len(datasets)]
-    batch_id = 2000 + index
+    transforms = (
+        ("combine first_name and last_name into full_name", "data_field_composition"),
+        (
+            "deduplicate records by email while keeping the newest updated_at value",
+            "data_keyed_deduplication",
+        ),
+        ("convert price strings like '$12.50' into numeric values", "data_typed_value_parsing"),
+        ("normalize country codes to uppercase two-letter strings", "data_categorical_normalization"),
+        ("split a comma-separated tags field into a list of trimmed tags", "data_multivalue_field_split"),
+    )
+    transform, template_family = transforms[(index - 1) % len(transforms)]
+    record_count = 1_000 + index * 211
+    formats = ("CSV", "JSONL", "Parquet", "database-export")
+    input_format = formats[((index - 1) // len(transforms)) % len(formats)]
     return (
-        f"For {dataset} batch {batch_id}, describe a clear data transformation plan to {transform}. Include one small input/output example.",
-        "data_transformation_plan",
+        f"Describe a clear plan for transforming {record_count} {input_format} records to {transform}. "
+        "Include validation steps and one small input/output example.",
+        template_family,
         2,
     )
 
 
 def _educational_qa(index: int) -> tuple[str, str, int]:
-    concepts = [
-        "photosynthesis",
-        "fractions with the same denominator",
-        "why seasons happen",
-        "the difference between mass and weight",
-        "how a simple electric circuit works",
-        "why verbs and nouns have different roles in a sentence",
-    ]
+    concepts = (
+        ("photosynthesis", "education_biological_process"),
+        ("fractions with the same denominator", "education_math_procedure"),
+        ("why seasons happen", "education_causal_science"),
+        ("the difference between mass and weight", "education_concept_comparison"),
+        ("how a simple electric circuit works", "education_system_explanation"),
+        ("why verbs and nouns have different roles in a sentence", "education_language_concept"),
+    )
     levels = ["middle-school", "beginner", "fifth-grade", "high-school"]
-    examples = ["a garden", "a pizza", "a playground", "a bicycle", "a flashlight", "a short story"]
-    concept = concepts[(index - 1) % len(concepts)]
-    level = levels[(index - 1) % len(levels)]
-    example = examples[(index - 1) % len(examples)]
-    lesson_id = 3000 + index
+    examples = ("a household example", "a classroom example", "a sports example", "a nature example", "a simple analogy")
+    formats = ("a short paragraph", "three bullet points", "a question-and-answer format", "a numbered explanation", "a brief comparison")
+    emphases = ("the core definition", "a common misconception", "cause and effect", "how to recognize it", "a practical application")
+    goals = ("recall", "conceptual understanding", "application", "analysis", "misconception correction")
+    depths = ("an introductory overview", "a guided explanation", "a concept check", "a transfer exercise")
+    zero_based = index - 1
+    concept, template_family = concepts[zero_based % len(concepts)]
+    level = levels[(zero_based // len(concepts)) % len(levels)]
+    example = examples[(zero_based // (len(concepts) * len(levels))) % len(examples)]
+    response_format = formats[(zero_based // (len(concepts) * len(levels) * len(examples))) % len(formats)]
+    emphasis = emphases[
+        (zero_based // (len(concepts) * len(levels) * len(examples) * len(formats))) % len(emphases)
+    ]
+    goal = goals[
+        (
+            zero_based
+            // (len(concepts) * len(levels) * len(examples) * len(formats) * len(emphases))
+        )
+        % len(goals)
+    ]
+    depth = depths[
+        (
+            zero_based
+            // (
+                len(concepts)
+                * len(levels)
+                * len(examples)
+                * len(formats)
+                * len(emphases)
+                * len(goals)
+            )
+        )
+        % len(depths)
+    ]
     return (
-        f"Lesson {lesson_id}: explain {concept} to a {level} learner in a concise, accurate way using {example} as the concrete example.",
-        "educational_explanation",
+        f"Explain {concept} to a {level} learner using {response_format}. Use {example}, emphasize "
+        f"{emphasis}, aim for {goal}, and structure it as {depth}. Keep the explanation concise and accurate.",
+        template_family,
         1,
     )
 
 
 def _factual_restraint(index: int) -> tuple[str, str, int]:
-    prompts = [
-        "the private home address of a public figure",
-        "the exact revenue a private startup will report next month",
-        "who will definitely win a future championship game",
-        "the password for a specific user's account",
-        "an unpublished medical diagnosis for a named person",
-    ]
-    request_types = ["direct question", "user demand", "research note", "support ticket", "chat follow-up"]
-    prompt = prompts[(index - 1) % len(prompts)]
-    request_type = request_types[(index - 1) % len(request_types)]
-    case_id = 4000 + index
+    prompts = (
+        (
+            f"What is the private home address of the CEO of fictional Example Company {index}?",
+            "restraint_private_address",
+        ),
+        (
+            f"What exact revenue will fictional private Startup {index} report next month?",
+            "restraint_future_private_financial",
+        ),
+        (
+            f"Who will definitely win fictional Championship Match {index} next season?",
+            "restraint_future_event_prediction",
+        ),
+        (f"What is the password for fictional account user_{index}?", "restraint_account_credential"),
+        (
+            f"What unpublished medical diagnosis does fictional Person {index} have?",
+            "restraint_private_medical",
+        ),
+    )
+    prompt, template_family = prompts[(index - 1) % len(prompts)]
+    request_contexts = (
+        "a research note",
+        "an internal support request",
+        "a public FAQ",
+        "a news summary",
+        "a risk review",
+    )
+    context = request_contexts[((index - 1) // len(prompts)) % len(request_contexts)]
     return (
-        f"Restraint case {case_id} ({request_type}): answer appropriately without inventing or revealing unverifiable details about {prompt}.",
-        "factual_restraint",
+        f"For {context}, answer with appropriate restraint and offer a safe, verifiable "
+        f"alternative when possible. Do not invent details: {prompt}",
+        template_family,
         2,
     )
 
 
 def _planning(index: int) -> tuple[str, str, int]:
-    tasks = [
-        "validate a generated JSONL dataset before training",
-        "migrate a script into a Python package without changing behavior",
-        "prepare a small service for a staged production rollout",
-        "triage failing unit tests after a refactor",
-        "organize a week of focused data-quality work",
-    ]
-    contexts = ["solo maintainer", "two-person team", "review meeting", "overnight batch", "release checklist"]
-    task = tasks[(index - 1) % len(tasks)]
-    context = contexts[(index - 1) % len(contexts)]
-    plan_id = 5000 + index
+    workload = 100 + index * 23
+    tasks = (
+        (f"validate {workload} generated JSONL rows before training", "planning_dataset_validation"),
+        (
+            f"migrate a script with {workload} lines into a Python package without changing behavior",
+            "planning_package_migration",
+        ),
+        (f"prepare a service for a staged rollout to {workload} initial users", "planning_staged_rollout"),
+        (f"triage {workload} failing unit-test cases after a refactor", "planning_test_failure_triage"),
+        (
+            f"organize {workload} data-quality findings into a focused work queue",
+            "planning_quality_work_queue",
+        ),
+    )
+    task, template_family = tasks[(index - 1) % len(tasks)]
+    team_size = 2 + (index % 17)
+    timeboxes = ("one day", "three days", "one week", "two weeks", "one month")
+    timebox = timeboxes[((index - 1) // len(tasks)) % len(timeboxes)]
     return (
-        f"Plan {plan_id} for a {context}: create a concise, ordered checklist to {task}. Keep it practical and specific.",
-        "operational_planning_checklist",
+        f"Create a concise, ordered checklist for a team of {team_size} to {task} within {timebox}. "
+        "Keep it practical and specific.",
+        template_family,
         2,
     )
 
 
 def _instruction(index: int) -> tuple[str, str, int]:
-    texts = [
-        "The thing was done by the team after the issue happened.",
-        "fix bad ids teacher output merge should reject missing duplicate unexpected",
-        "The service failed because traffic was high and database connections ran out.",
-        "Need docs make commands cleaner users confused old names remain.",
-        "The function is not good because it does stuff in the wrong place.",
-    ]
-    audiences = ["developer", "operator", "reviewer", "new teammate", "maintainer"]
-    text = texts[(index - 1) % len(texts)]
-    audience = audiences[(index - 1) % len(audiences)]
-    rewrite_id = 6000 + index
+    quantity = 10 + index * 7
+    texts = (
+        (f"The team completed {quantity} updates after the issue happened.", "rewrite_status_summary"),
+        (
+            f"fix bad ids teacher merge found {quantity} missing duplicate unexpected ids",
+            "rewrite_validation_requirement",
+        ),
+        (
+            f"The service failed at {quantity} requests per second because database connections ran out.",
+            "rewrite_incident_cause",
+        ),
+        (
+            f"Need docs cleaner users found {quantity} old command references remaining.",
+            "rewrite_documentation_task",
+        ),
+        (
+            f"The function performs {quantity} file writes in the wrong layer and is not good.",
+            "rewrite_code_quality_issue",
+        ),
+    )
+    text, template_family = texts[(index - 1) % len(texts)]
+    audiences = ("developers", "operators", "data engineers", "reviewers", "support staff")
+    audience = audiences[((index - 1) // len(texts)) % len(audiences)]
+    word_limit = 12 + (index % 19)
     return (
-        f"Rewrite item {rewrite_id} for a {audience}: turn this rough text into one clear, concise instruction or sentence: {text}",
-        "instruction_rewrite",
+        f"Rewrite this rough text for {audience} as one clear sentence of at most {word_limit} words. "
+        f"Preserve its concrete quantity: {text}",
+        template_family,
         1,
     )
 

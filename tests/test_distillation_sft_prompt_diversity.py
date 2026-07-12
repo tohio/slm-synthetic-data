@@ -6,9 +6,18 @@ from pathlib import Path
 import pytest
 
 from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text, validate_prompt_preflight
-from slm_synth.distillation_sft.push_hf import require_prompt_uniqueness_for_publish
+from slm_synth.distillation_sft.push_hf import require_publish_prompt_uniqueness
 from slm_synth.distillation_sft.seeds import build_seed_prompt_records
 from slm_synth.distillation_sft.signals import DISTILLATION_SIGNALS
+
+
+def _public_metadata() -> dict[str, object]:
+    return {
+        "category": "general_instruction_following",
+        "difficulty": 1,
+        "template_family": "instruction_rewrite",
+        "eval_family": None,
+    }
 
 
 def test_seed_smoke_prompt_records_are_unique_at_200_per_signal() -> None:
@@ -23,31 +32,43 @@ def test_seed_smoke_prompt_records_are_unique_at_200_per_signal() -> None:
 def test_distillation_sft_publish_uniqueness_gate_rejects_duplicate_prompts(tmp_path: Path) -> None:
     path = tmp_path / "rows.jsonl"
     rows = [
-        {"id": f"row-{index}", "prompt": "same prompt", "reasoning": None, "response": "ok"}
+        {
+            "id": f"row-{index}",
+            "prompt": "same prompt",
+            "reasoning": None,
+            "response": "ok",
+            "metadata": _public_metadata(),
+        }
         for index in range(10)
     ]
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="publish prompt uniqueness gate failed"):
-        require_prompt_uniqueness_for_publish([path])
+    with pytest.raises(ValueError, match="prompt uniqueness gate failed"):
+        require_publish_prompt_uniqueness([path])
 
 
 def test_distillation_sft_publish_uniqueness_gate_accepts_diverse_prompts(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("DISTILLATION_SFT_MIN_UNIQUE_PROMPTS", "0")
     path = tmp_path / "rows.jsonl"
     rows = [
-        {"id": f"row-{index}", "prompt": f"prompt {index}", "reasoning": None, "response": "ok"}
+        {
+            "id": f"row-{index}",
+            "prompt": f"prompt {index}",
+            "reasoning": None,
+            "response": "ok",
+            "metadata": _public_metadata(),
+        }
         for index in range(10)
     ]
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
-    summary = require_prompt_uniqueness_for_publish([path])
+    summary = require_publish_prompt_uniqueness([path])
 
     assert summary["row_count"] == 10
     assert summary["unique_prompt_count"] == 10
 
 def test_seed_smoke_backfill_start_index_does_not_recycle_builtin_seeds() -> None:
-    records = build_seed_prompt_records(signal="database", count=201)
+    records = build_seed_prompt_records(signal="database", count=200)
     backfill = build_seed_prompt_records(signal="database", count=1, start_index=201)
 
     normalized = [normalize_prompt_text(str(record["prompt"])) for record in records + backfill]
