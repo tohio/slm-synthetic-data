@@ -11,6 +11,47 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+# BEGIN .env loading for HF deletion
+def _strip_dotenv_value(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def _load_dotenv_if_needed(dotenv_path: str | Path = ".env") -> bool:
+    # Load Hugging Face token variables from .env without overriding the shell.
+    path = Path(dotenv_path)
+    if not path.exists():
+        return False
+
+    loaded = False
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key not in {"HF_TOKEN", "HUGGINGFACE_HUB_TOKEN"}:
+            continue
+
+        value = _strip_dotenv_value(value)
+        if value and not os.environ.get(key):
+            os.environ[key] = value
+            loaded = True
+
+    return loaded
+
+
+def _get_hf_token() -> str | None:
+    _load_dotenv_if_needed()
+    return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+# END .env loading for HF deletion
 
 
 SFT_DPO_FAMILIES = [
@@ -147,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         print("DRY RUN ONLY. Re-run with --yes to delete these dataset repos.")
         return 0
 
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+    token = _get_hf_token()
     if not token:
         print("HF_TOKEN or HUGGINGFACE_HUB_TOKEN is required for deletion.", file=sys.stderr)
         return 2
