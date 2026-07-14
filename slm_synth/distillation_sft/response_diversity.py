@@ -11,9 +11,6 @@ from typing import Any
 from slm_synth.distillation_sft.schema import validate_public_row
 
 
-DEFAULT_DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO = 0.75
-
-
 def normalize_response_text(value: str) -> str:
     """Normalize response text for exact diversity comparisons."""
     return " ".join(value.casefold().split())
@@ -47,34 +44,6 @@ def build_response_diversity_summary(files: Iterable[str | Path]) -> dict[str, A
 
     summary = _summarize_counts(aggregate_counts)
     summary["signals"] = signals
-    return summary
-
-
-def require_response_diversity(
-    files: Iterable[str | Path],
-    *,
-    min_unique_ratio: float = DEFAULT_DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO,
-) -> dict[str, Any]:
-    """Require every non-empty signal dataset to meet a unique-response ratio."""
-    if not 0 <= min_unique_ratio <= 1:
-        raise ValueError("min_unique_ratio must be between 0 and 1")
-
-    summary = build_response_diversity_summary(files)
-    failures = [
-        (signal, values)
-        for signal, values in summary["signals"].items()
-        if values["row_count"] and values["unique_response_ratio"] < min_unique_ratio
-    ]
-    if failures:
-        detail = "; ".join(
-            f"{signal}={values['unique_response_ratio']:.3f} "
-            f"({values['unique_response_count']}/{values['row_count']})"
-            for signal, values in failures
-        )
-        raise ValueError(
-            "distillation-SFT response diversity gate failed: "
-            f"minimum unique response ratio is {min_unique_ratio:.3f}; {detail}"
-        )
     return summary
 
 

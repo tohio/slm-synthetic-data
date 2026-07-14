@@ -471,7 +471,7 @@ def test_report_coverage_cli_writes_json(tmp_path, capsys):
     assert "wrote distillation coverage report" in capsys.readouterr().out
 
 
-def test_report_coverage_cli_enforces_response_diversity_when_requested(tmp_path):
+def test_report_coverage_cli_reports_low_response_diversity_without_failing(tmp_path):
     dataset = tmp_path / "debugging.jsonl"
     run_manifest = tmp_path / "smoke-001.manifest.json"
     output = tmp_path / "coverage.json"
@@ -512,21 +512,11 @@ def test_report_coverage_cli_enforces_response_diversity_when_requested(tmp_path
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="response diversity gate failed"):
-        main(
-            [
-                "report-coverage",
-                "--run-manifest",
-                str(run_manifest),
-                "--output",
-                str(output),
-                "--require-response-diversity",
-                "--min-unique-response-ratio",
-                "0.75",
-            ]
-        )
+    assert main(["report-coverage", "--run-manifest", str(run_manifest), "--output", str(output)]) == 0
+    diversity = json.loads(output.read_text(encoding="utf-8"))["response_diversity"]
+    assert diversity["unique_response_ratio"] == 0.25
+    assert diversity["signals"]["debugging"]["unique_response_ratio"] == 0.25
 
-    assert json.loads(output.read_text(encoding="utf-8"))["response_diversity"]["unique_response_ratio"] == 0.25
 
 def test_distillation_sft_generate_make_target_uses_production_prompt_specs():
     makefile = Path("Makefile").read_text()
@@ -538,5 +528,5 @@ def test_distillation_sft_generate_make_target_uses_production_prompt_specs():
     assert "$(OPENROUTER_ROUTING_ARGS)" in block
     assert "--target-preset" not in block
     assert "generate-seed-run" not in block
-    assert "--require-response-diversity" in report_block
-    assert "--min-unique-response-ratio $(DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO)" in report_block
+    assert "--require-response-diversity" not in report_block
+    assert "DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO" not in report_block

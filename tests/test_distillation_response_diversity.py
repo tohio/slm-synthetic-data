@@ -1,11 +1,8 @@
 import json
 
-import pytest
-
 from slm_synth.distillation_sft.response_diversity import (
     build_response_diversity_summary,
     normalize_response_text,
-    require_response_diversity,
 )
 
 
@@ -55,31 +52,3 @@ def test_build_response_diversity_summary_reports_each_signal(tmp_path):
         "duplicate_examples": [{"response": "same", "count": 2}],
     }
     assert summary["signals"]["planning"]["unique_response_ratio"] == 1.0
-
-
-def test_response_diversity_gate_rejects_one_low_diversity_signal(tmp_path):
-    debugging = tmp_path / "debugging.jsonl"
-    planning = tmp_path / "planning.jsonl"
-    _write_rows(debugging, ["same", "same", "same", "different"])
-    _write_rows(planning, ["plan one", "plan two", "plan three", "plan four"])
-
-    with pytest.raises(ValueError, match=r"debugging=0\.500 \(2/4\)"):
-        require_response_diversity([debugging, planning], min_unique_ratio=0.75)
-
-
-def test_response_diversity_gate_accepts_threshold_boundary(tmp_path):
-    debugging = tmp_path / "debugging.jsonl"
-    _write_rows(debugging, ["same", "same", "different", "another"])
-
-    summary = require_response_diversity([debugging], min_unique_ratio=0.75)
-
-    assert summary["signals"]["debugging"]["unique_response_ratio"] == 0.75
-
-
-@pytest.mark.parametrize("threshold", [-0.01, 1.01])
-def test_response_diversity_gate_rejects_invalid_threshold(tmp_path, threshold):
-    debugging = tmp_path / "debugging.jsonl"
-    _write_rows(debugging, ["response"])
-
-    with pytest.raises(ValueError, match="between 0 and 1"):
-        require_response_diversity([debugging], min_unique_ratio=threshold)

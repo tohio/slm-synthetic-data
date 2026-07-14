@@ -8,7 +8,6 @@ from slm_synth.distillation_sft.push_hf import (
     discover_run_manifest,
     push_distillation_run,
     require_publish_prompt_uniqueness,
-    require_publish_response_diversity,
 )
 
 
@@ -89,7 +88,15 @@ def test_push_distillation_run_uploads_only_public_surface_files(tmp_path, monke
     tmp_dir = run_dir / "tmp"
     for path in [dataset_dir, manifest_dir, batch_dir, rejected_dir, retry_dir, provider_dir, tmp_dir]:
         path.mkdir(parents=True)
-    (dataset_dir / "arithmetic.jsonl").write_text(json.dumps(_distillation_row()) + "\n", encoding="utf-8")
+    public_rows = []
+    for index in range(4):
+        row = _distillation_row(f"distill-{index}")
+        row["prompt"] = f"Unique arithmetic prompt {index}"
+        public_rows.append(row)
+    (dataset_dir / "arithmetic.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in public_rows),
+        encoding="utf-8",
+    )
     (batch_dir / "arithmetic.batch000001.jsonl").write_text(
         json.dumps(_distillation_row("distill-batch")) + "\n", encoding="utf-8"
     )
@@ -124,7 +131,7 @@ def test_push_distillation_run_uploads_only_public_surface_files(tmp_path, monke
 
     result = push_distillation_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_id="org/distill")
 
-    assert result == {"repo_id": "org/distill", "files": ["data/arithmetic.jsonl"], "rows": 1}
+    assert result == {"repo_id": "org/distill", "files": ["data/arithmetic.jsonl"], "rows": 4}
     commit_calls = [call for call in calls if call[0] == "commit"]
     assert len(commit_calls) == 1
     paths = commit_calls[0][2]
@@ -196,32 +203,3 @@ def test_require_publish_prompt_uniqueness_accepts_diverse_prompts(tmp_path):
     assert summary["row_count"] == 10
     assert summary["unique_prompt_count"] == 10
     assert summary["duplicate_prompt_count"] == 0
-
-
-def test_require_publish_response_diversity_rejects_low_diversity_signal(tmp_path):
-    dataset = tmp_path / "debugging.jsonl"
-    rows = []
-    for index in range(10):
-        row = _distillation_row(f"distill-{index}")
-        row["prompt"] = f"Unique debugging prompt {index}"
-        row["response"] = "Repeated debugging response"
-        rows.append(row)
-    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="response diversity gate failed"):
-        require_publish_response_diversity([dataset], min_unique_ratio=0.75)
-
-
-def test_require_publish_response_diversity_accepts_diverse_signal(tmp_path):
-    dataset = tmp_path / "debugging.jsonl"
-    rows = []
-    for index in range(10):
-        row = _distillation_row(f"distill-{index}")
-        row["prompt"] = f"Unique debugging prompt {index}"
-        row["response"] = f"Distinct debugging response {index}"
-        rows.append(row)
-    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-
-    summary = require_publish_response_diversity([dataset], min_unique_ratio=0.75)
-
-    assert summary["signals"]["debugging"]["unique_response_ratio"] == 1.0

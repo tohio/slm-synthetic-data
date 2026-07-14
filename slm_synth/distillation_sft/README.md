@@ -73,10 +73,10 @@ counts, fictional identifiers, or application labels.
 Regression checks require zero exact or normalized prompt duplicates at 30,000
 and 100,000 rows, at least four template families per signal, exactly 50 template
 families overall, and a maximum 30% template share within each signal. Coverage
-reports include aggregate and per-signal exact response-diversity statistics.
-Publishing requires every signal to retain at least a 75% normalized exact-response ratio.
-`DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO` can override that threshold for an
-explicitly reviewed dataset.
+reports include aggregate and per-signal normalized exact-response diversity
+statistics for review. Response diversity is not a publish gate because correct
+arithmetic answers and safe factual-restraint responses may repeat across
+different prompts.
 
 To scale beyond the current ceiling:
 

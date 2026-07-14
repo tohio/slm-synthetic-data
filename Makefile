@@ -59,7 +59,6 @@ DISTILLATION_SFT_INITIAL_CONCURRENCY ?= 8
 DISTILLATION_SFT_INITIAL_BATCH_SIZE ?= 4
 DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES ?= 4
 DISTILLATION_SFT_MAX_BACKFILL_ROUNDS ?= 2
-DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO ?= 0.75
 DISTILLATION_SFT_RUN_ROOT ?= data/distillation/runs
 DISTILLATION_SFT_MODEL ?= $(MODEL)
 DISTILLATION_SFT_MAX_TOKENS ?= 4096
@@ -338,9 +337,7 @@ distillation-sft-generate:
 distillation-sft-report:
 > $(PYTHON) -m slm_synth.distillation_sft.cli report-coverage \
 >   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
->   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/coverage.json \
->   --require-response-diversity \
->   --min-unique-response-ratio $(DISTILLATION_SFT_MIN_UNIQUE_RESPONSE_RATIO)
+>   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.distillation_sft.cli build-dataset-card \
 >   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/README.md \
