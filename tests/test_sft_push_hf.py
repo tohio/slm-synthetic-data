@@ -3,13 +3,15 @@ import json
 import pytest
 
 from slm_synth.sft.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_sft_run, repo_id_for_family
+from slm_synth.sft.report import build_coverage_report, write_coverage_report
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 def _sft_row(row_id="sft-1"):
     return {
         "id": row_id,
         "messages": [
-            {"role": "user", "content": "What is 2 + 2?"},
+            {"role": "user", "content": f"What is 2 + 2? Request {row_id}."},
             {"role": "assistant", "content": "4"},
         ],
         "metadata": {
@@ -93,9 +95,41 @@ def test_push_sft_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (run_dir / "README.md").write_text("# SFT dataset\n", encoding="utf-8")
-    (run_dir / "coverage.json").write_text("{}", encoding="utf-8")
+    run_manifest = manifest_dir / "sft-run.manifest.json"
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "dataset_type": "sft",
+                "datasets": [],
+                "metadata": {
+                    "generation_status": "complete",
+                    "publish_ready": True,
+                    "attempted_rows": 3,
+                    "accepted_rows": 3,
+                    "rejected_rows": 0,
+                    "duplicate_rows": 0,
+                    "planned_rows": 3,
+                    "accepted_target": {
+                        "unit": "rows",
+                        "target": 3,
+                        "accepted": 3,
+                        "attempted": 3,
+                        "remaining": 0,
+                        "status": "complete",
+                        "publish_ready": True,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    coverage = build_coverage_report(
+        [dataset_dir],
+        holdout_registry=HoldoutRegistry([]),
+        run_manifest=run_manifest,
+    )
+    write_coverage_report(report=coverage, path=run_dir / "coverage.json")
     (manifest_dir / "basic_arithmetic_qa.batch000001.sft-run.manifest.json").write_text("{}", encoding="utf-8")
-    (manifest_dir / "sft-run.manifest.json").write_text("{}", encoding="utf-8")
 
     calls = []
 

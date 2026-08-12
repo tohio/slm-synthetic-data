@@ -113,6 +113,7 @@ SFT_INITIAL_BATCH_SIZE ?= 4
 SFT_BATCH_INCREASE_SUCCESSES ?= 4
 SFT_MAX_BACKFILL_ROUNDS ?= 2
 SFT_MAX_TOKENS ?= 4096
+SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(HF_REPO)
 SFT_HF_NAMESPACE ?= $(HF_NAMESPACE)
@@ -432,7 +433,8 @@ sft-smoke:
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS)
+>   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS) \
+>   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
@@ -450,12 +452,15 @@ sft-generate:
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS)
+>   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS) \
+>   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_TARGET_RUN)
 
 sft-report:
 > $(PYTHON) -m slm_synth.sft.cli report-coverage \
 >   --input $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/datasets \
+>   --run-manifest $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/manifests/$(SFT_REPORT_RUN).manifest.json \
+>   --holdout-registry $(SFT_HOLDOUT_REGISTRY) \
 >   --output $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.cards build --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)
 > $(PYTHON) -m slm_synth.manifest_totals normalize --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)

@@ -16,6 +16,7 @@ from slm_synth.sft.generation import generate_llm_batch_from_files, materialize_
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import generate_llm_run
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_and_write_specs
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None]:
@@ -39,7 +40,11 @@ def cmd_build_specs(args: argparse.Namespace) -> int:
 
 
 def cmd_report_coverage(args: argparse.Namespace) -> int:
-    report = build_coverage_report(args.input)
+    report = build_coverage_report(
+        args.input,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
+        run_manifest=args.run_manifest,
+    )
     if args.output:
         output_path = write_coverage_report(report=report, path=args.output)
         print(f"wrote SFT coverage report to {output_path}")
@@ -57,6 +62,7 @@ def cmd_materialize_llm_batch(args: argparse.Namespace) -> int:
         teacher_model=args.teacher_model,
         teacher_provider=args.teacher_provider,
         generation_run=args.generation_run,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
     )
     print(
         "materialized "
@@ -83,6 +89,7 @@ def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
         retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
         adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
         **_openrouter_routing_kwargs(args),
     )
     print(
@@ -119,6 +126,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         concurrency=args.concurrency,
         max_backfill_rounds=args.max_backfill_rounds,
         run_manifest_filename=args.run_manifest_filename,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
         **_openrouter_routing_kwargs(args),
     )
     print(
@@ -152,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     llm_batch_parser.add_argument("--teacher-model", required=True)
     llm_batch_parser.add_argument("--teacher-provider", default="openrouter")
     llm_batch_parser.add_argument("--generation-run", required=True)
+    llm_batch_parser.add_argument("--holdout-registry", default=None)
     llm_batch_parser.set_defaults(func=cmd_materialize_llm_batch)
 
     generate_parser = subparsers.add_parser("generate-llm-batch")
@@ -161,6 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--teacher-model", required=True)
     generate_parser.add_argument("--teacher-provider", default="openrouter")
     generate_parser.add_argument("--generation-run", required=True)
+    generate_parser.add_argument("--holdout-registry", default=None)
     generate_parser.add_argument("--max-tokens", required=True, type=int)
     generate_parser.add_argument("--temperature", type=float, default=0.2)
     generate_parser.add_argument("--top-p", type=float, default=0.95)
@@ -206,6 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     generate_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
+    generate_run_parser.add_argument("--holdout-registry", default=None)
     generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     generate_run_parser.add_argument("--openrouter-provider", default=None)
     generate_run_parser.set_defaults(func=cmd_generate_llm_run)
@@ -218,6 +229,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="One or more SFT JSONL files or directories containing JSONL files.",
     )
     coverage_parser.add_argument("--output", default=None, help="Optional JSON report output path.")
+    coverage_parser.add_argument("--run-manifest", default=None)
+    coverage_parser.add_argument("--holdout-registry", default=None)
     coverage_parser.set_defaults(func=cmd_report_coverage)
 
     return parser
@@ -227,6 +240,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
+
+
+def _load_holdout_registry(path: str | None) -> HoldoutRegistry | None:
+    return HoldoutRegistry.from_file(path) if path else None
 
 
 if __name__ == "__main__":  # pragma: no cover

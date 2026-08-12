@@ -104,8 +104,9 @@ def test_sft_materialize_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsy
             "output_path": str(tmp_path / "sft.jsonl"),
             "manifest_path": str(tmp_path / "sft.manifest.json"),
             "teacher_model": "openai/gpt-4.1-mini",
-            "teacher_provider": "openrouter",
-            "generation_run": "sft-llm-smoke-001",
+                "teacher_provider": "openrouter",
+                "generation_run": "sft-llm-smoke-001",
+                "holdout_registry": None,
         }
     ]
     captured = capsys.readouterr()
@@ -182,7 +183,8 @@ def test_sft_generate_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "max_retryable_request_attempts": 5,
             "retry_max_elapsed_seconds": 120.0,
             "adaptive_maximum_in_flight": 3,
-            "adaptive_initial_in_flight": 1,
+                "adaptive_initial_in_flight": 1,
+                "holdout_registry": None,
         }
     ]
     captured = capsys.readouterr()
@@ -263,7 +265,8 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "adaptive_batch_increase_successes": 4,
             "concurrency": 2,
             "max_backfill_rounds": 2,
-            "run_manifest_filename": "custom.manifest.json",
+                "run_manifest_filename": "custom.manifest.json",
+                "holdout_registry": None,
         }
     ]
     captured = capsys.readouterr()

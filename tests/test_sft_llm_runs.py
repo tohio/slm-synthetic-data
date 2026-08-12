@@ -56,6 +56,28 @@ class SplitOnLargeSFTBackend(FakeSFTBackend):
         }
 
 
+class DuplicatePromptSFTBackend(FakeSFTBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        self.calls.append({"batch_size": len(specs)})
+        return {
+            "data": {
+                "items": [
+                    {
+                        "id": spec["id"],
+                        "messages": [
+                            {"role": "user", "content": "Answer the repeated prompt."},
+                            {"role": "assistant", "content": str(spec["variables"]["answer"])},
+                        ],
+                        "metadata": spec["metadata"],
+                    }
+                    for spec in specs
+                ]
+            },
+            "telemetry": {"usage": {"total_tokens": 12}},
+        }
+
+
 def test_generate_sft_llm_run_writes_batches_and_run_manifest(tmp_path):
     backend = FakeSFTBackend()
 
@@ -209,6 +231,34 @@ def test_generate_sft_llm_run_accepts_target_rows_and_records_planning(tmp_path)
     assert manifest["metadata"]["count_per_family"] is None
 
 
+def test_generate_sft_llm_run_preserves_unique_rows_and_underfills_on_duplicate_prompts(tmp_path):
+    with pytest.raises(UnderfilledRunError, match="remaining=1"):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=2,
+            batch_size=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-duplicate-run-001",
+            max_tokens=1024,
+            max_backfill_rounds=0,
+            backend=DuplicatePromptSFTBackend(),
+        )
+
+    public_rows = (tmp_path / "datasets" / "basic_arithmetic_qa.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(public_rows) == 1
+    manifest = json.loads(
+        (tmp_path / "manifests" / "sft-duplicate-run-001.manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["metadata"]["attempted_rows"] == 2
+    assert manifest["metadata"]["accepted_rows"] == 1
+    assert manifest["metadata"]["rejected_rows"] == 0
+    assert manifest["metadata"]["duplicate_rows"] == 1
+    assert manifest["metadata"]["remaining_rows"] == 1
+    assert manifest["metadata"]["duplicate_reason_counts"] == {"duplicate_prompt": 1}
+
+
 def test_generate_sft_llm_run_rejects_multiple_planning_strategies(tmp_path):
     with pytest.raises(ValueError, match="provide exactly one"):
         generate_llm_run(
@@ -256,15 +306,27 @@ def test_generate_sft_llm_run_fails_when_public_rows_underfill_after_budget(tmp_
         dataset_path = output_dir / "basic_arithmetic_qa.jsonl"
         dataset_path.parent.mkdir(parents=True, exist_ok=True)
         dataset_path.write_text("", encoding="utf-8")
-        return [
+        return (
+            [
+                {
+                    "family": "basic_arithmetic_qa",
+                    "dataset_path": dataset_path,
+                    "row_count": 1,
+                    "batch_count": len(jobs),
+                    "batch_manifests": [job["result"].manifest_path for job in jobs],
+                }
+            ],
             {
-                "family": "basic_arithmetic_qa",
-                "dataset_path": dataset_path,
-                "row_count": 1,
-                "batch_count": len(jobs),
-                "batch_manifests": [job["result"].manifest_path for job in jobs],
-            }
-        ]
+                "attempted_rows": 2,
+                "accepted_rows": 1,
+                "duplicate_rows": 0,
+                "duplicate_reason_counts": {},
+                "attempted_rows_per_family": {"basic_arithmetic_qa": 2},
+                "accepted_rows_per_family": {"basic_arithmetic_qa": 1},
+                "rejected_rows_per_family": {"basic_arithmetic_qa": 1},
+                "duplicate_rows_per_family": {"basic_arithmetic_qa": 0},
+            },
+        )
 
     monkeypatch.setattr(
         "slm_synth.sft.runs._write_public_family_files",

@@ -19,6 +19,7 @@ from slm_synth.hf_push import (
     legacy_metadata_delete_operations,
 )
 from slm_synth.sft.schema import validate_sft_row
+from slm_synth.sft.report import build_coverage_report, require_publish_ready_report
 
 
 INTERNAL_DATASET_DIR_NAMES = {
@@ -142,16 +143,46 @@ def push_sft_run(
     else:
         load_dotenv()
 
+    dataset_root = Path(dataset_dir)
+    if run_dir is None:
+        raise ValueError("run_dir is required for SFT acceptance and publish-readiness checks")
+    root = Path(run_dir)
+    run_manifest = discover_run_manifest(root, dataset_type="sft")
+    require_publish_ready_manifest(run_manifest, artifact_name="SFT")
+    manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
+    manifest_metadata = manifest_value.get("metadata", {}) if isinstance(manifest_value, dict) else {}
+    accepted_target = manifest_metadata.get("accepted_target") if isinstance(manifest_metadata, dict) else None
+    if not isinstance(accepted_target, dict):
+        raise ValueError("SFT run manifest is missing accepted-target accounting")
+    files = discover_jsonl_files(dataset_root)
+    coverage_path = root / "coverage.json"
+    if not coverage_path.is_file():
+        raise FileNotFoundError(f"SFT acceptance report does not exist: {coverage_path}")
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    if not isinstance(coverage, dict):
+        raise ValueError(f"SFT acceptance report must contain a JSON object: {coverage_path}")
+    require_publish_ready_report(coverage)
+
+    live_report = build_coverage_report(files, require_holdout_check=False)
+    require_publish_ready_report(live_report, artifact_name="SFT dataset files")
+    if coverage.get("row_count") != live_report["row_count"] or coverage.get("content_uniqueness") != live_report["content_uniqueness"]:
+        raise ValueError("SFT acceptance report is stale for the current dataset files; rebuild sft-report")
+    acceptance = coverage["acceptance"]
+    expected_counts = {
+        "attempted_rows": accepted_target.get("attempted"),
+        "accepted_rows": accepted_target.get("accepted"),
+        "rejected_rows": manifest_metadata.get("rejected_rows", 0),
+        "duplicate_rows": manifest_metadata.get("duplicate_rows", 0),
+        "remaining_rows": accepted_target.get("remaining"),
+    }
+    if any(acceptance.get(field) != value for field, value in expected_counts.items()):
+        raise ValueError("SFT acceptance report does not match run-manifest accounting; rebuild sft-report")
+    if acceptance["accepted_rows"] != live_report["row_count"]:
+        raise ValueError("SFT run manifest accepted count does not match current dataset files")
+
     token = get_hf_token()
     api = HfApi(token=token)
 
-    dataset_root = Path(dataset_dir)
-    root = Path(run_dir) if run_dir is not None else None
-    run_manifest: Path | None = None
-    if root is not None:
-        run_manifest = discover_run_manifest(root, dataset_type="sft")
-        require_publish_ready_manifest(run_manifest, artifact_name="SFT")
-    files = discover_jsonl_files(dataset_root)
     files_by_family: dict[str, list[Path]] = {}
     for file_path in files:
         files_by_family.setdefault(family_from_dataset_path(file_path), []).append(file_path)
@@ -172,33 +203,32 @@ def push_sft_run(
             operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
             uploaded_files.append(path_in_repo)
 
-        if root is not None:
-            family_readme = build_family_dataset_card(
-                kind="sft",
-                family=family,
-                jsonl_paths=family_files,
+        family_readme = build_family_dataset_card(
+            kind="sft",
+            family=family,
+            jsonl_paths=family_files,
+        )
+        operations.append(
+            CommitOperationAdd(
+                path_in_repo="README.md",
+                path_or_fileobj=family_readme.encode("utf-8"),
             )
+        )
+        coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json")
+        if coverage_op is not None:
+            operations.append(coverage_op)
+        for manifest_path in _artifact_manifest_paths(
+            run_dir=root,
+            family=family,
+            run_manifest=run_manifest,
+            skip_manifests=skip_manifests,
+        ):
             operations.append(
                 CommitOperationAdd(
-                    path_in_repo="README.md",
-                    path_or_fileobj=family_readme.encode("utf-8"),
+                    path_in_repo=f"artifacts/manifests/{manifest_path.name}",
+                    path_or_fileobj=str(manifest_path),
                 )
             )
-            coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json")
-            if coverage_op is not None:
-                operations.append(coverage_op)
-            for manifest_path in _artifact_manifest_paths(
-                run_dir=root,
-                family=family,
-                run_manifest=run_manifest,
-                skip_manifests=skip_manifests,
-            ):
-                operations.append(
-                    CommitOperationAdd(
-                        path_in_repo=f"artifacts/manifests/{manifest_path.name}",
-                        path_or_fileobj=str(manifest_path),
-                    )
-                )
 
         print(f"[push_hf] committing {len(operations)} file operation(s) to {repo_id}")
         create_dataset_commit(

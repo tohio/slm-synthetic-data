@@ -13,6 +13,7 @@ from typing import Any
 from slm_synth.accepted_target import accepted_target_metadata, raise_for_underfilled_manifest
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.planning import build_count_plan
+from slm_synth.sft.acceptance import partition_unique_sft_rows
 from slm_synth.sft.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import write_manifest, write_run_manifest
@@ -255,10 +256,12 @@ def generate_llm_run(
 
     jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
     results = [job["result"] for job in jobs]
-    datasets = _write_public_family_files(jobs=jobs, output_dir=output_dir)
+    datasets, output_acceptance = _write_public_family_files(jobs=jobs, output_dir=output_dir)
     planned_rows = count_plan.planned_count
     accepted_rows = sum(dataset["row_count"] for dataset in datasets)
-    rejected_rows = max(planned_rows - accepted_rows, 0)
+    attempted_rows = output_acceptance["attempted_rows"]
+    duplicate_rows = output_acceptance["duplicate_rows"]
+    rejected_rows = max(attempted_rows - accepted_rows - duplicate_rows, 0)
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     _write_llm_run_manifest(
@@ -273,15 +276,22 @@ def generate_llm_run(
             "planning_mode": count_plan.planning_mode,
             "target_rows": target_rows,
             "planned_rows": planned_rows,
+            "attempted_rows": attempted_rows,
             "accepted_rows": accepted_rows,
             "rejected_rows": rejected_rows,
+            "duplicate_rows": duplicate_rows,
+            "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],
+            "attempted_rows_per_family": output_acceptance["attempted_rows_per_family"],
+            "accepted_rows_per_family": output_acceptance["accepted_rows_per_family"],
+            "rejected_rows_per_family": output_acceptance["rejected_rows_per_family"],
+            "duplicate_rows_per_family": output_acceptance["duplicate_rows_per_family"],
             "max_backfill_rounds": max_backfill_rounds,
             "backfill_rounds": 0,
             **accepted_target_metadata(
                 unit="rows",
                 target_count=planned_rows,
                 accepted_count=accepted_rows,
-                attempted_count=planned_rows,
+                attempted_count=attempted_rows,
                 max_backfill_rounds=max_backfill_rounds,
                 backfill_rounds=0,
             ),
@@ -373,17 +383,30 @@ def _write_llm_run_manifest(
     return path
 
 
-def _write_public_family_files(*, jobs: list[dict[str, Any]], output_dir: str | Path) -> list[dict[str, Any]]:
+def _write_public_family_files(
+    *,
+    jobs: list[dict[str, Any]],
+    output_dir: str | Path,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    candidate_rows: list[dict[str, Any]] = []
+    attempted_rows_per_family: dict[str, int] = {}
+    for family in sorted({job["family"] for job in jobs}):
+        family_rows: list[dict[str, Any]] = []
+        for job in [item for item in jobs if item["family"] == family]:
+            family_rows.extend(read_jsonl(job["result"].dataset_path))
+        candidate_rows.extend(family_rows)
+        attempted_rows_per_family[family] = len(family_rows)
+
+    accepted_rows, acceptance = partition_unique_sft_rows(candidate_rows)
     datasets: list[dict[str, Any]] = []
     for family in sorted({job["family"] for job in jobs}):
         family_jobs = [job for job in jobs if job["family"] == family]
-        rows: list[dict[str, Any]] = []
         batch_manifests: list[Path] = []
         for job in family_jobs:
             result = job["result"]
-            rows.extend(read_jsonl(result.dataset_path))
             batch_manifests.append(result.manifest_path)
 
+        rows = [row for row in accepted_rows if row["metadata"]["eval_family"] == family]
         dataset_path = Path(output_dir) / f"{family}.jsonl"
         row_count = write_jsonl(rows, dataset_path)
         datasets.append(
@@ -395,7 +418,26 @@ def _write_public_family_files(*, jobs: list[dict[str, Any]], output_dir: str | 
                 "batch_manifests": batch_manifests,
             }
         )
-    return datasets
+
+    accepted_rows_per_family = {
+        dataset["family"]: dataset["row_count"]
+        for dataset in datasets
+    }
+    acceptance.update(
+        {
+            "attempted_rows_per_family": attempted_rows_per_family,
+            "accepted_rows_per_family": accepted_rows_per_family,
+            "duplicate_rows_per_family": {
+                family: attempted_rows_per_family[family] - accepted_rows_per_family[family]
+                for family in attempted_rows_per_family
+            },
+            "rejected_rows_per_family": {
+                family: 0
+                for family in attempted_rows_per_family
+            },
+        }
+    )
+    return datasets, acceptance
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:
