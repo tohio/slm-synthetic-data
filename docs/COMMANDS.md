@@ -80,6 +80,9 @@ make sft-inspect SFT_INSPECT_RUN=sft-target-001
 | `SFT_RUN_ROOT` | `data/sft/runs` | Run output root. |
 | `SFT_MODEL` | `$(MODEL)` | Teacher model. |
 | `SFT_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget. |
+| `SFT_RESUME` | `false` | Resume a finalized underfilled run using its next unused source indexes. |
+| `SFT_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
+| `SFT_HF_REPO` | `<HF_NAMESPACE>/slm-synthetic-sft` | One consolidated generic SFT dataset repository. |
 
 ## DPO
 
@@ -177,6 +180,8 @@ make distillation-sft-push DISTILLATION_SFT_HF_REPO=<namespace>/<repo>
 make distillation-dpo-push DISTILLATION_DPO_HF_NAMESPACE=<namespace>
 ```
 
+`sft-push` creates one atomic version in `SFT_HF_REPO`. The default dataset configuration loads every family file; named family configurations load the same files individually. Legacy per-family SFT repositories are not modified by this target.
+
 ## Hugging Face Dataset Deletion
 
 Deletion targets remove Hugging Face **dataset repositories** only. They do not delete local run data under `data/`.
@@ -227,7 +232,7 @@ tohio/slm-synthetic-distillation-dpo
 | Target | Purpose |
 |---|---|
 | `make hf-delete-datasets` | Delete exact repos from `HF_DELETE_REPO` or `HF_DELETE_REPO_FILE`. |
-| `make hf-delete-sft` | Delete `slm-synthetic-sft-*` family dataset repos. |
+| `make hf-delete-sft` | Delete legacy `slm-synthetic-sft-*` family dataset repos. |
 | `make hf-delete-dpo` | Delete `slm-synthetic-dpo-*` family dataset repos. |
 | `make hf-delete-distillation` | Delete `slm-synthetic-distillation-sft` and `slm-synthetic-distillation-dpo`. |
 | `make hf-delete-legacy-distillation-dpo` | Delete the old long distillation-DPO repo name. |
@@ -240,7 +245,7 @@ tohio/slm-synthetic-distillation-dpo
 | `HF_DELETE_REPO` | unset | Exact dataset repo id to delete. |
 | `HF_DELETE_REPO_FILE` | unset | File containing one exact dataset repo id per line. |
 | `HF_DELETE_YES` | unset | Set to `1`, `true`, or `yes` to actually delete. |
-| `SFT_HF_PREFIX` | `slm-synthetic-sft` | Prefix used by `make hf-delete-sft`. |
+| `SFT_LEGACY_HF_PREFIX` | `slm-synthetic-sft` | Legacy family-repository prefix used only by `make hf-delete-sft`. |
 | `DPO_HF_PREFIX` | `slm-synthetic-dpo` | Prefix used by `make hf-delete-dpo`. |
 
 Actual deletion requires `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` in the environment.

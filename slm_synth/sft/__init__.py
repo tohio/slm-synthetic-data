@@ -7,6 +7,7 @@ from slm_synth.sft.batches import (
     render_sft_batch_prompt,
     validate_sft_batch_response,
 )
+from slm_synth.sft.card import load_sft_dataset_card_configs, require_sft_dataset_card_configs
 from slm_synth.sft.acceptance import (
     build_sft_content_summary,
     normalize_sft_text,
@@ -64,6 +65,7 @@ __all__ = [
     "generate_teacher_batch_response",
     "materialize_llm_batch",
     "materialize_llm_batch_from_files",
+    "load_sft_dataset_card_configs",
     "normalize_sft_text",
     "partition_unique_sft_rows",
     "read_jsonl",
@@ -72,6 +74,7 @@ __all__ = [
     "render_sft_batch_prompt",
     "resolve_spec_families",
     "require_publish_ready_report",
+    "require_sft_dataset_card_configs",
     "sft_conversation_fingerprint",
     "sft_prompt_fingerprint",
     "sft_response_fingerprint",

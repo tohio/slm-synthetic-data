@@ -24,7 +24,7 @@ sft/
 
 ## How It Fits In
 
-Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and `sft-push` call this package. Public command details live in `../../docs/COMMANDS.md`.
+Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and `sft-push` call this package. `sft-push` publishes one repository containing every family file, a default all-family configuration, and optional per-family configurations. Public command details live in `../../docs/COMMANDS.md`.
 
 ## Conventions
 

@@ -117,9 +117,8 @@ SFT_RESUME_ARG := $(if $(filter true yes 1,$(SFT_RESUME)),--resume,)
 SFT_MAX_TOKENS ?= 4096
 SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
-SFT_HF_REPO ?= $(HF_REPO)
-SFT_HF_NAMESPACE ?= $(HF_NAMESPACE)
-SFT_HF_PREFIX ?= slm-synthetic-sft
+SFT_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-sft,))
+SFT_LEGACY_HF_PREFIX ?= slm-synthetic-sft
 SFT_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin SFT_FAMILIES)),$(SFT_FAMILIES),$(SFT_SMOKE_FAMILIES))
 
 # DPO
@@ -202,7 +201,7 @@ help:
 > @echo "  make pretrain-push       Push pretraining deduped data"
 > @echo "  make distillation-sft-push        Push a distillation SFT run"
 > @echo "  make distillation-dpo-push        Push a distillation DPO run"
-> @echo "  make sft-push            Push SFT families to slm-synthetic-sft-* repos"
+> @echo "  make sft-push            Push one consolidated SFT dataset"
 > @echo "  make dpo-push            Push DPO families to slm-synthetic-dpo-* repos"
 > @echo ""
 > @echo "Delete Hugging Face datasets:"
@@ -237,8 +236,7 @@ help:
 > @echo "  DISTILLATION_DPO_HF_REPO=$(DISTILLATION_DPO_HF_REPO)"
 > @echo "  SFT_TARGET_ROWS=$(SFT_TARGET_ROWS)"
 > @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
-> @echo "  SFT_HF_NAMESPACE=$(SFT_HF_NAMESPACE)"
-> @echo "  SFT_HF_PREFIX=$(SFT_HF_PREFIX)"
+> @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
 > @echo "  DPO_TARGET_PAIRS=$(DPO_TARGET_PAIRS)"
 > @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
 > @echo "  DPO_HF_NAMESPACE=$(DPO_HF_NAMESPACE)"
@@ -476,11 +474,11 @@ sft-inspect:
 > @find $(SFT_RUN_ROOT)/$(SFT_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 sft-push:
+> test -n "$(SFT_HF_REPO)" || (echo "SFT_HF_REPO or HF_REPO is required" >&2; exit 2)
 > $(PYTHON) -m slm_synth.sft.push_hf \
 >   --dataset-dir $(SFT_RUN_ROOT)/$(SFT_PUSH_RUN)/datasets \
 >   --run-dir $(SFT_RUN_ROOT)/$(SFT_PUSH_RUN) \
->   --repo-owner $(SFT_HF_NAMESPACE) \
->   --repo-prefix $(SFT_HF_PREFIX) $(HF_PRIVATE_ARG)
+>   --repo-id $(SFT_HF_REPO) $(HF_PRIVATE_ARG)
 
 dpo-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
@@ -548,7 +546,7 @@ hf-delete-datasets:
 hf-delete-sft:
 > $(PYTHON) scripts/delete_hf_datasets.py \
 >   --namespace $(HF_DELETE_NAMESPACE) \
->   --sft-prefix $(SFT_HF_PREFIX) \
+>   --sft-prefix $(SFT_LEGACY_HF_PREFIX) \
 >   --include-sft \
 >   $(HF_DELETE_YES_ARG)
 

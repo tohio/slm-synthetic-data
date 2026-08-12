@@ -19,6 +19,24 @@ configs:
 """
 
 
+def build_hf_data_files_yaml(*, kind: str, signals: Iterable[str] | None = None) -> str:
+    """Build dataset-card YAML with a default config and optional SFT family configs."""
+    clean_signals = _clean_list(signals)
+    lines = ["---", "configs:", "- config_name: default", "  data_files:", "  - split: train", "    path: data/*.jsonl"]
+    if kind == "sft":
+        for family in clean_signals:
+            lines.extend(
+                [
+                    f"- config_name: {family}",
+                    "  data_files:",
+                    "  - split: train",
+                    f"    path: data/{family}.jsonl",
+                ]
+            )
+    lines.extend(["---", ""])
+    return "\n".join(lines)
+
+
 CARD_SPECS: dict[str, dict[str, str]] = {
     "pretrain": {
         "title": "SLM Synthetic Pretrain",
@@ -156,8 +174,9 @@ def build_dataset_card(
         raise ValueError(f"unknown dataset-card kind {kind!r}; expected one of: {allowed}")
 
     spec = CARD_SPECS[kind]
+    clean_signals = _clean_list(signals)
     lines = [
-        HF_DATA_FILES_YAML.rstrip(),
+        build_hf_data_files_yaml(kind=kind, signals=clean_signals).rstrip(),
         "",
         f"# {title or spec['title']}",
         "",
@@ -174,7 +193,6 @@ def build_dataset_card(
         lines.append(f"- {spec['unit_label']}: `{total}`")
     if family:
         lines.append(f"- Family: `{family}`")
-    clean_signals = _clean_list(signals)
     if clean_signals:
         lines.append(f"- Signals: `{', '.join(clean_signals)}`")
     if teacher_model:
