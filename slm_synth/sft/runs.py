@@ -16,7 +16,7 @@ from slm_synth.planning import build_count_plan
 from slm_synth.sft.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import write_manifest, write_run_manifest
-from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs
+from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs, validate_spec_range
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
 from slm_synth.throughput_defaults import (
@@ -97,6 +97,15 @@ def generate_llm_run(
     _validate_positive_int(adaptive_initial_batch_size, "adaptive_initial_batch_size")
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     adaptive_maximum_in_flight = concurrency
+
+    # Capacity failures must happen before credentials are read or a provider
+    # backend is constructed.
+    for family in resolved_families:
+        validate_spec_range(
+            family=family,
+            count=count_plan.counts_by_key[family],
+            start_index=start_index,
+        )
 
     active_backend = backend or build_openrouter_backend(
         model=teacher_model,

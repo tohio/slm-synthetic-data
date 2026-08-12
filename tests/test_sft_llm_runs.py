@@ -4,6 +4,7 @@ import pytest
 
 from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.sft.runs import generate_llm_run, resolve_spec_families
+from slm_synth.sft.spec_builders import unique_capacity
 
 
 class FakeSFTBackend:
@@ -222,6 +223,32 @@ def test_generate_sft_llm_run_rejects_multiple_planning_strategies(tmp_path):
             max_tokens=1024,
             backend=FakeSFTBackend(),
         )
+
+
+def test_generate_sft_llm_run_checks_capacity_before_backend_construction(tmp_path, monkeypatch):
+    calls = []
+
+    def fail_if_called(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError("backend must not be constructed")
+
+    monkeypatch.setattr("slm_synth.sft.runs.build_openrouter_backend", fail_if_called)
+
+    with pytest.raises(ValueError, match="exceeds declared unique source capacity"):
+        generate_llm_run(
+            families=["direct_division"],
+            count_per_family=2,
+            batch_size=1,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="teacher/model",
+            generation_run="too-large",
+            max_tokens=100,
+            start_index=unique_capacity("direct_division"),
+            concurrency=1,
+        )
+
+    assert calls == []
 
 
 def test_generate_sft_llm_run_fails_when_public_rows_underfill_after_budget(tmp_path, monkeypatch):
