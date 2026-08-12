@@ -78,6 +78,60 @@ class DuplicatePromptSFTBackend(FakeSFTBackend):
         }
 
 
+class OneRoundBackfillSFTBackend(FakeSFTBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        self.calls.append([spec["id"] for spec in specs])
+        items = []
+        for spec in specs:
+            index = int(spec["id"].rsplit("_", 1)[1])
+            user_prompt = "Answer the repeated initial prompt." if index <= 2 else f"Answer unique item {index}."
+            items.append(
+                {
+                    "id": spec["id"],
+                    "messages": [
+                        {"role": "user", "content": user_prompt},
+                        {"role": "assistant", "content": str(spec["variables"]["answer"])},
+                    ],
+                    "metadata": spec["metadata"],
+                }
+            )
+        return {
+            "data": {"items": items},
+            "telemetry": {"usage": {"total_tokens": 12}},
+        }
+
+
+class RejectSecondSFTBackend(FakeSFTBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        self.calls.append([spec["id"] for spec in specs])
+        items = []
+        for spec in specs:
+            index = int(spec["id"].rsplit("_", 1)[1])
+            answer = "wrong" if index == 2 else str(spec["variables"]["answer"])
+            items.append(
+                {
+                    "id": spec["id"],
+                    "messages": [
+                        {"role": "user", "content": f"Answer unique item {index}."},
+                        {"role": "assistant", "content": answer},
+                    ],
+                    "metadata": spec["metadata"],
+                }
+            )
+        return {
+            "data": {"items": items},
+            "telemetry": {"usage": {"total_tokens": 12}},
+        }
+
+
+class FailingProviderSFTBackend(FakeSFTBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        self.calls.append(prompt)
+        raise RuntimeError("provider unavailable")
+
+
 def test_generate_sft_llm_run_writes_batches_and_run_manifest(tmp_path):
     backend = FakeSFTBackend()
 
@@ -259,6 +313,246 @@ def test_generate_sft_llm_run_preserves_unique_rows_and_underfills_on_duplicate_
     assert manifest["metadata"]["duplicate_reason_counts"] == {"duplicate_prompt": 1}
 
 
+def test_generate_sft_llm_run_backfills_duplicates_with_new_source_indexes(tmp_path):
+    backend = OneRoundBackfillSFTBackend()
+
+    result = generate_llm_run(
+        families=["basic_arithmetic_qa"],
+        count_per_family=2,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="sft-backfill-run-001",
+        max_tokens=1024,
+        max_backfill_rounds=1,
+        backend=backend,
+    )
+
+    assert result.row_count == 2
+    assert backend.calls == [
+        ["sft_basic_arithmetic_qa_000001", "sft_basic_arithmetic_qa_000002"],
+        ["sft_basic_arithmetic_qa_000003"],
+    ]
+    public_rows = [
+        json.loads(line)
+        for line in (tmp_path / "datasets" / "basic_arithmetic_qa.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["id"] for row in public_rows] == [
+        "sft_basic_arithmetic_qa_000001",
+        "sft_basic_arithmetic_qa_000003",
+    ]
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["metadata"]["attempted_rows"] == 3
+    assert manifest["metadata"]["accepted_rows"] == 2
+    assert manifest["metadata"]["duplicate_rows"] == 1
+    assert manifest["metadata"]["remaining_rows"] == 0
+    assert manifest["metadata"]["backfill_rounds"] == 1
+    assert manifest["metadata"]["next_start_index_per_family"] == {"basic_arithmetic_qa": 4}
+    assert manifest["metadata"]["generation_status"] == "complete"
+    assert manifest["metadata"]["publish_ready"] is True
+
+
+def test_generate_sft_llm_run_exhausts_backfill_budget_without_counting_duplicates(tmp_path):
+    with pytest.raises(UnderfilledRunError, match="remaining=1"):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=2,
+            batch_size=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-backfill-exhausted-001",
+            max_tokens=1024,
+            max_backfill_rounds=1,
+            backend=DuplicatePromptSFTBackend(),
+        )
+
+    manifest = json.loads(
+        (tmp_path / "manifests" / "sft-backfill-exhausted-001.manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["metadata"]["attempted_rows"] == 3
+    assert manifest["metadata"]["accepted_rows"] == 1
+    assert manifest["metadata"]["duplicate_rows"] == 2
+    assert manifest["metadata"]["remaining_rows"] == 1
+    assert manifest["metadata"]["backfill_rounds"] == 1
+    assert manifest["metadata"]["accepted_target"]["backfill_budget_exhausted"] is True
+
+
+def test_generate_sft_llm_run_backfills_terminal_validation_rejections(tmp_path):
+    backend = RejectSecondSFTBackend()
+
+    result = generate_llm_run(
+        families=["basic_arithmetic_qa"],
+        count_per_family=2,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="sft-rejection-backfill-001",
+        max_tokens=1024,
+        max_backfill_rounds=1,
+        backend=backend,
+    )
+
+    assert result.row_count == 2
+    public_rows = [
+        json.loads(line)
+        for line in (tmp_path / "datasets" / "basic_arithmetic_qa.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["id"] for row in public_rows] == [
+        "sft_basic_arithmetic_qa_000001",
+        "sft_basic_arithmetic_qa_000003",
+    ]
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["metadata"]["attempted_rows"] == 3
+    assert manifest["metadata"]["accepted_rows"] == 2
+    assert manifest["metadata"]["rejected_rows"] == 1
+    assert manifest["metadata"]["duplicate_rows"] == 0
+    assert manifest["metadata"]["rejection_reason_counts"] == {"batch_acceptance_error": 1}
+    assert manifest["metadata"]["backfill_rounds"] == 1
+    assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 4
+    assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 48
+
+
+def test_generate_sft_llm_run_does_not_treat_provider_failure_as_rejected_data(tmp_path):
+    backend = FailingProviderSFTBackend()
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=1,
+            batch_size=1,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-provider-failure-001",
+            max_tokens=1024,
+            max_backfill_rounds=1,
+            backend=backend,
+        )
+
+    assert len(backend.calls) == 1
+    assert not (tmp_path / "manifests" / "sft-provider-failure-001.manifest.json").exists()
+
+
+def test_generate_sft_llm_run_resumes_underfilled_run_without_repeating_prior_indexes(tmp_path):
+    first_backend = OneRoundBackfillSFTBackend()
+    with pytest.raises(UnderfilledRunError):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=2,
+            batch_size=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-resume-run-001",
+            max_tokens=1024,
+            max_backfill_rounds=0,
+            backend=first_backend,
+        )
+
+    resume_backend = OneRoundBackfillSFTBackend()
+    result = generate_llm_run(
+        families=["basic_arithmetic_qa"],
+        count_per_family=2,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="sft-resume-run-001",
+        max_tokens=1024,
+        max_backfill_rounds=1,
+        resume=True,
+        backend=resume_backend,
+    )
+
+    assert result.row_count == 2
+    assert len(result.results) == 1
+    assert resume_backend.calls == [["sft_basic_arithmetic_qa_000003"]]
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["metadata"]["attempted_rows"] == 3
+    assert manifest["metadata"]["accepted_rows"] == 2
+    assert manifest["metadata"]["duplicate_rows"] == 1
+    assert manifest["metadata"]["backfill_rounds"] == 1
+    assert manifest["datasets"][0]["batch_count"] == 2
+    assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 2
+    assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 24
+
+
+def test_generate_sft_llm_run_complete_resume_does_not_construct_backend(tmp_path, monkeypatch):
+    backend = FakeSFTBackend()
+    generate_llm_run(
+        families=["basic_arithmetic_qa"],
+        count_per_family=2,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="sft-complete-resume-001",
+        max_tokens=1024,
+        backend=backend,
+    )
+    monkeypatch.setattr(
+        "slm_synth.sft.runs.build_openrouter_backend",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("backend must not be constructed")),
+    )
+
+    resumed = generate_llm_run(
+        families=["basic_arithmetic_qa"],
+        count_per_family=2,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="sft-complete-resume-001",
+        max_tokens=1024,
+        resume=True,
+    )
+
+    assert resumed.row_count == 2
+    assert resumed.results == ()
+
+
+def test_generate_sft_llm_run_resume_rejects_modified_accepted_data(tmp_path):
+    with pytest.raises(UnderfilledRunError):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=2,
+            batch_size=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-tampered-resume-001",
+            max_tokens=1024,
+            max_backfill_rounds=0,
+            backend=DuplicatePromptSFTBackend(),
+        )
+
+    dataset_path = tmp_path / "datasets" / "basic_arithmetic_qa.jsonl"
+    row = json.loads(dataset_path.read_text(encoding="utf-8"))
+    row["messages"][0]["content"] = "Modified after the failed run."
+    dataset_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    backend = OneRoundBackfillSFTBackend()
+
+    with pytest.raises(ValueError, match="content fingerprint"):
+        generate_llm_run(
+            families=["basic_arithmetic_qa"],
+            count_per_family=2,
+            batch_size=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="sft-tampered-resume-001",
+            max_tokens=1024,
+            max_backfill_rounds=1,
+            resume=True,
+            backend=backend,
+        )
+
+    assert backend.calls == []
+
+
 def test_generate_sft_llm_run_rejects_multiple_planning_strategies(tmp_path):
     with pytest.raises(ValueError, match="provide exactly one"):
         generate_llm_run(
@@ -302,10 +596,21 @@ def test_generate_sft_llm_run_checks_capacity_before_backend_construction(tmp_pa
 
 
 def test_generate_sft_llm_run_fails_when_public_rows_underfill_after_budget(tmp_path, monkeypatch):
-    def write_underfilled_public_family_files(*, jobs, output_dir):
+    def write_underfilled_public_family_files(
+        *,
+        jobs,
+        output_dir,
+        families,
+        accepted_rows_by_family,
+        prior_datasets,
+        prior_acceptance,
+        new_rejected_rows_per_family,
+        new_rejection_reason_counts,
+    ):
         dataset_path = output_dir / "basic_arithmetic_qa.jsonl"
         dataset_path.parent.mkdir(parents=True, exist_ok=True)
-        dataset_path.write_text("", encoding="utf-8")
+        accepted_row = json.loads(jobs[0]["result"].dataset_path.read_text(encoding="utf-8").splitlines()[0])
+        dataset_path.write_text(json.dumps(accepted_row) + "\n", encoding="utf-8")
         return (
             [
                 {
@@ -321,11 +626,13 @@ def test_generate_sft_llm_run_fails_when_public_rows_underfill_after_budget(tmp_
                 "accepted_rows": 1,
                 "duplicate_rows": 0,
                 "duplicate_reason_counts": {},
+                "rejection_reason_counts": {},
                 "attempted_rows_per_family": {"basic_arithmetic_qa": 2},
                 "accepted_rows_per_family": {"basic_arithmetic_qa": 1},
                 "rejected_rows_per_family": {"basic_arithmetic_qa": 1},
                 "duplicate_rows_per_family": {"basic_arithmetic_qa": 0},
             },
+            {"basic_arithmetic_qa": [accepted_row]},
         )
 
     monkeypatch.setattr(

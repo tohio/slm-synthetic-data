@@ -189,6 +189,14 @@ _PROMPT_CONTEXTS = [
     "standalone question", "flashcard", "knowledge check", "short exercise", "practice item",
     "review question", "worksheet item", "oral quiz", "study prompt", "quick check",
 ]
+_IMPLEMENTATION_FOCUSES = [
+    "clarity",
+    "input validation",
+    "edge-case handling",
+    "readability",
+    "straightforward control flow",
+]
+_OBSERVATION_CONDITIONS = ["typical daylight", "ordinary unaided observation"]
 _EXPLANATION_FOCUSES = [
     "purpose", "input and output", "role in a workflow", "plain-language meaning", "practical use",
     "relationship to model training", "relationship to prediction", "core mechanism", "why it matters", "common interpretation",
@@ -210,13 +218,19 @@ SFT_SPEC_CAPACITIES: dict[str, int] = {
     "ai_concept_explanation": _capacity(_CONCEPTS, _EXPLANATION_FOCUSES, _AUDIENCES, _PROMPT_STYLES),
     "basic_arithmetic_qa": 1_000_000,
     "capital_city_qa": _capacity(_CAPITALS, _PROMPT_STYLES, _PROMPT_CONTEXTS),
-    "clear_sky_color_qa": _capacity(_COMMON_COLOR_FACTS, _PROMPT_STYLES, _PROMPT_CONTEXTS),
+    "clear_sky_color_qa": _capacity(
+        _COMMON_COLOR_FACTS, _PROMPT_STYLES, _PROMPT_CONTEXTS, _OBSERVATION_CONDITIONS
+    ),
     "code_explanation_no_code": 100_000,
     "code_expression_result": 100_000,
-    "code_generation_function": _capacity(_FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS),
+    "code_generation_function": _capacity(
+        _FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS, _IMPLEMENTATION_FOCUSES
+    ),
     "direct_division": 97 * 103,
     "direct_subtraction": 1_000_000,
-    "function_completion_body_only": _capacity(_FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS),
+    "function_completion_body_only": _capacity(
+        _FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS, _IMPLEMENTATION_FOCUSES
+    ),
     "list_exact_n_items": _capacity(_LIST_POOLS, range(10), _LIST_COUNTS, _PROMPT_STYLES),
     "private_or_unverifiable_company_fact": _capacity(
         _PRIVATE_COMPANIES, _PRIVATE_METRICS, _TIME_WINDOWS, _PROMPT_STYLES
@@ -397,8 +411,8 @@ def _capital_city(index: int) -> dict[str, Any]:
 
 
 def _clear_sky(index: int) -> dict[str, Any]:
-    color_fact, prompt_style, prompt_context = _axes(
-        index, _COMMON_COLOR_FACTS, _PROMPT_STYLES, _PROMPT_CONTEXTS
+    color_fact, prompt_style, prompt_context, observation_condition = _axes(
+        index, _COMMON_COLOR_FACTS, _PROMPT_STYLES, _PROMPT_CONTEXTS, _OBSERVATION_CONDITIONS
     )
     topic, answer = color_fact
     return _spec(
@@ -413,6 +427,7 @@ def _clear_sky(index: int) -> dict[str, Any]:
             "answer": answer,
             "prompt_style": prompt_style,
             "prompt_context": prompt_context,
+            "observation_condition": observation_condition,
         },
         constraints=_ANSWER_ONLY_CONSTRAINTS,
     )
@@ -470,8 +485,8 @@ def _private_company(index: int) -> dict[str, Any]:
 
 
 def _code_generation(index: int) -> dict[str, Any]:
-    function_task, prompt_style, prompt_context = _axes(
-        index, _FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS
+    function_task, prompt_style, prompt_context, implementation_focus = _axes(
+        index, _FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS, _IMPLEMENTATION_FOCUSES
     )
     name, doc = function_task
     return _spec(
@@ -486,6 +501,7 @@ def _code_generation(index: int) -> dict[str, Any]:
             "requirement": doc,
             "prompt_style": prompt_style,
             "prompt_context": prompt_context,
+            "implementation_focus": implementation_focus,
         },
         constraints=[
             "Assistant response must contain Python code only.",
@@ -496,8 +512,8 @@ def _code_generation(index: int) -> dict[str, Any]:
 
 
 def _function_completion(index: int) -> dict[str, Any]:
-    function_task, prompt_style, prompt_context = _axes(
-        index, _FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS
+    function_task, prompt_style, prompt_context, implementation_focus = _axes(
+        index, _FUNCTION_TASKS, _PROMPT_STYLES, _PROMPT_CONTEXTS, _IMPLEMENTATION_FOCUSES
     )
     name, doc = function_task
     return _spec(
@@ -512,6 +528,7 @@ def _function_completion(index: int) -> dict[str, Any]:
             "docstring": doc,
             "prompt_style": prompt_style,
             "prompt_context": prompt_context,
+            "implementation_focus": implementation_focus,
         },
         constraints=[
             "Assistant response must contain only the indented or unindented function body.",

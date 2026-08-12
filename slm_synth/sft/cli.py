@@ -125,6 +125,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
         concurrency=args.concurrency,
         max_backfill_rounds=args.max_backfill_rounds,
+        resume=args.resume,
         run_manifest_filename=args.run_manifest_filename,
         holdout_registry=_load_holdout_registry(args.holdout_registry),
         **_openrouter_routing_kwargs(args),
@@ -215,6 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES)
     generate_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     generate_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
+    generate_run_parser.add_argument("--resume", action="store_true")
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
     generate_run_parser.add_argument("--holdout-registry", default=None)
     generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)

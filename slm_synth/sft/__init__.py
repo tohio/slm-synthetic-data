@@ -16,6 +16,7 @@ from slm_synth.sft.acceptance import (
     sft_response_fingerprint,
 )
 from slm_synth.sft.generation import (
+    SFTBatchAcceptanceError,
     SFTLLMBatchResult,
     build_openrouter_backend,
     generate_llm_batch,
@@ -45,6 +46,7 @@ from slm_synth.sft.specs import teacher_visible_sft_spec, validate_sft_spec
 
 __all__ = [
     "SFT_BATCH_RESPONSE_SCHEMA",
+    "SFTBatchAcceptanceError",
     "SFTLLMRunResult",
     "SFT_SPEC_FAMILIES",
     "SFTLLMBatchResult",

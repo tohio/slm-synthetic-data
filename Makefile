@@ -112,6 +112,8 @@ SFT_INITIAL_CONCURRENCY ?= 8
 SFT_INITIAL_BATCH_SIZE ?= 4
 SFT_BATCH_INCREASE_SUCCESSES ?= 4
 SFT_MAX_BACKFILL_ROUNDS ?= 2
+SFT_RESUME ?= false
+SFT_RESUME_ARG := $(if $(filter true yes 1,$(SFT_RESUME)),--resume,)
 SFT_MAX_TOKENS ?= 4096
 SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
@@ -434,6 +436,7 @@ sft-smoke:
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
 >   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS) \
+>   $(SFT_RESUME_ARG) \
 >   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
@@ -453,6 +456,7 @@ sft-generate:
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
 >   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS) \
+>   $(SFT_RESUME_ARG) \
 >   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_TARGET_RUN)
 

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from collections import deque
+from collections import Counter, deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -14,12 +15,17 @@ from slm_synth.accepted_target import accepted_target_metadata, raise_for_underf
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.planning import build_count_plan
 from slm_synth.sft.acceptance import partition_unique_sft_rows
-from slm_synth.sft.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
+from slm_synth.sft.generation import (
+    SFTBatchAcceptanceError,
+    StructuredTeacherBackend,
+    build_openrouter_backend,
+    generate_llm_batch,
+)
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import write_manifest, write_run_manifest
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs, validate_spec_range
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
-from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
+from slm_synth.telemetry import aggregate_llm_telemetry, aggregate_llm_telemetry_from_manifests
 from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
@@ -75,6 +81,7 @@ def generate_llm_run(
     adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
     max_backfill_rounds: int = 2,
+    resume: bool = False,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
@@ -99,29 +106,75 @@ def generate_llm_run(
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     adaptive_maximum_in_flight = concurrency
 
-    # Capacity failures must happen before credentials are read or a provider
-    # backend is constructed.
-    for family in resolved_families:
-        validate_spec_range(
-            family=family,
-            count=count_plan.counts_by_key[family],
-            start_index=start_index,
+    run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
+    resume_state = _load_resume_state(
+        resume=resume,
+        manifest_path=run_manifest_path,
+        output_dir=output_dir,
+        generation_run=generation_run,
+        families=resolved_families,
+        target_rows_per_family=dict(count_plan.counts_by_key),
+        start_index=start_index,
+        teacher_model=teacher_model,
+        teacher_provider=teacher_provider,
+    )
+    if resume_state["complete"]:
+        return SFTLLMRunResult(
+            results=(),
+            row_count=resume_state["accepted_rows"],
+            families=resolved_families,
+            generation_run=generation_run,
+            manifest_path=run_manifest_path,
+        )
+    if resume and max_backfill_rounds < resume_state["backfill_rounds"]:
+        raise ValueError(
+            "max_backfill_rounds cannot be lower than rounds already recorded by the resumed SFT run"
         )
 
-    active_backend = backend or build_openrouter_backend(
-        model=teacher_model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        request_timeout=request_timeout,
-        max_request_retries=max_request_retries,
-        max_retryable_request_attempts=max_retryable_request_attempts,
-        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-        adaptive_initial_in_flight=adaptive_initial_in_flight,
-        openrouter_routing_mode=openrouter_routing_mode,
-        openrouter_provider=openrouter_provider,
-    )
+    # Validate the complete worst-case source range before credentials are read
+    # or a provider backend is constructed.
+    if resume:
+        remaining_for_resume = _remaining_rows_by_family(
+            targets=dict(count_plan.counts_by_key),
+            accepted_rows_by_family=resume_state["accepted_rows_by_family"],
+        )
+        remaining_rounds = max(max_backfill_rounds - resume_state["backfill_rounds"], 0)
+        for family in resolved_families:
+            possible_attempts = remaining_for_resume[family] * remaining_rounds
+            if possible_attempts:
+                validate_spec_range(
+                    family=family,
+                    count=possible_attempts,
+                    start_index=resume_state["next_source_indexes"][family],
+                )
+    else:
+        for family in resolved_families:
+            validate_spec_range(
+                family=family,
+                count=count_plan.counts_by_key[family] * (max_backfill_rounds + 1),
+                start_index=start_index,
+            )
+
+    active_backend = backend
+
+    def get_backend() -> StructuredTeacherBackend:
+        nonlocal active_backend
+        if active_backend is None:
+            active_backend = build_openrouter_backend(
+                model=teacher_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                request_timeout=request_timeout,
+                max_request_retries=max_request_retries,
+                max_retryable_request_attempts=max_retryable_request_attempts,
+                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                adaptive_initial_in_flight=adaptive_initial_in_flight,
+                openrouter_routing_mode=openrouter_routing_mode,
+                openrouter_provider=openrouter_provider,
+            )
+        return active_backend
 
     def run_job(job: dict[str, Any]) -> Any:
         return generate_llm_batch(
@@ -145,125 +198,199 @@ def generate_llm_run(
                 "batch_number": job["batch_number"],
                 "batch_start_index": job["batch_start_index"],
                 "batch_size": len(job["specs"]),
+                "backfill_round": job["backfill_round"],
+                "is_backfill": job["backfill_round"] > 0,
                 **job.get("adaptive_batch_size", {}),
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
-            backend=active_backend,
+            backend=get_backend(),
         )
 
-    jobs: list[dict[str, Any]] = []
+    results: list[Any] = []
+    rejected_llm_telemetry: list[dict[str, Any]] = []
     batch_controller = AdaptiveBatchSizeController(
         maximum=batch_size,
         minimum=1,
         initial=adaptive_initial_batch_size,
         increase_successes=adaptive_batch_increase_successes,
     )
-    for family in resolved_families:
-        family_target_rows = count_plan.counts_by_key[family]
-        specs = build_specs(family=family, count=family_target_rows, start_index=start_index)
-        print(
-            "[generate] Starting SFT family: "
-            f"{family} (target_rows={len(specs)}, batch_size={batch_size}, "
-            f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
-            flush=True,
-        )
-        pending_ranges: deque[tuple[int, int]] = deque([(0, len(specs))])
-        active: dict[Any, dict[str, Any]] = {}
-        next_batch_number = 1
-        family_rows_done = 0
+    next_batch_numbers = dict(resume_state["next_batch_numbers"])
+    next_source_indexes = dict(resume_state["next_source_indexes"])
+    accepted_rows_by_family = dict(resume_state["accepted_rows_by_family"])
+    datasets = list(resume_state["datasets"])
+    output_acceptance = dict(resume_state["acceptance"])
+    backfill_rounds = resume_state["backfill_rounds"]
 
-        def make_job(batch_specs: list[dict[str, Any]], batch_number: int, offset: int) -> dict[str, Any]:
-            batch_start_index = start_index + offset
-            return {
-                "family": family,
-                "batch_number": batch_number,
-                "batch_start_index": batch_start_index,
-                "specs": batch_specs,
-                "dataset_path": default_batch_output_dir(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
-                "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
-            }
+    def run_generation_round(
+        request_counts: dict[str, int],
+        *,
+        round_number: int,
+    ) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
+        round_jobs: list[dict[str, Any]] = []
+        rejected_rows_per_family = {family: 0 for family in resolved_families}
+        rejection_reason_counts: Counter[str] = Counter()
+        for family in resolved_families:
+            requested_rows = request_counts.get(family, 0)
+            if requested_rows == 0:
+                continue
+            round_start_index = next_source_indexes[family]
+            validate_spec_range(family=family, count=requested_rows, start_index=round_start_index)
+            specs = build_specs(family=family, count=requested_rows, start_index=round_start_index)
+            next_source_indexes[family] += requested_rows
+            print(
+                "[generate] Starting SFT family: "
+                f"{family} (round={round_number}, requested_rows={len(specs)}, batch_size={batch_size}, "
+                f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
+                flush=True,
+            )
+            pending_ranges: deque[tuple[int, int]] = deque([(0, len(specs))])
+            active: dict[Any, dict[str, Any]] = {}
+            family_rows_done = 0
 
-        def active_job_limit() -> int:
-            return min(concurrency, max(1, adaptive_initial_in_flight, batch_controller.current))
+            def make_job(batch_specs: list[dict[str, Any]], batch_number: int, offset: int) -> dict[str, Any]:
+                batch_start_index = round_start_index + offset
+                return {
+                    "family": family,
+                    "batch_number": batch_number,
+                    "batch_start_index": batch_start_index,
+                    "backfill_round": round_number,
+                    "specs": batch_specs,
+                    "dataset_path": default_batch_output_dir(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
+                    "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
+                }
 
-        def submit_available(executor: ThreadPoolExecutor) -> None:
-            nonlocal next_batch_number
-            while pending_ranges and len(active) < active_job_limit():
-                offset, remaining = pending_ranges.popleft()
-                size = min(batch_controller.current, remaining)
-                if remaining > size:
-                    pending_ranges.appendleft((offset + size, remaining - size))
-                job = make_job(specs[offset : offset + size], next_batch_number, offset)
-                next_batch_number += 1
-                active[executor.submit(run_job, job)] = job
+            def active_job_limit() -> int:
+                return min(concurrency, max(1, adaptive_initial_in_flight, batch_controller.current))
 
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            submit_available(executor)
-            while active:
-                done, _ = wait(set(active), return_when=FIRST_COMPLETED)
-                for future in done:
-                    job = active.pop(future)
-                    try:
-                        result = future.result()
-                    except Exception as exc:
-                        batch_controller.record_failure()
-                        print_batch_failure(
+            def submit_available(executor: ThreadPoolExecutor) -> None:
+                while pending_ranges and len(active) < active_job_limit():
+                    offset, remaining = pending_ranges.popleft()
+                    size = min(batch_controller.current, remaining)
+                    if remaining > size:
+                        pending_ranges.appendleft((offset + size, remaining - size))
+                    batch_number = next_batch_numbers[family]
+                    next_batch_numbers[family] += 1
+                    job = make_job(specs[offset : offset + size], batch_number, offset)
+                    active[executor.submit(run_job, job)] = job
+
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                submit_available(executor)
+                while active:
+                    done, _ = wait(set(active), return_when=FIRST_COMPLETED)
+                    for future in done:
+                        job = active.pop(future)
+                        try:
+                            result = future.result()
+                        except Exception as exc:
+                            batch_controller.record_failure()
+                            if isinstance(exc, SFTBatchAcceptanceError):
+                                rejected_llm_telemetry.append(exc.telemetry)
+                            print_batch_failure(
+                                workflow="SFT",
+                                group_key="family",
+                                group_value=family,
+                                batch_number=job["batch_number"],
+                                batch_start=job["batch_start_index"],
+                                batch_size=len(job["specs"]),
+                                adaptive_batch_size=batch_controller.snapshot(),
+                                error=exc,
+                            )
+                            if len(job["specs"]) <= batch_controller.minimum:
+                                if isinstance(exc, SFTBatchAcceptanceError):
+                                    rejected_rows_per_family[family] += 1
+                                    rejection_reason_counts["batch_acceptance_error"] += 1
+                                    submit_available(executor)
+                                    continue
+                                raise
+                            offset = job["batch_start_index"] - round_start_index
+                            pending_ranges.appendleft((offset, len(job["specs"])))
+                            submit_available(executor)
+                            continue
+                        batch_controller.record_success()
+                        job["result"] = result
+                        job["adaptive_batch_size"] = batch_controller.snapshot()
+                        round_jobs.append(job)
+                        results.append(result)
+                        family_rows_done += result.row_count
+                        print_batch_progress(
                             workflow="SFT",
                             group_key="family",
                             group_value=family,
                             batch_number=job["batch_number"],
                             batch_start=job["batch_start_index"],
                             batch_size=len(job["specs"]),
-                            adaptive_batch_size=batch_controller.snapshot(),
-                            error=exc,
+                            rows_done=family_rows_done,
+                            rows_total=len(specs),
+                            manifest_path=result.manifest_path,
+                            adaptive_batch_size=job["adaptive_batch_size"],
                         )
-                        if len(job["specs"]) <= batch_controller.minimum:
-                            raise
-                        offset = job["batch_start_index"] - start_index
-                        pending_ranges.appendleft((offset, len(job["specs"])))
                         submit_available(executor)
-                        continue
-                    batch_controller.record_success()
-                    job["result"] = result
-                    job["adaptive_batch_size"] = batch_controller.snapshot()
-                    jobs.append(job)
-                    family_rows_done += result.row_count
-                    print_batch_progress(
-                        workflow="SFT",
-                        group_key="family",
-                        group_value=family,
-                        batch_number=job["batch_number"],
-                        batch_start=job["batch_start_index"],
-                        batch_size=len(job["specs"]),
-                        rows_done=family_rows_done,
-                        rows_total=len(specs),
-                        manifest_path=result.manifest_path,
-                        adaptive_batch_size=job["adaptive_batch_size"],
-                    )
-                    submit_available(executor)
-        print(
-            "[generate] Completed SFT family: "
-            f"{family} rows={family_rows_done}, target_rows={len(specs)}, "
-            f"batch_size={batch_size}, min_batch_size=1, parallel_requests={concurrency}, "
-            f"adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
-            f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "
-            f"adaptive_batch_size_increases={batch_controller.increases}, "
-            f"adaptive_batch_size_decreases={batch_controller.decreases}, "
-            f"adaptive_batch_size_failures={batch_controller.failures}",
-            flush=True,
+            print(
+                "[generate] Completed SFT family: "
+                f"{family} round={round_number} rows={family_rows_done}, requested_rows={len(specs)}, "
+                f"batch_size={batch_size}, min_batch_size=1, parallel_requests={concurrency}, "
+                f"adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
+                f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "
+                f"adaptive_batch_size_increases={batch_controller.increases}, "
+                f"adaptive_batch_size_decreases={batch_controller.decreases}, "
+                f"adaptive_batch_size_failures={batch_controller.failures}",
+                flush=True,
+            )
+        round_jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
+        return round_jobs, rejected_rows_per_family, dict(rejection_reason_counts)
+
+    initial_counts = {
+        family: 0 if resume else count_plan.counts_by_key[family]
+        for family in resolved_families
+    }
+    if any(initial_counts.values()):
+        initial_jobs, initial_rejected, initial_rejection_reasons = run_generation_round(
+            initial_counts,
+            round_number=0,
+        )
+        datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
+            jobs=initial_jobs,
+            output_dir=output_dir,
+            families=resolved_families,
+            accepted_rows_by_family=accepted_rows_by_family,
+            prior_datasets=datasets,
+            prior_acceptance=output_acceptance,
+            new_rejected_rows_per_family=initial_rejected,
+            new_rejection_reason_counts=initial_rejection_reasons,
         )
 
-    jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
-    results = [job["result"] for job in jobs]
-    datasets, output_acceptance = _write_public_family_files(jobs=jobs, output_dir=output_dir)
+    remaining_by_family = _remaining_rows_by_family(
+        targets=dict(count_plan.counts_by_key),
+        accepted_rows_by_family=accepted_rows_by_family,
+    )
+    while any(remaining_by_family.values()) and backfill_rounds < max_backfill_rounds:
+        backfill_rounds += 1
+        backfill_jobs, backfill_rejected, backfill_rejection_reasons = run_generation_round(
+            remaining_by_family,
+            round_number=backfill_rounds,
+        )
+        datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
+            jobs=backfill_jobs,
+            output_dir=output_dir,
+            families=resolved_families,
+            accepted_rows_by_family=accepted_rows_by_family,
+            prior_datasets=datasets,
+            prior_acceptance=output_acceptance,
+            new_rejected_rows_per_family=backfill_rejected,
+            new_rejection_reason_counts=backfill_rejection_reasons,
+        )
+        remaining_by_family = _remaining_rows_by_family(
+            targets=dict(count_plan.counts_by_key),
+            accepted_rows_by_family=accepted_rows_by_family,
+        )
+
     planned_rows = count_plan.planned_count
     accepted_rows = sum(dataset["row_count"] for dataset in datasets)
     attempted_rows = output_acceptance["attempted_rows"]
     duplicate_rows = output_acceptance["duplicate_rows"]
     rejected_rows = max(attempted_rows - accepted_rows - duplicate_rows, 0)
 
-    run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
         generation_run=generation_run,
@@ -279,6 +406,7 @@ def generate_llm_run(
             "attempted_rows": attempted_rows,
             "accepted_rows": accepted_rows,
             "rejected_rows": rejected_rows,
+            "rejection_reason_counts": output_acceptance["rejection_reason_counts"],
             "duplicate_rows": duplicate_rows,
             "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],
             "attempted_rows_per_family": output_acceptance["attempted_rows_per_family"],
@@ -286,14 +414,19 @@ def generate_llm_run(
             "rejected_rows_per_family": output_acceptance["rejected_rows_per_family"],
             "duplicate_rows_per_family": output_acceptance["duplicate_rows_per_family"],
             "max_backfill_rounds": max_backfill_rounds,
-            "backfill_rounds": 0,
+            "backfill_rounds": backfill_rounds,
+            "next_start_index_per_family": next_source_indexes,
+            "accepted_content_fingerprints_per_family": {
+                family: _rows_fingerprint(accepted_rows_by_family[family])
+                for family in resolved_families
+            },
             **accepted_target_metadata(
                 unit="rows",
                 target_count=planned_rows,
                 accepted_count=accepted_rows,
                 attempted_count=attempted_rows,
                 max_backfill_rounds=max_backfill_rounds,
-                backfill_rounds=0,
+                backfill_rounds=backfill_rounds,
             ),
             "rows_per_family": dict(count_plan.counts_by_key),
             "count_per_family": count_per_family,
@@ -304,7 +437,19 @@ def generate_llm_run(
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             **batch_controller.snapshot(),
-            "llm_telemetry": aggregate_llm_telemetry_from_manifests(result.manifest_path for result in results),
+            "llm_telemetry": aggregate_llm_telemetry(
+                [
+                    telemetry
+                    for telemetry in (
+                        resume_state["llm_telemetry"],
+                        aggregate_llm_telemetry_from_manifests(
+                            result.manifest_path for result in results
+                        ),
+                        *rejected_llm_telemetry,
+                    )
+                    if telemetry
+                ]
+            ),
             "start_index": start_index,
             **dict(metadata or {}),
         },
@@ -387,26 +532,42 @@ def _write_public_family_files(
     *,
     jobs: list[dict[str, Any]],
     output_dir: str | Path,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    candidate_rows: list[dict[str, Any]] = []
-    attempted_rows_per_family: dict[str, int] = {}
-    for family in sorted({job["family"] for job in jobs}):
-        family_rows: list[dict[str, Any]] = []
+    families: tuple[str, ...],
+    accepted_rows_by_family: dict[str, list[dict[str, Any]]],
+    prior_datasets: list[dict[str, Any]],
+    prior_acceptance: dict[str, Any],
+    new_rejected_rows_per_family: dict[str, int],
+    new_rejection_reason_counts: dict[str, int],
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, list[dict[str, Any]]]]:
+    candidate_rows = [
+        row
+        for family in families
+        for row in accepted_rows_by_family.get(family, [])
+    ]
+    new_candidate_rows_per_family = {family: 0 for family in families}
+    for family in families:
         for job in [item for item in jobs if item["family"] == family]:
-            family_rows.extend(read_jsonl(job["result"].dataset_path))
-        candidate_rows.extend(family_rows)
-        attempted_rows_per_family[family] = len(family_rows)
+            rows = read_jsonl(job["result"].dataset_path)
+            candidate_rows.extend(rows)
+            new_candidate_rows_per_family[family] += len(rows)
+    new_attempted_rows_per_family = {
+        family: new_candidate_rows_per_family[family] + new_rejected_rows_per_family[family]
+        for family in families
+    }
 
-    accepted_rows, acceptance = partition_unique_sft_rows(candidate_rows)
+    accepted_rows, round_acceptance = partition_unique_sft_rows(candidate_rows)
+    current_rows_by_family = {
+        family: [row for row in accepted_rows if row["metadata"]["eval_family"] == family]
+        for family in families
+    }
+    prior_datasets_by_family = {dataset["family"]: dataset for dataset in prior_datasets}
     datasets: list[dict[str, Any]] = []
-    for family in sorted({job["family"] for job in jobs}):
+    for family in families:
         family_jobs = [job for job in jobs if job["family"] == family]
-        batch_manifests: list[Path] = []
-        for job in family_jobs:
-            result = job["result"]
-            batch_manifests.append(result.manifest_path)
-
-        rows = [row for row in accepted_rows if row["metadata"]["eval_family"] == family]
+        prior_dataset = prior_datasets_by_family.get(family, {})
+        batch_manifests = [Path(path) for path in prior_dataset.get("batch_manifests", [])]
+        batch_manifests.extend(job["result"].manifest_path for job in family_jobs)
+        rows = current_rows_by_family[family]
         dataset_path = Path(output_dir) / f"{family}.jsonl"
         row_count = write_jsonl(rows, dataset_path)
         datasets.append(
@@ -414,30 +575,305 @@ def _write_public_family_files(
                 "family": family,
                 "dataset_path": dataset_path,
                 "row_count": row_count,
-                "batch_count": len(family_jobs),
+                "batch_count": len(batch_manifests),
                 "batch_manifests": batch_manifests,
             }
         )
 
-    accepted_rows_per_family = {
-        dataset["family"]: dataset["row_count"]
-        for dataset in datasets
+    prior_attempted = prior_acceptance.get("attempted_rows_per_family", {})
+    prior_duplicates = prior_acceptance.get("duplicate_rows_per_family", {})
+    prior_rejected = prior_acceptance.get("rejected_rows_per_family", {})
+    attempted_rows_per_family = {
+        family: prior_attempted.get(family, 0) + new_attempted_rows_per_family[family]
+        for family in families
     }
-    acceptance.update(
-        {
-            "attempted_rows_per_family": attempted_rows_per_family,
-            "accepted_rows_per_family": accepted_rows_per_family,
-            "duplicate_rows_per_family": {
-                family: attempted_rows_per_family[family] - accepted_rows_per_family[family]
-                for family in attempted_rows_per_family
-            },
-            "rejected_rows_per_family": {
-                family: 0
-                for family in attempted_rows_per_family
-            },
-        }
+    accepted_rows_per_family = {family: len(current_rows_by_family[family]) for family in families}
+    new_duplicate_rows_per_family = {
+        family: (
+            len(accepted_rows_by_family.get(family, []))
+            + new_candidate_rows_per_family[family]
+            - accepted_rows_per_family[family]
+        )
+        for family in families
+    }
+    duplicate_rows_per_family = {
+        family: prior_duplicates.get(family, 0) + new_duplicate_rows_per_family[family]
+        for family in families
+    }
+    rejected_rows_per_family = {
+        family: prior_rejected.get(family, 0) + new_rejected_rows_per_family[family]
+        for family in families
+    }
+    reason_counts = Counter(prior_acceptance.get("duplicate_reason_counts", {}))
+    reason_counts.update(round_acceptance["duplicate_reason_counts"])
+    rejection_reasons = Counter(prior_acceptance.get("rejection_reason_counts", {}))
+    rejection_reasons.update(new_rejection_reason_counts)
+    acceptance = {
+        "attempted_rows": sum(attempted_rows_per_family.values()),
+        "accepted_rows": sum(accepted_rows_per_family.values()),
+        "duplicate_rows": sum(duplicate_rows_per_family.values()),
+        "duplicate_reason_counts": {
+            reason: reason_counts[reason]
+            for reason in sorted(reason_counts)
+        },
+        "rejection_reason_counts": {
+            reason: rejection_reasons[reason]
+            for reason in sorted(rejection_reasons)
+        },
+        "attempted_rows_per_family": attempted_rows_per_family,
+        "accepted_rows_per_family": accepted_rows_per_family,
+        "duplicate_rows_per_family": duplicate_rows_per_family,
+        "rejected_rows_per_family": rejected_rows_per_family,
+    }
+    return datasets, acceptance, current_rows_by_family
+
+
+def _remaining_rows_by_family(
+    *,
+    targets: dict[str, int],
+    accepted_rows_by_family: dict[str, list[dict[str, Any]]],
+) -> dict[str, int]:
+    return {
+        family: max(target - len(accepted_rows_by_family.get(family, [])), 0)
+        for family, target in targets.items()
+    }
+
+
+def _load_resume_state(
+    *,
+    resume: bool,
+    manifest_path: Path,
+    output_dir: str | Path,
+    generation_run: str,
+    families: tuple[str, ...],
+    target_rows_per_family: dict[str, int],
+    start_index: int,
+    teacher_model: str,
+    teacher_provider: str,
+) -> dict[str, Any]:
+    if not resume:
+        return _empty_resume_state(
+            families=families,
+            start_index=start_index,
+        )
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"cannot resume SFT run without run manifest: {manifest_path}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"SFT resume manifest must contain a JSON object: {manifest_path}")
+    if manifest.get("dataset_type") != "sft" or manifest.get("generation_run") != generation_run:
+        raise ValueError("SFT resume manifest does not match dataset type and generation run")
+    if tuple(manifest.get("families", [])) != families:
+        raise ValueError("SFT resume families do not match the existing run manifest")
+    if manifest.get("teacher_model") != teacher_model or manifest.get("teacher_provider") != teacher_provider:
+        raise ValueError("SFT resume teacher configuration does not match the existing run manifest")
+
+    metadata = manifest.get("metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError("SFT resume manifest is missing metadata")
+    if metadata.get("rows_per_family") != target_rows_per_family or metadata.get("start_index") != start_index:
+        raise ValueError("SFT resume source plan does not match the existing run manifest")
+    next_source_indexes = metadata.get("next_start_index_per_family")
+    if not isinstance(next_source_indexes, dict) or set(next_source_indexes) != set(families):
+        raise ValueError("SFT resume manifest is missing next source indexes")
+    for family, value in next_source_indexes.items():
+        _validate_positive_int(value, f"next_start_index_per_family[{family}]")
+
+    accepted_rows_by_family: dict[str, list[dict[str, Any]]] = {}
+    datasets: list[dict[str, Any]] = []
+    manifest_datasets = manifest.get("datasets")
+    if not isinstance(manifest_datasets, list):
+        raise ValueError("SFT resume manifest is missing datasets")
+    datasets_by_family = {
+        item.get("family"): item
+        for item in manifest_datasets
+        if isinstance(item, dict) and isinstance(item.get("family"), str)
+    }
+    next_batch_numbers: dict[str, int] = {}
+    content_fingerprints = metadata.get("accepted_content_fingerprints_per_family")
+    if not isinstance(content_fingerprints, dict) or set(content_fingerprints) != set(families):
+        raise ValueError("SFT resume manifest is missing accepted content fingerprints")
+    for family in families:
+        item = datasets_by_family.get(family)
+        if not isinstance(item, dict):
+            raise ValueError(f"SFT resume manifest is missing dataset entry for {family}")
+        dataset_path = Path(output_dir) / f"{family}.jsonl"
+        if not dataset_path.is_file():
+            raise FileNotFoundError(f"SFT resume dataset does not exist: {dataset_path}")
+        rows = read_jsonl(dataset_path)
+        if item.get("row_count") != len(rows):
+            raise ValueError(f"SFT resume dataset row count does not match manifest for {family}")
+        if any(row["metadata"]["eval_family"] != family for row in rows):
+            raise ValueError(f"SFT resume dataset contains the wrong family metadata for {family}")
+        if content_fingerprints.get(family) != _rows_fingerprint(rows):
+            raise ValueError(f"SFT resume dataset content fingerprint does not match manifest for {family}")
+        accepted_rows_by_family[family] = rows
+        raw_batch_manifests = item.get("batch_manifests")
+        if not isinstance(raw_batch_manifests, list):
+            raise ValueError(f"SFT resume batch manifests must be a list for {family}")
+        batch_manifests = [Path(path) for path in raw_batch_manifests]
+        if item.get("batch_count") != len(batch_manifests):
+            raise ValueError(f"SFT resume batch count does not match manifest list for {family}")
+        missing_batch_manifests = [path for path in batch_manifests if not path.is_file()]
+        if missing_batch_manifests:
+            raise FileNotFoundError(
+                f"SFT resume batch manifest does not exist: {missing_batch_manifests[0]}"
+            )
+        datasets.append(
+            {
+                "family": family,
+                "dataset_path": dataset_path,
+                "row_count": len(rows),
+                "batch_count": len(batch_manifests),
+                "batch_manifests": batch_manifests,
+            }
+        )
+        next_batch_numbers[family] = _next_batch_number(batch_manifests)
+
+    accepted_rows, unique_summary = partition_unique_sft_rows(
+        row for family in families for row in accepted_rows_by_family[family]
     )
-    return datasets, acceptance
+    if unique_summary["duplicate_rows"]:
+        raise ValueError("SFT resume public datasets contain duplicate accepted content")
+    accepted_count = len(accepted_rows)
+    accepted_target = metadata.get("accepted_target")
+    expected_target = sum(target_rows_per_family.values())
+    expected_remaining = expected_target - accepted_count
+    if (
+        not isinstance(accepted_target, dict)
+        or accepted_target.get("target") != expected_target
+        or accepted_target.get("accepted") != accepted_count
+        or accepted_target.get("remaining") != expected_remaining
+    ):
+        raise ValueError("SFT resume accepted count does not match public datasets")
+
+    acceptance = {
+        "attempted_rows": metadata.get("attempted_rows"),
+        "accepted_rows": metadata.get("accepted_rows"),
+        "duplicate_rows": metadata.get("duplicate_rows"),
+        "duplicate_reason_counts": metadata.get("duplicate_reason_counts", {}),
+        "rejection_reason_counts": metadata.get("rejection_reason_counts", {}),
+        "attempted_rows_per_family": metadata.get("attempted_rows_per_family"),
+        "accepted_rows_per_family": metadata.get("accepted_rows_per_family"),
+        "duplicate_rows_per_family": metadata.get("duplicate_rows_per_family"),
+        "rejected_rows_per_family": metadata.get("rejected_rows_per_family"),
+    }
+    _validate_resume_acceptance(acceptance, families=families, accepted_rows=accepted_count)
+    llm_telemetry = metadata.get("llm_telemetry", {})
+    if not isinstance(llm_telemetry, dict):
+        raise ValueError("SFT resume manifest has invalid llm_telemetry")
+    backfill_rounds = metadata.get("backfill_rounds", 0)
+    _validate_non_negative_int(backfill_rounds, "backfill_rounds")
+    remaining = _remaining_rows_by_family(
+        targets=target_rows_per_family,
+        accepted_rows_by_family=accepted_rows_by_family,
+    )
+    complete = (
+        not any(remaining.values())
+        and metadata.get("publish_ready") is True
+        and accepted_target.get("publish_ready") is True
+    )
+    return {
+        "complete": complete,
+        "accepted_rows": accepted_count,
+        "accepted_rows_by_family": accepted_rows_by_family,
+        "datasets": datasets,
+        "acceptance": acceptance,
+        "backfill_rounds": backfill_rounds,
+        "next_source_indexes": dict(next_source_indexes),
+        "next_batch_numbers": next_batch_numbers,
+        "llm_telemetry": dict(llm_telemetry),
+    }
+
+
+def _empty_resume_state(*, families: tuple[str, ...], start_index: int) -> dict[str, Any]:
+    empty_counts = {family: 0 for family in families}
+    return {
+        "complete": False,
+        "accepted_rows": 0,
+        "accepted_rows_by_family": {family: [] for family in families},
+        "datasets": [],
+        "acceptance": {
+            "attempted_rows": 0,
+            "accepted_rows": 0,
+            "duplicate_rows": 0,
+            "duplicate_reason_counts": {},
+            "rejection_reason_counts": {},
+            "attempted_rows_per_family": dict(empty_counts),
+            "accepted_rows_per_family": dict(empty_counts),
+            "duplicate_rows_per_family": dict(empty_counts),
+            "rejected_rows_per_family": dict(empty_counts),
+        },
+        "backfill_rounds": 0,
+        "next_source_indexes": {family: start_index for family in families},
+        "next_batch_numbers": {family: 1 for family in families},
+        "llm_telemetry": {},
+    }
+
+
+def _validate_resume_acceptance(
+    acceptance: dict[str, Any],
+    *,
+    families: tuple[str, ...],
+    accepted_rows: int,
+) -> None:
+    for field in ("attempted_rows", "accepted_rows", "duplicate_rows"):
+        _validate_non_negative_int(acceptance.get(field), field)
+    if acceptance["accepted_rows"] != accepted_rows:
+        raise ValueError("SFT resume accepted-row accounting does not match public datasets")
+    for field in (
+        "attempted_rows_per_family",
+        "accepted_rows_per_family",
+        "duplicate_rows_per_family",
+        "rejected_rows_per_family",
+    ):
+        values = acceptance.get(field)
+        if not isinstance(values, dict) or set(values) != set(families):
+            raise ValueError(f"SFT resume manifest has invalid {field}")
+        for family, value in values.items():
+            _validate_non_negative_int(value, f"{field}[{family}]")
+    if sum(acceptance["accepted_rows_per_family"].values()) != acceptance["accepted_rows"]:
+        raise ValueError("SFT resume per-family accepted counts do not match aggregate accounting")
+    if sum(acceptance["attempted_rows_per_family"].values()) != acceptance["attempted_rows"]:
+        raise ValueError("SFT resume per-family attempted counts do not match aggregate accounting")
+    if sum(acceptance["duplicate_rows_per_family"].values()) != acceptance["duplicate_rows"]:
+        raise ValueError("SFT resume per-family duplicate counts do not match aggregate accounting")
+    for family in families:
+        if acceptance["accepted_rows_per_family"][family] < 0:
+            raise ValueError("SFT resume accepted count must be non-negative")
+        if (
+            acceptance["accepted_rows_per_family"][family]
+            + acceptance["duplicate_rows_per_family"][family]
+            + acceptance["rejected_rows_per_family"][family]
+            != acceptance["attempted_rows_per_family"][family]
+        ):
+            raise ValueError(f"SFT resume accounting does not balance for {family}")
+    for field in ("duplicate_reason_counts", "rejection_reason_counts"):
+        reasons = acceptance.get(field)
+        if not isinstance(reasons, dict):
+            raise ValueError(f"SFT resume manifest has invalid {field}")
+        for reason, value in reasons.items():
+            if not isinstance(reason, str) or not reason:
+                raise ValueError(f"SFT resume manifest has invalid {field} key")
+            _validate_non_negative_int(value, f"{field}[{reason}]")
+
+
+def _next_batch_number(batch_manifests: list[Path]) -> int:
+    numbers: list[int] = []
+    for path in batch_manifests:
+        name = path.name
+        if ".batch" not in name:
+            continue
+        suffix = name.split(".batch", 1)[1].split(".", 1)[0]
+        if suffix.isdigit():
+            numbers.append(int(suffix))
+    return max(numbers, default=0) + 1
+
+
+def _rows_fingerprint(rows: list[dict[str, Any]]) -> str:
+    payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:

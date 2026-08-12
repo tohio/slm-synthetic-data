@@ -41,6 +41,14 @@ class StructuredTeacherBackend(Protocol):
         ...
 
 
+class SFTBatchAcceptanceError(ValueError):
+    """Raised when a completed teacher response fails local SFT acceptance."""
+
+    def __init__(self, message: str, *, telemetry: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.telemetry = dict(telemetry or {})
+
+
 @dataclass(frozen=True)
 class SFTLLMBatchResult:
     """Result of materializing one saved LLM SFT batch."""
@@ -193,22 +201,25 @@ def generate_llm_batch(
         specs=validated_specs,
         backend=active_backend,
     )
-    return materialize_llm_batch(
-        specs=validated_specs,
-        teacher_response=teacher_response,
-        output_path=output_path,
-        manifest_path=manifest_path,
-        teacher_model=teacher_model,
-        teacher_provider=provider,
-        generation_run=generation_run,
-        metadata={
-            "generation_mode": "live_llm_batch",
-            "spec_count": len(validated_specs),
-            "llm_telemetry": telemetry,
-            **dict(metadata or {}),
-        },
-        holdout_registry=holdout_registry,
-    )
+    try:
+        return materialize_llm_batch(
+            specs=validated_specs,
+            teacher_response=teacher_response,
+            output_path=output_path,
+            manifest_path=manifest_path,
+            teacher_model=teacher_model,
+            teacher_provider=provider,
+            generation_run=generation_run,
+            metadata={
+                "generation_mode": "live_llm_batch",
+                "spec_count": len(validated_specs),
+                "llm_telemetry": telemetry,
+                **dict(metadata or {}),
+            },
+            holdout_registry=holdout_registry,
+        )
+    except SFTBatchAcceptanceError as exc:
+        raise SFTBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
 
 
 def generate_llm_batch_from_files(
@@ -283,13 +294,16 @@ def materialize_llm_batch(
     if len(expected_ids) != len(set(expected_ids)):
         raise ValueError("SFT specs contain duplicate id(s)")
 
-    rows = validate_sft_batch_response(
-        teacher_response,
-        expected_ids=expected_ids,
-        expected_count=len(validated_specs),
-    )
-    validate_sft_rows_against_specs(rows, validated_specs)
-    _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
+    try:
+        rows = validate_sft_batch_response(
+            teacher_response,
+            expected_ids=expected_ids,
+            expected_count=len(validated_specs),
+        )
+        validate_sft_rows_against_specs(rows, validated_specs)
+        _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
+    except (TypeError, ValueError) as exc:
+        raise SFTBatchAcceptanceError(str(exc)) from exc
 
     dataset_path = Path(output_path)
     row_count = write_jsonl(rows, dataset_path)

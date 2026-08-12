@@ -84,6 +84,9 @@ def build_coverage_report(
             "attempted_rows": attempted_rows,
             "accepted_rows": accepted_rows,
             "rejected_rows": rejected_rows,
+            "rejection_reason_counts": _count_mapping(
+                manifest_metadata.get("rejection_reason_counts")
+            ),
             "duplicate_rows": duplicate_rows,
             "remaining_rows": remaining_rows,
             "publish_ready": not blockers,
@@ -276,3 +279,16 @@ def _family_count(metadata: dict[str, Any], field: str, family: str, fallback: i
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             return value
     return fallback
+
+
+def _count_mapping(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: count
+        for key, count in sorted(value.items())
+        if isinstance(key, str)
+        and isinstance(count, int)
+        and not isinstance(count, bool)
+        and count >= 0
+    }

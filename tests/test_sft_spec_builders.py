@@ -83,9 +83,9 @@ def test_build_sft_specs_rejects_bad_count():
 
 
 @pytest.mark.parametrize("family", sorted(SFT_SPEC_FAMILIES))
-def test_sft_family_declares_capacity_above_current_target(family):
+def test_sft_family_declares_capacity_for_target_plus_default_backfill_budget(family):
     assert unique_capacity(family) == SFT_SPEC_CAPACITIES[family]
-    assert unique_capacity(family) >= 1000
+    assert unique_capacity(family) >= 3000
 
 
 @pytest.mark.parametrize("family", sorted(SFT_SPEC_FAMILIES))
@@ -94,6 +94,16 @@ def test_sft_production_target_has_unique_teacher_visible_sources(family):
     fingerprints = {sft_source_fingerprint(spec) for spec in specs}
 
     assert len(fingerprints) == 1000
+
+
+@pytest.mark.parametrize(
+    "family",
+    ["clear_sky_color_qa", "code_generation_function", "function_completion_body_only"],
+)
+def test_expanded_sft_families_have_unique_sources_through_default_backfill_range(family):
+    specs = build_specs(family=family, count=3000)
+
+    assert len({sft_source_fingerprint(spec) for spec in specs}) == 3000
 
 
 def test_sft_source_fingerprint_does_not_treat_id_as_content():
