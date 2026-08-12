@@ -71,6 +71,53 @@ def test_discover_sft_jsonl_ignores_internal_dirs(tmp_path, dirname):
     assert discover_jsonl_files(dataset_dir) == [public_path]
 
 
+def test_push_sft_run_blocks_before_hf_when_acceptance_report_is_missing(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run"
+    dataset_dir = run_dir / "datasets"
+    manifest_dir = run_dir / "manifests"
+    dataset_dir.mkdir(parents=True)
+    manifest_dir.mkdir()
+    (dataset_dir / "basic_arithmetic_qa.jsonl").write_text(
+        json.dumps(_sft_row()) + "\n",
+        encoding="utf-8",
+    )
+    (manifest_dir / "sft-run.manifest.json").write_text(
+        json.dumps(
+            {
+                "dataset_type": "sft",
+                "families": ["basic_arithmetic_qa"],
+                "datasets": [],
+                "metadata": {
+                    "generation_status": "complete",
+                    "publish_ready": True,
+                    "accepted_target": {
+                        "unit": "rows",
+                        "target": 1,
+                        "accepted": 1,
+                        "attempted": 1,
+                        "remaining": 0,
+                        "status": "complete",
+                        "publish_ready": True,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def unexpected_hf_api(*args, **kwargs):
+        raise AssertionError("Hugging Face client must not be created")
+
+    monkeypatch.setattr("slm_synth.sft.push_hf.HfApi", unexpected_hf_api)
+
+    with pytest.raises(FileNotFoundError, match="acceptance report does not exist"):
+        push_sft_run(
+            dataset_dir=dataset_dir,
+            run_dir=run_dir,
+            repo_id="tohio/slm-synthetic-sft",
+        )
+
+
 def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkeypatch):
     run_dir = tmp_path / "run"
     dataset_dir = run_dir / "datasets"

@@ -16,7 +16,7 @@ Use the same order for every active generation surface:
 
 Public dataset directories should contain final public files only. Batch shards, partial files, rejected rows, retry files, provider internals, and scratch files stay out of public upload discovery.
 
-For SFT, DPO, distillation SFT, and distillation DPO, row and pair targets mean accepted public artifacts. Quality-gate rejects do not count toward the target. Underfilled runs preserve accepted rows, record `remaining_rows` or `remaining_pairs` in the manifest, and are not publish-ready until completed by backfill or rerun.
+For SFT, DPO, distillation SFT, and distillation DPO, row and pair targets mean accepted public artifacts. Quality-gate rejects do not count toward the target. Underfilled runs preserve accepted data, record `remaining_rows` or `remaining_pairs`, and are not publish-ready until completed by backfill, resume, or rerun.
 
 ## Generic SFT
 
@@ -48,10 +48,62 @@ make sft-report SFT_REPORT_RUN=sft-prod-001
 Push after inspection:
 
 ```bash
-make sft-push SFT_PUSH_RUN=sft-prod-001
+make sft-push \
+  SFT_PUSH_RUN=sft-prod-001 \
+  SFT_HF_REPO=tohio/slm-synthetic-sft
 ```
 
-Public rows are written under `data/sft/runs/<run>/datasets/`.
+Public rows are written under `data/sft/runs/<run>/datasets/`, with one final JSONL file per family. Batch shards remain under the sibling `batches/` directory.
+
+### SFT acceptance and backfill
+
+SFT accepts the first row for each normalized ID, prompt, and complete conversation. Duplicate rows and terminal local-validation failures do not count toward the target. Repeated assistant responses are reported but are not automatically rejected because distinct factual prompts can share an answer.
+
+Each generation round uses the next unused source indexes. If the run remains underfilled after its configured budget, generation writes the accepted public rows and a failed run manifest, then exits non-zero. `SFT_MAX_BACKFILL_ROUNDS` is the total lifetime budget for the run, including rounds already recorded before resume.
+
+To resume a finalized underfilled run, keep its run id and source plan, increase the total budget, and enable resume:
+
+```bash
+SFT_TARGET_ROWS=14000 \
+SFT_TARGET_RUN=sft-prod-001 \
+SFT_MAX_BACKFILL_ROUNDS=3 \
+SFT_RESUME=true \
+make sft-generate
+```
+
+Resume validates the existing public files, content fingerprints, family allocation, batch manifests, accepted-target accounting, and next source indexes before making a request. It makes no request when the existing run is already complete.
+
+### SFT reporting and publish blockers
+
+`make sft-report` loads `configs/eval_holdouts.yaml` by default and writes `coverage.json`. The report includes aggregate and per-family metadata coverage, normalized ID/prompt/conversation uniqueness, response repetition, holdout collisions, and attempted/accepted/rejected/duplicate/remaining counts.
+
+Publication is blocked when:
+
+- IDs, normalized prompts, or normalized conversations repeat.
+- Holdouts were not checked or a holdout collision exists.
+- Accepted-target accounting is missing, inconsistent, or underfilled.
+- `coverage.json` is missing or stale relative to public files.
+- The dataset card lacks the default or any required family configuration.
+
+### SFT publication migration
+
+`sft-push` publishes one atomic commit to `SFT_HF_REPO`:
+
+```text
+tohio/slm-synthetic-sft/
+├── README.md
+├── data/
+│   ├── ai_concept_explanation.jsonl
+│   ├── basic_arithmetic_qa.jsonl
+│   └── ...
+└── artifacts/
+    ├── coverage.json
+    └── manifests/
+```
+
+The `default` configuration loads all `data/*.jsonl` files as the train split. Each family configuration loads its existing family file; it does not duplicate stored rows. Families remain metadata/configuration boundaries, not train/validation/test splits.
+
+The push target does not modify or delete legacy `slm-synthetic-sft-*` family repositories. Keep those repositories until the consolidated dataset has been published, loaded with both default and family configurations, inspected, and adopted by downstream consumers.
 
 ## Generic DPO
 

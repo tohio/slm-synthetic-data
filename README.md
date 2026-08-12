@@ -98,8 +98,12 @@ SFT_TARGET_ROWS=14000 SFT_TARGET_RUN=sft-prod-001 make sft-generate
 Push only after inspecting the public dataset files and manifests:
 
 ```bash
-make sft-push SFT_PUSH_RUN=sft-prod-001
+make sft-push \
+  SFT_PUSH_RUN=sft-prod-001 \
+  SFT_HF_REPO=tohio/slm-synthetic-sft
 ```
+
+This publishes one consolidated dataset with default all-family loading and optional per-family configurations. Duplicate content, holdout collisions, underfilled accounting, and stale acceptance reports block publication.
 
 For end-to-end workflows across every generation surface, see `docs/GENERATION_WORKFLOW.md`. For supported families and signals, see `docs/GENERATION_FAMILIES.md`. For Make target details, see `docs/COMMANDS.md`.
 

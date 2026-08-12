@@ -65,6 +65,18 @@ SFT_TARGET_ROWS=14000 SFT_TARGET_RUN=sft-target-001 make sft-generate
 make sft-inspect SFT_INSPECT_RUN=sft-target-001
 ```
 
+Resume a finalized underfilled run with a higher total backfill budget:
+
+```bash
+SFT_TARGET_ROWS=14000 \
+SFT_TARGET_RUN=sft-target-001 \
+SFT_MAX_BACKFILL_ROUNDS=3 \
+SFT_RESUME=true \
+make sft-generate
+```
+
+The run id, target, selected families, start index, teacher model, and provider must match the existing run manifest.
+
 | Variable | Default | Purpose |
 |---|---:|---|
 | `SFT_RUN` | `sft-smoke-001` | Smoke run id. |

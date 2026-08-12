@@ -14,11 +14,13 @@ sft/
 ├── specs.py          # teacher-visible spec validation
 ├── batches.py        # batch prompt and response contract
 ├── generation.py     # one-batch materialization/generation
-├── runs.py           # multi-family LLM run orchestration
+├── acceptance.py     # normalized output uniqueness and acceptance
+├── runs.py           # multi-family generation, backfill, and resume
 ├── schema.py         # public row validation
 ├── manifest.py       # dataset and run manifests
-├── report.py         # coverage reporting
-├── push_hf.py        # Hugging Face publishing
+├── report.py         # aggregate and per-family acceptance reporting
+├── card.py           # consolidated dataset configuration validation
+├── push_hf.py        # atomic consolidated Hugging Face publishing
 └── cli.py            # command-line entrypoint
 ```
 
@@ -29,3 +31,5 @@ Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and `sft-
 ## Conventions
 
 Public SFT rows contain only `id`, `messages`, and public `metadata`. Teacher/provider/run/cost/retry details stay in manifests.
+
+Accepted targets count unique public rows after local validation. Backfill uses unused source indexes; finalized underfilled runs can be continued with `SFT_RESUME=true`. The default Make paths enforce the configured holdout registry during generation and reporting.
