@@ -1,3 +1,5 @@
+import pytest
+
 from slm_synth.distillation_sft.response_quality import (
     aggregate_rejection_reasons,
     filter_public_rows_by_response_quality,
@@ -23,6 +25,31 @@ def test_response_quality_rejects_wrong_arithmetic_answer():
     reasons = validate_response_quality(
         signal="arithmetic",
         row=_row("Answer with only the integer result: 203 - 12.", "190"),
+    )
+
+    assert reasons == ("arithmetic_wrong_answer",)
+
+
+@pytest.mark.parametrize(
+    ("prompt", "answer"),
+    [
+        ("A box has 96 pencils packed evenly into 12 bags. How many pencils are in each bag?", "8"),
+        ("A library has 8 shelves with 37 books on each shelf. How many books are there?", "296"),
+        ("A ticket booth sold 125 morning tickets and 178 afternoon tickets. How many tickets were sold?", "303"),
+    ],
+)
+def test_response_quality_verifies_seed_word_problem_answers(prompt, answer):
+    assert validate_response_quality(signal="arithmetic", row=_row(prompt, answer)) == ()
+    assert is_response_machine_verified(signal="arithmetic", row=_row(prompt, answer))
+
+
+def test_response_quality_rejects_wrong_seed_word_problem_answer():
+    reasons = validate_response_quality(
+        signal="arithmetic",
+        row=_row(
+            "A class has 84 students split equally into 7 groups. How many students are in each group?",
+            "11",
+        ),
     )
 
     assert reasons == ("arithmetic_wrong_answer",)
@@ -109,6 +136,41 @@ def test_response_quality_rejects_code_without_function_definition():
     )
 
     assert reasons == ("code_missing_function_definition",)
+
+
+def test_response_quality_rejects_invalid_python_syntax():
+    reasons = validate_response_quality(
+        signal="code",
+        row=_row("Write a Python function that returns its input.", "def identity(value):\n    return (value"),
+    )
+
+    assert reasons == ("code_invalid_python_syntax",)
+
+
+def test_response_quality_requires_production_function_name():
+    reasons = validate_response_quality(
+        signal="code",
+        row=_row(
+            "Write a concise Python function named normalize_email_7 that should return a stripped, "
+            "lowercase email string. Return code only, no Markdown.",
+            "def normalize_email(value):\n    return value.strip().lower()",
+        ),
+    )
+
+    assert reasons == ("code_wrong_function_name",)
+
+
+def test_response_quality_accepts_syntactic_code_with_required_function_name():
+    reasons = validate_response_quality(
+        signal="code",
+        row=_row(
+            "Write a concise Python function named normalize_email_7 that should return a stripped, "
+            "lowercase email string. Return code only, no Markdown.",
+            "def normalize_email_7(value):\n    return value.strip().lower()",
+        ),
+    )
+
+    assert reasons == ()
 
 
 def test_response_quality_rejects_database_query_without_sql_shape():

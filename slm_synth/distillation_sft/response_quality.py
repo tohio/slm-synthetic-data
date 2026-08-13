@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from collections import Counter
@@ -20,6 +21,8 @@ RESPONSE_QUALITY_CHECKS = (
     "unexpected_refusal",
     "arithmetic_answer",
     "code_function_shape",
+    "code_python_syntax",
+    "code_required_function_name",
     "database_query_shape",
     "factual_restraint",
 )
@@ -46,6 +49,24 @@ _RESTRAINT_RE = re.compile(
 )
 _ARITHMETIC_RE = re.compile(r"(-?\d+)\s*([+\-*/x×÷])\s*(-?\d+)")
 _INTEGER_RE = re.compile(r"^[+-]?\d+$")
+_NAMED_FUNCTION_RE = re.compile(r"\bfunction\s+named\s+([A-Za-z_]\w*)\b", re.IGNORECASE)
+_WORD_PROBLEM_PATTERNS = (
+    (re.compile(r"\bhas\s+(\d+)\s+pencils\b.*\binto\s+(\d+)\s+bags\b", re.IGNORECASE), "/"),
+    (re.compile(r"\bhas\s+(\d+)\s+shelves\b.*\bwith\s+(\d+)\s+books\b", re.IGNORECASE), "*"),
+    (re.compile(r"\bbuys\s+(\d+)\s+packs\b.*\bwith\s+(\d+)\s+markers\b", re.IGNORECASE), "*"),
+    (re.compile(r"\bhas\s+(\d+)\s+cars\b.*\bwith\s+(\d+)\s+seats\b", re.IGNORECASE), "*"),
+    (re.compile(r"\buses\s+(\d+)\s+cups\b.*\bfor\s+(\d+)\s+loaves\b", re.IGNORECASE), "*"),
+    (re.compile(r"\bcompletes\s+(\d+)\s+laps\b.*\bof\s+(\d+)\s+meters\b", re.IGNORECASE), "*"),
+    (re.compile(r"\bships\s+(\d+)\s+boxes\b.*\bwith\s+(\d+)\s+items\b", re.IGNORECASE), "*"),
+    (re.compile(r"\bhas\s+(\d+)\s+students\b.*\binto\s+(\d+)\s+groups\b", re.IGNORECASE), "/"),
+    (
+        re.compile(
+            r"\bsold\s+(\d+)\s+morning\s+tickets\b.*\band\s+(\d+)\s+afternoon\s+tickets\b",
+            re.IGNORECASE,
+        ),
+        "+",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -225,11 +246,24 @@ def _validate_arithmetic_response(*, prompt: str, response: str) -> list[str]:
 
 def _expected_arithmetic_result(prompt: str) -> int | None:
     match = _ARITHMETIC_RE.search(prompt)
-    if not match:
-        return None
-    left = int(match.group(1))
-    op = match.group(2)
-    right = int(match.group(3))
+    if match:
+        return _apply_integer_operation(
+            left=int(match.group(1)),
+            op=match.group(2),
+            right=int(match.group(3)),
+        )
+    for pattern, op in _WORD_PROBLEM_PATTERNS:
+        word_match = pattern.search(prompt)
+        if word_match:
+            return _apply_integer_operation(
+                left=int(word_match.group(1)),
+                op=op,
+                right=int(word_match.group(2)),
+            )
+    return None
+
+
+def _apply_integer_operation(*, left: int, op: str, right: int) -> int | None:
     if op == "+":
         return left + right
     if op == "-":
@@ -246,10 +280,29 @@ def _expected_arithmetic_result(prompt: str) -> int | None:
 def _validate_code_response(*, prompt: str, response: str) -> list[str]:
     prompt_lower = prompt.casefold()
     reasons: list[str] = []
-    if "```" in response:
+    has_markdown_fence = "```" in response
+    if has_markdown_fence:
         reasons.append("markdown_fence")
-    if "python function" in prompt_lower and not re.search(r"\bdef\s+\w+\s*\(|\blambda\b", response):
+    asks_for_function = "python function" in prompt_lower
+    has_function_shape = bool(re.search(r"\bdef\s+\w+\s*\(|\blambda\b", response))
+    if asks_for_function and not has_function_shape:
         reasons.append("code_missing_function_definition")
+        return reasons
+    if has_function_shape and not has_markdown_fence:
+        try:
+            tree = ast.parse(response)
+        except SyntaxError:
+            reasons.append("code_invalid_python_syntax")
+            return reasons
+        required_name = _NAMED_FUNCTION_RE.search(prompt)
+        if required_name:
+            defined_names = {
+                node.name
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            if required_name.group(1) not in defined_names:
+                reasons.append("code_wrong_function_name")
     return reasons
 
 
