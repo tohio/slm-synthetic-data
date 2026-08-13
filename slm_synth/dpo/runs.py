@@ -14,6 +14,7 @@ from slm_synth.accepted_target import accepted_target_metadata, raise_for_underf
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.planning import build_count_plan
 from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
+from slm_synth.dpo.acceptance import partition_unique_dpo_rows
 from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import write_manifest, write_run_manifest
 from slm_synth.dpo.batches import is_exact_target_dpo_spec
@@ -264,10 +265,10 @@ def generate_llm_run(
 
     jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
     results = [job["result"] for job in jobs]
-    datasets = _write_public_family_files(jobs=jobs, output_dir=output_dir)
+    datasets, output_acceptance = _write_public_family_files(jobs=jobs, output_dir=output_dir)
     planned_pairs = count_plan.planned_count
-    accepted_pairs = sum(dataset["row_count"] for dataset in datasets)
-    rejected_pairs = max(planned_pairs - accepted_pairs, 0)
+    accepted_pairs = output_acceptance["accepted_pairs"]
+    rejected_pairs = output_acceptance["rejected_pairs"]
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     _write_llm_run_manifest(
@@ -284,13 +285,20 @@ def generate_llm_run(
             "planned_pairs": planned_pairs,
             "accepted_pairs": accepted_pairs,
             "rejected_pairs": rejected_pairs,
+            "attempted_pairs": output_acceptance["attempted_pairs"],
+            "duplicate_pairs": output_acceptance["duplicate_pairs"],
+            "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],
+            "attempted_pairs_per_family": output_acceptance["attempted_pairs_per_family"],
+            "accepted_pairs_per_family": output_acceptance["accepted_pairs_per_family"],
+            "rejected_pairs_per_family": output_acceptance["rejected_pairs_per_family"],
+            "duplicate_pairs_per_family": output_acceptance["duplicate_pairs_per_family"],
             "max_backfill_rounds": max_backfill_rounds,
             "backfill_rounds": 0,
             **accepted_target_metadata(
                 unit="pairs",
                 target_count=planned_pairs,
                 accepted_count=accepted_pairs,
-                attempted_count=planned_pairs,
+                attempted_count=output_acceptance["attempted_pairs"],
                 max_backfill_rounds=max_backfill_rounds,
                 backfill_rounds=0,
             ),
@@ -382,17 +390,35 @@ def _write_llm_run_manifest(
     return path
 
 
-def _write_public_family_files(*, jobs: list[dict[str, Any]], output_dir: str | Path) -> list[dict[str, Any]]:
+def _write_public_family_files(
+    *, jobs: list[dict[str, Any]], output_dir: str | Path
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    all_rows: list[dict[str, Any]] = []
+    attempted_pairs_per_family: dict[str, int] = {}
+    for family in sorted({job["family"] for job in jobs}):
+        family_rows = [
+            row
+            for job in jobs
+            if job["family"] == family
+            for row in read_jsonl(job["result"].dataset_path)
+        ]
+        attempted_pairs_per_family[family] = len(family_rows)
+        all_rows.extend(family_rows)
+    accepted_rows, summary = partition_unique_dpo_rows(all_rows)
+    accepted_rows_per_family = {
+        family: sum(row["metadata"]["eval_family"] == family for row in accepted_rows)
+        for family in attempted_pairs_per_family
+    }
+
     datasets: list[dict[str, Any]] = []
     for family in sorted({job["family"] for job in jobs}):
         family_jobs = [job for job in jobs if job["family"] == family]
-        rows: list[dict[str, Any]] = []
         batch_manifests: list[Path] = []
         for job in family_jobs:
             result = job["result"]
-            rows.extend(read_jsonl(result.dataset_path))
             batch_manifests.append(result.manifest_path)
 
+        rows = [row for row in accepted_rows if row["metadata"]["eval_family"] == family]
         dataset_path = Path(output_dir) / f"{family}.jsonl"
         row_count = write_jsonl(rows, dataset_path)
         datasets.append(
@@ -404,7 +430,19 @@ def _write_public_family_files(*, jobs: list[dict[str, Any]], output_dir: str | 
                 "batch_manifests": batch_manifests,
             }
         )
-    return datasets
+    duplicate_pairs_per_family = {
+        family: attempted_pairs_per_family[family] - accepted_rows_per_family[family]
+        for family in attempted_pairs_per_family
+    }
+    acceptance = {
+        **summary,
+        "rejected_pairs": 0,
+        "attempted_pairs_per_family": attempted_pairs_per_family,
+        "accepted_pairs_per_family": accepted_rows_per_family,
+        "rejected_pairs_per_family": {family: 0 for family in attempted_pairs_per_family},
+        "duplicate_pairs_per_family": duplicate_pairs_per_family,
+    }
+    return datasets, acceptance
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:

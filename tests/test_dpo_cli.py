@@ -182,7 +182,8 @@ def test_dpo_generate_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "max_retryable_request_attempts": 5,
             "retry_max_elapsed_seconds": 120.0,
             "adaptive_maximum_in_flight": 3,
-            "adaptive_initial_in_flight": 1,
+                "adaptive_initial_in_flight": 1,
+                "holdout_registry": None,
         }
     ]
     captured = capsys.readouterr()
@@ -263,7 +264,8 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "adaptive_batch_increase_successes": 4,
             "concurrency": 2,
             "max_backfill_rounds": 2,
-            "run_manifest_filename": "custom.manifest.json",
+                "run_manifest_filename": "custom.manifest.json",
+                "holdout_registry": None,
         }
     ]
     captured = capsys.readouterr()

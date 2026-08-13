@@ -85,6 +85,10 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["metadata"]["adaptive_initial_in_flight"] == 8
     assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 2
     assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 24
+    assert manifest["metadata"]["attempted_pairs"] == 3
+    assert manifest["metadata"]["accepted_pairs"] == 3
+    assert manifest["metadata"]["duplicate_pairs"] == 0
+    assert manifest["metadata"]["attempted_pairs_per_family"] == {"ai_concept_explanation": 3}
     assert [item["row_count"] for item in manifest["datasets"]] == [3]
     assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "ai_concept_explanation.jsonl")
     assert manifest["datasets"][0]["batch_count"] == 2
@@ -243,15 +247,23 @@ def test_generate_dpo_llm_run_fails_when_public_pairs_underfill_after_budget(tmp
         dataset_path = output_dir / "ai_concept_explanation.jsonl"
         dataset_path.parent.mkdir(parents=True, exist_ok=True)
         dataset_path.write_text("", encoding="utf-8")
-        return [
-            {
+        return ([{
                 "family": "ai_concept_explanation",
                 "dataset_path": dataset_path,
                 "row_count": 1,
                 "batch_count": len(jobs),
                 "batch_manifests": [job["result"].manifest_path for job in jobs],
-            }
-        ]
+            }], {
+                "attempted_pairs": 2,
+                "accepted_pairs": 1,
+                "rejected_pairs": 0,
+                "duplicate_pairs": 1,
+                "duplicate_reason_counts": {"duplicate_prompt": 1},
+                "attempted_pairs_per_family": {"ai_concept_explanation": 2},
+                "accepted_pairs_per_family": {"ai_concept_explanation": 1},
+                "rejected_pairs_per_family": {"ai_concept_explanation": 0},
+                "duplicate_pairs_per_family": {"ai_concept_explanation": 1},
+            })
 
     monkeypatch.setattr(
         "slm_synth.dpo.runs._write_public_family_files",
@@ -277,3 +289,4 @@ def test_generate_dpo_llm_run_fails_when_public_pairs_underfill_after_budget(tmp
     assert manifest["metadata"]["failure_status"] == "failed"
     assert manifest["metadata"]["run_failed"] is True
     assert manifest["metadata"]["remaining_pairs"] == 1
+    assert manifest["metadata"]["duplicate_pairs"] == 1

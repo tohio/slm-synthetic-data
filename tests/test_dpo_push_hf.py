@@ -3,12 +3,14 @@ import json
 import pytest
 
 from slm_synth.dpo.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_dpo_run, repo_id_for_family
+from slm_synth.dpo.report import build_coverage_report
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 def _dpo_row(row_id="dpo-1"):
     return {
         "id": row_id,
-        "prompt": [{"role": "user", "content": "What is 2 + 2?"}],
+        "prompt": [{"role": "user", "content": f"What is the answer for {row_id}?"}],
         "chosen": [{"role": "assistant", "content": "4"}],
         "rejected": [{"role": "assistant", "content": "5"}],
         "metadata": {
@@ -93,9 +95,26 @@ def test_push_dpo_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (run_dir / "README.md").write_text("# DPO dataset\n", encoding="utf-8")
-    (run_dir / "coverage.json").write_text("{}", encoding="utf-8")
     (manifest_dir / "basic_arithmetic_qa.batch000001.dpo-run.manifest.json").write_text("{}", encoding="utf-8")
-    (manifest_dir / "dpo-run.manifest.json").write_text("{}", encoding="utf-8")
+    run_manifest = manifest_dir / "dpo-run.manifest.json"
+    run_manifest.write_text(json.dumps({
+        "dataset_type": "dpo",
+        "metadata": {
+            "publish_ready": True,
+            "planned_pairs": 3,
+            "accepted_pairs": 3,
+            "rejected_pairs": 0,
+            "duplicate_pairs": 0,
+            "accepted_target": {
+                "unit": "pairs", "target": 3, "accepted": 3,
+                "attempted": 3, "remaining": 0, "publish_ready": True,
+            },
+        },
+    }), encoding="utf-8")
+    coverage = build_coverage_report(
+        [dataset_dir], holdout_registry=HoldoutRegistry([]), run_manifest=run_manifest,
+    )
+    (run_dir / "coverage.json").write_text(json.dumps(coverage), encoding="utf-8")
 
     calls = []
 
@@ -139,3 +158,26 @@ def test_push_dpo_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
     assert "artifacts/manifests/sft-run.manifest.json" in basic_ops or "artifacts/manifests/dpo-run.manifest.json" in basic_ops
     assert "coverage.json" in basic_ops
     assert "manifests/old.manifest.json" in basic_ops
+
+
+def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run"
+    dataset_dir = run_dir / "datasets"
+    manifest_dir = run_dir / "manifests"
+    dataset_dir.mkdir(parents=True)
+    manifest_dir.mkdir()
+    (dataset_dir / "basic_arithmetic_qa.jsonl").write_text(
+        json.dumps(_dpo_row()) + "\n", encoding="utf-8",
+    )
+    (manifest_dir / "run.manifest.json").write_text(json.dumps({
+        "dataset_type": "dpo",
+        "metadata": {
+            "publish_ready": True,
+            "accepted_target": {"target": 1, "accepted": 1, "attempted": 1, "remaining": 0},
+        },
+    }), encoding="utf-8")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_HUB_TOKEN", raising=False)
+
+    with pytest.raises(FileNotFoundError, match="acceptance report"):
+        push_dpo_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_owner="tohio")

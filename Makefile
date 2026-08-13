@@ -142,6 +142,7 @@ DPO_INITIAL_BATCH_SIZE ?= 4
 DPO_BATCH_INCREASE_SUCCESSES ?= 4
 DPO_MAX_BACKFILL_ROUNDS ?= 2
 DPO_MAX_TOKENS ?= 4096
+DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(HF_REPO)
 DPO_HF_NAMESPACE ?= $(HF_NAMESPACE)
@@ -490,6 +491,7 @@ dpo-smoke:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
+>   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
@@ -508,6 +510,7 @@ dpo-generate:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_TARGET_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
+>   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_TARGET_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
@@ -519,6 +522,8 @@ dpo-generate:
 dpo-report:
 > $(PYTHON) -m slm_synth.dpo.cli report-coverage \
 >   --input $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/datasets \
+>   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
+>   --run-manifest $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/manifests/$(DPO_REPORT_RUN).manifest.json \
 >   --output $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.cards build --kind dpo --run-dir data/dpo/runs/$(DPO_REPORT_RUN)
 > $(PYTHON) -m slm_synth.manifest_totals normalize --kind dpo --run-dir data/dpo/runs/$(DPO_REPORT_RUN)

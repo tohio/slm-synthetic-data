@@ -16,6 +16,7 @@ from slm_synth.dpo.generation import generate_llm_batch_from_files, materialize_
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.dpo.runs import generate_llm_run
 from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_and_write_specs
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None]:
@@ -39,7 +40,11 @@ def cmd_build_specs(args: argparse.Namespace) -> int:
 
 
 def cmd_report_coverage(args: argparse.Namespace) -> int:
-    report = build_coverage_report(args.input)
+    report = build_coverage_report(
+        args.input,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
+        run_manifest=args.run_manifest,
+    )
     if args.output:
         output_path = write_coverage_report(report=report, path=args.output)
         print(f"wrote DPO coverage report to {output_path}")
@@ -84,6 +89,7 @@ def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
         adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
         **_openrouter_routing_kwargs(args),
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
     )
     print(
         "generated "
@@ -119,6 +125,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         concurrency=args.concurrency,
         max_backfill_rounds=args.max_backfill_rounds,
         run_manifest_filename=args.run_manifest_filename,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
         **_openrouter_routing_kwargs(args),
     )
     print(
@@ -172,6 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
     generate_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     generate_parser.add_argument("--openrouter-provider", default=None)
+    generate_parser.add_argument("--holdout-registry", default=None)
     generate_parser.set_defaults(func=cmd_generate_llm_batch)
 
     generate_run_parser = subparsers.add_parser("generate-llm-run")
@@ -208,6 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
     generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     generate_run_parser.add_argument("--openrouter-provider", default=None)
+    generate_run_parser.add_argument("--holdout-registry", default=None)
     generate_run_parser.set_defaults(func=cmd_generate_llm_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")
@@ -218,9 +227,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="One or more DPO JSONL files or directories containing JSONL files.",
     )
     coverage_parser.add_argument("--output", default=None, help="Optional JSON report output path.")
+    coverage_parser.add_argument("--holdout-registry", default=None)
+    coverage_parser.add_argument("--run-manifest", default=None)
     coverage_parser.set_defaults(func=cmd_report_coverage)
 
     return parser
+
+
+def _load_holdout_registry(path: str | None) -> HoldoutRegistry | None:
+    return HoldoutRegistry.from_file(path) if path else None
 
 
 def main(argv: list[str] | None = None) -> int:
