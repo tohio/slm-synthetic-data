@@ -265,6 +265,10 @@ def test_distillation_dpo_report_and_card(tmp_path):
     assert report["dataset_type"] == "distillation-dpo"
     assert report["row_count"] == 2
     assert report["failure_modes"]
+    assert report["eval_families"] == {
+        "code_generation_function": 1,
+        "null": 1,
+    }
     assert report["dataset_acceptance"]["publish_ready"] is True
 
     card_path = write_dataset_card(

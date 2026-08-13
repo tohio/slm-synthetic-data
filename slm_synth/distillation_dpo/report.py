@@ -95,9 +95,11 @@ def _resolve_jsonl_paths(paths: list[str | Path]) -> list[Path]:
 
 
 def _count_metadata(rows: list[dict[str, Any]], field: str, *, stringify_keys: bool = False) -> dict[str, int]:
-    counter = Counter(row["metadata"][field] for row in rows)
-    if stringify_keys:
-        return {str(key): counter[key] for key in sorted(counter)}
+    counter: Counter[str] = Counter()
+    for row in rows:
+        value = row["metadata"][field]
+        key = str(value) if stringify_keys or value is not None else "null"
+        counter[key] += 1
     return {key: counter[key] for key in sorted(counter)}
 
 
