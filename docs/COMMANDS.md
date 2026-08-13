@@ -216,7 +216,7 @@ make distillation-dpo-inspect
 ```
 
 ```bash
-DISTILLATION_DPO_TARGET_PAIRS=50000 DISTILLATION_DPO_TARGET_RUN=distillation-dpo-target-001 make distillation-dpo-generate
+DISTILLATION_DPO_TARGET_PAIRS=15000 DISTILLATION_DPO_TARGET_RUN=distillation-dpo-target-001 make distillation-dpo-generate
 make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-target-001
 ```
 
@@ -226,8 +226,8 @@ make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-targ
 | `DISTILLATION_DPO_TARGET_RUN` | `distillation-dpo-target-001` | Target run id. |
 | `DISTILLATION_DPO_SMOKE_FAMILIES` | `teacher_response_preference` | Smoke family list. |
 | `DISTILLATION_DPO_FAMILIES` | `all` | Target family list. |
-| `DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
-| `DISTILLATION_DPO_TARGET_PAIRS` | `50000` | Target accepted preference pairs. |
+| `DISTILLATION_DPO_SMOKE_COUNT_PER_FAMILY` | `1000` | Smoke accepted pairs for the single Distillation-DPO family. |
+| `DISTILLATION_DPO_TARGET_PAIRS` | `15000` | Production accepted preference-pair target. |
 | `DISTILLATION_DPO_RUN_ROOT` | `data/distillation-dpo/runs` | Run output root. |
 | `DISTILLATION_DPO_MODEL` | `$(MODEL)` | Teacher lineage model recorded in manifests. |
 | `DISTILLATION_DPO_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget after pair quality gates. |

@@ -257,14 +257,7 @@ make distillation-dpo-smoke
 make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-smoke-001
 ```
 
-Small target override:
-
-```bash
-DISTILLATION_DPO_TARGET_PAIRS=100 DISTILLATION_DPO_TARGET_RUN=distillation-dpo-small-001 make distillation-dpo-generate
-
-make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-small-001
-make distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=distillation-dpo-small-001
-```
+The smoke target is 1,000 accepted preference pairs.
 
 Generation preflights the complete initial-plus-backfill source range against
 `configs/eval_holdouts.yaml`. Reporting records the holdout check, and publishing
@@ -274,7 +267,7 @@ stale for the current dataset files.
 Production target:
 
 ```bash
-DISTILLATION_DPO_TARGET_PAIRS=50000 DISTILLATION_DPO_TARGET_RUN=distillation-dpo-prod-001 make distillation-dpo-generate
+DISTILLATION_DPO_TARGET_PAIRS=15000 DISTILLATION_DPO_TARGET_RUN=distillation-dpo-prod-001 make distillation-dpo-generate
 
 make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-prod-001
 make distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=distillation-dpo-prod-001
@@ -287,6 +280,10 @@ make distillation-dpo-push DISTILLATION_DPO_PUSH_RUN=distillation-dpo-prod-001
 ```
 
 Public pairs are written under `data/distillation-dpo/runs/<run>/datasets/`.
+The production target is 15,000 accepted pairs. Duplicate prompts and preference
+triples do not count toward that target. Response repetition, pair similarity,
+and negative-construction patterns are reported for inspection but are not used
+as automatic semantic judges.
 
 ## Pretraining
 

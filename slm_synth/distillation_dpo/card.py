@@ -72,6 +72,15 @@ def render_dataset_card(
         ),
         "## Pair Planning",
         "\n".join(planning_lines),
+        "## Quality Contract",
+        (
+            "Accepted targets count only unique normalized prompts and preference triples "
+            "that pass deterministic pair-quality checks. Returned prompt and metadata "
+            "fields must remain bound to their source IDs, and publication requires "
+            "coverage and holdout checks. Repeated-response clusters, chosen/rejected "
+            "similarity, and negative-construction patterns are reported as diagnostics; "
+            "they are not automatic semantic judgments."
+        ),
         "## Families",
         "\n".join(rows),
         "## Row Schema",

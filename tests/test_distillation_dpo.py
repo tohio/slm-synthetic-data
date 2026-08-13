@@ -276,6 +276,8 @@ def test_distillation_dpo_report_and_card(tmp_path):
     assert "Distillation-DPO" in card_text
     assert "controlled_weak" in card_text
     assert "Target pairs" in card_text
+    assert "unique normalized prompts and preference triples" in card_text
+    assert "not automatic semantic judgments" in card_text
 
 
 def test_distillation_dpo_push_discovers_public_files_only(tmp_path):

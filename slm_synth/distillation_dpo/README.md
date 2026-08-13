@@ -14,6 +14,7 @@ distillation_dpo/
 ├── spec_builders.py  # source specs for teacher generation
 ├── batches.py        # batch prompt and response contract
 ├── pair_quality.py   # pair-quality gates
+├── acceptance.py     # uniqueness, coverage, and response-pattern reporting
 ├── schema.py         # public row validation
 ├── io.py             # JSONL and manifest writers
 ├── runs.py           # multi-family LLM run orchestration
@@ -40,6 +41,12 @@ target_consumer: slm-distillation
 
 Public rows omit provider, retry, cost, and run internals.
 
-Pair-quality gates require complete syntax-valid chosen Python for code-generation
-rows, require declared `code_syntax_error` rejected examples to be Python-shaped
-and syntax-invalid, and reject overly verbose private-information chosen responses.
+The smoke target is 1,000 accepted pairs. The production target is 15,000
+accepted pairs. Source capacity supports larger validation runs without changing
+those approved defaults.
+
+Accepted pairs require unique normalized prompts and preference triples, exact
+source prompt/metadata binding, holdout separation, approved category and
+failure-mode coverage, and all applicable machine-verifiable response contracts.
+Response repetition, chosen/rejected similarity, and negative-construction
+patterns are inspection diagnostics rather than automatic semantic gates.
