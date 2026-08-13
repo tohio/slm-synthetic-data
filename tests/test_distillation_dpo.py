@@ -5,6 +5,7 @@ import pytest
 
 from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.distillation_dpo.card import write_dataset_card
+from slm_synth.distillation_dpo.acceptance import build_dataset_acceptance_report
 from slm_synth.distillation_dpo.io import read_jsonl
 from slm_synth.distillation_dpo.push_hf import (
     count_and_validate_jsonl,
@@ -170,6 +171,9 @@ def test_generate_llm_run_writes_live_distillation_dpo_outputs(tmp_path):
         "start_index": 1,
         "next_start_index": 10,
     }
+    assert manifest["metadata"]["dataset_acceptance"]["publish_ready"] is True
+    assert manifest["metadata"]["dataset_acceptance"]["unique_prompt_count"] == 3
+    assert manifest["metadata"]["dataset_acceptance"]["unique_triple_count"] == 3
     assert "teacher_model" not in rows[0]
     assert rows[0]["chosen"] != rows[0]["rejected"]
 
@@ -221,6 +225,7 @@ def test_distillation_dpo_report_and_card(tmp_path):
     assert report["dataset_type"] == "distillation-dpo"
     assert report["row_count"] == 2
     assert report["failure_modes"]
+    assert report["dataset_acceptance"]["publish_ready"] is True
 
     card_path = write_dataset_card(
         run_manifest_path=result.manifest_path,
@@ -266,7 +271,11 @@ def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
     (dataset_dir / "teacher_response_preference.jsonl").write_text(json.dumps(_row()) + "\n", encoding="utf-8")
     (run_dir / "README.md").write_text("# Distillation DPO\n", encoding="utf-8")
     (run_dir / "coverage.json").write_text("{}", encoding="utf-8")
-    (manifest_dir / "distillation-dpo-smoke-001.manifest.json").write_text("{}", encoding="utf-8")
+    acceptance = build_dataset_acceptance_report([_row()])
+    (manifest_dir / "distillation-dpo-smoke-001.manifest.json").write_text(
+        json.dumps({"metadata": {"dataset_acceptance": acceptance}}),
+        encoding="utf-8",
+    )
 
     calls = []
 
@@ -304,6 +313,36 @@ def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
     assert "artifacts/manifests/distillation-dpo-smoke-001.manifest.json" in paths
     assert "coverage.json" in paths
     assert "manifests/old.manifest.json" in paths
+
+
+def test_push_distillation_dpo_run_blocks_duplicate_dataset_before_hf_setup(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run"
+    dataset_dir = run_dir / "datasets"
+    manifest_dir = run_dir / "manifests"
+    dataset_dir.mkdir(parents=True)
+    manifest_dir.mkdir()
+    original = _row("original")
+    duplicate = _row("duplicate")
+    (dataset_dir / "teacher_response_preference.jsonl").write_text(
+        json.dumps(original) + "\n" + json.dumps(duplicate) + "\n",
+        encoding="utf-8",
+    )
+    acceptance = build_dataset_acceptance_report([original])
+    (manifest_dir / "distillation-dpo-smoke-001.manifest.json").write_text(
+        json.dumps({"metadata": {"dataset_acceptance": acceptance}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "slm_synth.distillation_dpo.push_hf.HfApi",
+        lambda **_kwargs: pytest.fail("Hugging Face setup must not run"),
+    )
+
+    with pytest.raises(ValueError, match="dataset acceptance contract"):
+        push_distillation_dpo_run(
+            dataset_dir=dataset_dir,
+            run_dir=run_dir,
+            repo_id="tohio/slm-synthetic-distillation-dpo",
+        )
 
 
 def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():

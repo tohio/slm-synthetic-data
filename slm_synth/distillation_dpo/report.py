@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from slm_synth.distillation_dpo.acceptance import build_dataset_acceptance_report
 from slm_synth.distillation_dpo.io import DATASET_TYPE, read_jsonl
 
 
@@ -29,6 +30,7 @@ def build_coverage_report(paths: list[str | Path]) -> dict[str, Any]:
         "template_families": _count_metadata(rows, "template_family"),
         "difficulty_counts": _count_metadata(rows, "difficulty", stringify_keys=True),
         "failure_modes": _count_metadata(rows, "failure_mode"),
+        "dataset_acceptance": build_dataset_acceptance_report(rows),
     }
 
 

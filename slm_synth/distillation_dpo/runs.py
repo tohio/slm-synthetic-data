@@ -12,6 +12,7 @@ from typing import Any
 
 from slm_synth.accepted_target import accepted_target_metadata, raise_for_underfilled_manifest
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
+from slm_synth.distillation_dpo.acceptance import build_dataset_acceptance_report
 from slm_synth.distillation_dpo.batches import (
     DISTILLATION_DPO_BATCH_RESPONSE_SCHEMA,
     render_distillation_dpo_batch_prompt,
@@ -24,7 +25,11 @@ from slm_synth.distillation_dpo.pair_quality import (
     filter_pairs_by_quality,
 )
 from slm_synth.distillation_dpo.seeds import DISTILLATION_DPO_FAMILIES, validate_family
-from slm_synth.distillation_dpo.spec_builders import build_production_rows, require_source_capacity
+from slm_synth.distillation_dpo.spec_builders import (
+    build_production_rows,
+    build_source_capacity_summary,
+    require_source_capacity,
+)
 from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend
 from slm_synth.planning import build_count_plan
 from slm_synth.run_summary import print_batch_failure, print_batch_progress
@@ -54,6 +59,7 @@ class DistillationDPOFamilyResult:
     max_backfill_rounds: int = 0
     backfill_rounds: int = 0
     batch_manifest_paths: tuple[Path, ...] = ()
+    dataset_acceptance: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -332,12 +338,26 @@ def _generate_llm_family(
                 accepted_pairs=len(accepted_rows),
                 rejected_pairs=max(quality.checked_pairs - len(accepted_rows), 0),
                 rejection_reasons=quality.rejection_reasons,
+                duplicate_prompt_pairs=quality.duplicate_prompt_pairs,
+                duplicate_triple_pairs=quality.duplicate_triple_pairs,
             )
 
     dataset_path = write_family_dataset(
         family=normalized_family,
         rows=accepted_rows,
         output_dir=output_dir,
+    )
+    expected_coverage = build_source_capacity_summary(
+        family=normalized_family,
+        count=target_pairs,
+        start_index=start_index,
+    )
+    dataset_acceptance = build_dataset_acceptance_report(
+        accepted_rows,
+        expected_categories=expected_coverage["categories"],
+        expected_failure_modes=expected_coverage["failure_modes"],
+        attempted_pairs=quality.checked_pairs,
+        attempted_rejection_reasons=quality.rejection_reasons,
     )
     manifest_path = default_manifest_path(
         manifest_dir=manifest_dir,
@@ -353,6 +373,7 @@ def _generate_llm_family(
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             **batch_controller.snapshot(),
             "llm_telemetry": aggregate_llm_telemetry_from_manifests(batch_manifest_paths),
+            "dataset_acceptance": dataset_acceptance,
             **dict(metadata),
         },
         target_pairs=target_pairs,
@@ -395,6 +416,7 @@ def _generate_llm_family(
         max_backfill_rounds=max_backfill_rounds,
         backfill_rounds=backfill_rounds,
         batch_manifest_paths=tuple(batch_manifest_paths),
+        dataset_acceptance=dataset_acceptance,
     )
 
 
@@ -580,9 +602,20 @@ def _write_run_result(
         accepted_pairs=accepted_pairs,
         rejected_pairs=rejected_pairs,
         rejection_reasons=rejection_reasons,
+        duplicate_prompt_pairs=sum(
+            int(result.dataset_acceptance.get("duplicate_prompt_pairs", 0))
+            for result in results
+            if isinstance(result.dataset_acceptance, Mapping)
+        ),
+        duplicate_triple_pairs=sum(
+            int(result.dataset_acceptance.get("duplicate_triple_pairs", 0))
+            for result in results
+            if isinstance(result.dataset_acceptance, Mapping)
+        ),
     )
+    dataset_acceptance = _merge_dataset_acceptance(results)
     manifest_metadata = _planning_metadata(
-        base_metadata=metadata,
+        base_metadata={**dict(metadata), "dataset_acceptance": dataset_acceptance},
         target_pairs=target_pairs,
         planned_pairs=planned_pairs,
         quality=quality_summary,
@@ -668,6 +701,47 @@ def _metadata_max_backfill_rounds(results: Sequence[DistillationDPOFamilyResult]
 
 def _metadata_backfill_rounds(results: Sequence[DistillationDPOFamilyResult]) -> int:
     return max((result.backfill_rounds for result in results), default=0)
+
+
+def _merge_dataset_acceptance(results: Sequence[DistillationDPOFamilyResult]) -> dict[str, Any]:
+    reports = [result.dataset_acceptance for result in results if isinstance(result.dataset_acceptance, Mapping)]
+    count_fields = (
+        "attempted_pairs",
+        "rejected_pairs",
+        "duplicate_prompt_pairs",
+        "duplicate_triple_pairs",
+        "accepted_pairs",
+        "remaining_pairs",
+        "unique_prompt_count",
+        "unique_triple_count",
+    )
+    merged: dict[str, Any] = {
+        field: sum(int(report.get(field, 0)) for report in reports)
+        for field in count_fields
+    }
+    for field in (
+        "categories",
+        "failure_modes",
+        "expected_categories",
+        "expected_failure_modes",
+        "rejection_reasons",
+    ):
+        counter: Counter[str] = Counter()
+        for report in reports:
+            values = report.get(field, {})
+            if isinstance(values, Mapping):
+                counter.update({str(key): int(value) for key, value in values.items()})
+        merged[field] = dict(sorted(counter.items()))
+    merged["uniqueness_satisfied"] = bool(reports) and all(
+        report.get("uniqueness_satisfied") is True for report in reports
+    )
+    merged["coverage_satisfied"] = bool(reports) and all(
+        report.get("coverage_satisfied") is True for report in reports
+    )
+    merged["publish_ready"] = bool(reports) and all(
+        report.get("publish_ready") is True for report in reports
+    )
+    return merged
 
 
 def _merge_rejection_reasons(summaries: Sequence[Mapping[str, int]] | Any) -> dict[str, int]:

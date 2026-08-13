@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 import unicodedata
@@ -44,6 +45,8 @@ class PairQualitySummary:
     accepted_pairs: int
     rejected_pairs: int
     rejection_reasons: dict[str, int]
+    duplicate_prompt_pairs: int = 0
+    duplicate_triple_pairs: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +54,8 @@ class PairQualitySummary:
             "accepted_pairs": self.accepted_pairs,
             "rejected_pairs": self.rejected_pairs,
             "rejection_reasons": dict(sorted(self.rejection_reasons.items())),
+            "duplicate_prompt_pairs": self.duplicate_prompt_pairs,
+            "duplicate_triple_pairs": self.duplicate_triple_pairs,
             "checks": list(PAIR_QUALITY_CHECKS),
         }
 
@@ -65,6 +70,10 @@ def filter_pairs_by_quality(
     accepted: list[dict[str, Any]] = []
     reason_counts: Counter[str] = Counter()
     checked_pairs = 0
+    seen_prompt_fingerprints: set[str] = set()
+    seen_triple_fingerprints: set[str] = set()
+    duplicate_prompt_pairs = 0
+    duplicate_triple_pairs = 0
 
     for row in rows:
         checked_pairs += 1
@@ -78,6 +87,22 @@ def filter_pairs_by_quality(
         if reasons:
             reason_counts.update(reasons)
             continue
+
+        prompt_fingerprint = normalized_prompt_fingerprint(validated)
+        triple_fingerprint = normalized_preference_triple_fingerprint(validated)
+        duplicate_reasons: list[str] = []
+        if prompt_fingerprint in seen_prompt_fingerprints:
+            duplicate_prompt_pairs += 1
+            duplicate_reasons.append("duplicate_prompt")
+        if triple_fingerprint in seen_triple_fingerprints:
+            duplicate_triple_pairs += 1
+            duplicate_reasons.append("duplicate_preference_triple")
+        if duplicate_reasons:
+            reason_counts.update(duplicate_reasons)
+            continue
+
+        seen_prompt_fingerprints.add(prompt_fingerprint)
+        seen_triple_fingerprints.add(triple_fingerprint)
         accepted.append(validated)
 
     summary = PairQualitySummary(
@@ -85,6 +110,8 @@ def filter_pairs_by_quality(
         accepted_pairs=len(accepted),
         rejected_pairs=checked_pairs - len(accepted),
         rejection_reasons=dict(reason_counts),
+        duplicate_prompt_pairs=duplicate_prompt_pairs,
+        duplicate_triple_pairs=duplicate_triple_pairs,
     )
     return accepted, summary
 
@@ -156,6 +183,23 @@ def normalize_pair_text(text: str) -> str:
     value = re.sub(r"[`*_#>\-]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
     return value
+
+
+def normalized_prompt_fingerprint(row: Mapping[str, Any]) -> str:
+    """Return a stable fingerprint for a row's normalized user prompt."""
+    prompt = normalize_pair_text(_last_user_content(row.get("prompt", [])))
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def normalized_preference_triple_fingerprint(row: Mapping[str, Any]) -> str:
+    """Return a stable fingerprint for normalized prompt/chosen/rejected content."""
+    values = [
+        normalize_pair_text(_last_user_content(row.get("prompt", []))),
+        normalize_pair_text(_assistant_content(row.get("chosen", []))),
+        normalize_pair_text(_assistant_content(row.get("rejected", []))),
+    ]
+    payload = json.dumps(values, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _assistant_content(messages: Any) -> str:

@@ -12,6 +12,11 @@ from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
 from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
+from slm_synth.distillation_dpo.acceptance import (
+    build_dataset_acceptance_report,
+    require_dataset_acceptance,
+)
+from slm_synth.distillation_dpo.io import read_jsonl
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
@@ -150,9 +155,6 @@ def push_distillation_dpo_run(
     else:
         load_dotenv()
 
-    token = get_hf_token()
-    api = HfApi(token=token)
-
     dataset_root = Path(dataset_dir)
     root = Path(run_dir) if run_dir is not None else None
     run_manifest: Path | None = None
@@ -160,6 +162,26 @@ def push_distillation_dpo_run(
         run_manifest = discover_run_manifest(root, dataset_type="distillation-dpo")
         require_publish_ready_manifest(run_manifest, artifact_name="distillation DPO")
     files = discover_jsonl_files(dataset_root)
+    rows = [row for file_path in files for row in read_jsonl(file_path)]
+    expected_categories = None
+    expected_failure_modes = None
+    if run_manifest is not None:
+        manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
+        metadata = manifest_value.get("metadata", {}) if isinstance(manifest_value, dict) else {}
+        recorded_acceptance = metadata.get("dataset_acceptance", {}) if isinstance(metadata, dict) else {}
+        if not isinstance(recorded_acceptance, dict):
+            recorded_acceptance = {}
+        require_dataset_acceptance(recorded_acceptance, artifact_name="distillation DPO manifest")
+        expected_categories = recorded_acceptance.get("expected_categories")
+        expected_failure_modes = recorded_acceptance.get("expected_failure_modes")
+    actual_acceptance = build_dataset_acceptance_report(
+        rows,
+        expected_categories=expected_categories,
+        expected_failure_modes=expected_failure_modes,
+    )
+    require_dataset_acceptance(actual_acceptance, artifact_name="distillation DPO dataset")
+    token = get_hf_token()
+    api = HfApi(token=token)
     files_by_family: dict[str, list[Path]] = {}
     for file_path in files:
         files_by_family.setdefault(family_from_dataset_path(file_path), []).append(file_path)
