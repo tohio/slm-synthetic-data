@@ -520,6 +520,7 @@ def _write_llm_run_manifest(
             for item in datasets
         ],
         "total_rows": sum(item["row_count"] for item in datasets),
+        "total_pairs": sum(item["row_count"] for item in datasets),
         "metadata": metadata,
     }
     path = Path(manifest_path)

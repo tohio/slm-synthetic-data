@@ -146,8 +146,7 @@ DPO_RESUME_ARG := $(if $(filter true yes 1,$(DPO_RESUME)),--resume,)
 DPO_MAX_TOKENS ?= 4096
 DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
-DPO_HF_REPO ?= $(HF_REPO)
-DPO_HF_NAMESPACE ?= $(HF_NAMESPACE)
+DPO_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-dpo,))
 DPO_HF_PREFIX ?= slm-synthetic-dpo
 DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES)),$(DPO_FAMILIES),$(DPO_SMOKE_FAMILIES))
 
@@ -242,7 +241,7 @@ help:
 > @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
 > @echo "  DPO_TARGET_PAIRS=$(DPO_TARGET_PAIRS)"
 > @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
-> @echo "  DPO_HF_NAMESPACE=$(DPO_HF_NAMESPACE)"
+> @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
 > @echo "  DPO_HF_PREFIX=$(DPO_HF_PREFIX)"
 > @echo "  HF_DELETE_NAMESPACE=$(HF_DELETE_NAMESPACE)"
 > @echo "  HF_DELETE_REPO=$(HF_DELETE_REPO)"
@@ -539,11 +538,11 @@ dpo-inspect:
 > @find $(DPO_RUN_ROOT)/$(DPO_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
 
 dpo-push:
+> test -n "$(DPO_HF_REPO)" || (echo "DPO_HF_REPO or HF_REPO is required" >&2; exit 2)
 > $(PYTHON) -m slm_synth.dpo.push_hf \
 >   --dataset-dir $(DPO_RUN_ROOT)/$(DPO_PUSH_RUN)/datasets \
 >   --run-dir $(DPO_RUN_ROOT)/$(DPO_PUSH_RUN) \
->   --repo-owner $(DPO_HF_NAMESPACE) \
->   --repo-prefix $(DPO_HF_PREFIX) $(HF_PRIVATE_ARG)
+>   --repo-id $(DPO_HF_REPO) $(HF_PRIVATE_ARG)
 
 hf-delete-datasets:
 > $(PYTHON) scripts/delete_hf_datasets.py \

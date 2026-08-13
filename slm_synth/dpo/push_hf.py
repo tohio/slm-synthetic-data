@@ -1,4 +1,4 @@
-"""Push DPO run outputs to per-family Hugging Face dataset repos."""
+"""Push one complete generic DPO run to one Hugging Face dataset repository."""
 
 from __future__ import annotations
 
@@ -9,17 +9,17 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from huggingface_hub import CommitOperationAdd, HfApi, create_repo
+from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, create_repo
 
 from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
-from slm_synth.family_cards import build_family_dataset_card
+from slm_synth.dpo.card import require_dpo_dataset_card_configs
+from slm_synth.dpo.report import build_coverage_report, require_publish_ready_report
+from slm_synth.dpo.schema import validate_dpo_row
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
     legacy_metadata_delete_operations,
 )
-from slm_synth.dpo.schema import validate_dpo_row
-from slm_synth.dpo.report import build_coverage_report, require_publish_ready_report
 
 
 INTERNAL_DATASET_DIR_NAMES = {
@@ -66,7 +66,6 @@ def _prefer_final_public_files(paths: list[Path]) -> list[Path]:
     files_by_family: dict[str, list[Path]] = {}
     for path in paths:
         files_by_family.setdefault(family_from_dataset_path(path), []).append(path)
-
     files: list[Path] = []
     for family_paths in files_by_family.values():
         final_files = [path for path in family_paths if ".batch" not in path.stem]
@@ -91,48 +90,52 @@ def count_and_validate_jsonl(path: str | Path) -> int:
 
 
 def family_from_dataset_path(path: str | Path) -> str:
-    stem = Path(path).stem
-    return stem.split(".batch", 1)[0]
+    return Path(path).stem.split(".batch", 1)[0]
 
 
-def slugify_family(family: str) -> str:
-    slug = family.strip().lower().replace("_", "-")
-    if not slug:
-        raise ValueError("family slug cannot be empty")
-    return slug
-
-
-def repo_id_for_family(*, repo_owner: str, repo_prefix: str, family: str) -> str:
-    owner = repo_owner.strip().strip("/")
-    prefix = repo_prefix.strip().strip("-")
-    if not owner:
-        raise ValueError("repo_owner is required")
-    if not prefix:
-        raise ValueError("repo_prefix is required")
-    return f"{owner}/{prefix}-{slugify_family(family)}"
-
-
-def _artifact_manifest_paths(*, run_dir: Path, family: str, run_manifest: Path | None, skip_manifests: bool) -> list[Path]:
+def _artifact_manifest_paths(*, run_dir: Path, skip_manifests: bool) -> list[Path]:
     if skip_manifests:
         return []
     manifest_dir = run_dir / "manifests"
-    paths: list[Path] = []
-    if run_manifest is not None:
-        paths.append(run_manifest)
-    if manifest_dir.exists():
-        for manifest_path in sorted(manifest_dir.glob("*.manifest.json")):
-            if manifest_path in paths or ".batch" in manifest_path.name:
-                continue
-            if manifest_path.name.startswith(f"{family}."):
-                paths.append(manifest_path)
+    if not manifest_dir.is_dir():
+        raise FileNotFoundError(f"DPO manifest directory does not exist: {manifest_dir}")
+    paths = sorted(manifest_dir.glob("*.manifest.json"))
+    if not paths:
+        raise FileNotFoundError(f"DPO manifest directory contains no manifests: {manifest_dir}")
     return paths
+
+
+def _stale_repository_delete_operations(
+    api: HfApi,
+    *,
+    repo_id: str,
+    current_data_paths: set[str],
+    current_manifest_paths: set[str],
+) -> list[CommitOperationDelete]:
+    try:
+        repo_files = api.list_repo_files(repo_id=repo_id, repo_type="dataset")
+    except Exception:
+        return []
+    return [
+        CommitOperationDelete(path_in_repo=path)
+        for path in repo_files
+        if (
+            path.startswith("data/")
+            and path.endswith(".jsonl")
+            and path not in current_data_paths
+        )
+        or (
+            path.startswith("artifacts/manifests/")
+            and path.endswith(".manifest.json")
+            and path not in current_manifest_paths
+        )
+    ]
 
 
 def push_dpo_run(
     *,
     dataset_dir: str | Path,
-    repo_owner: str,
-    repo_prefix: str = "slm-synthetic-dpo",
+    repo_id: str,
     private: bool = False,
     env_file: str | None = None,
     run_dir: str | Path | None = None,
@@ -144,6 +147,9 @@ def push_dpo_run(
         load_dotenv()
 
     dataset_root = Path(dataset_dir)
+    clean_repo_id = repo_id.strip().strip("/") if isinstance(repo_id, str) else ""
+    if "/" not in clean_repo_id:
+        raise ValueError("repo_id must use the form owner/name")
     if run_dir is None:
         raise ValueError("run_dir is required for DPO acceptance and publish-readiness checks")
     root = Path(run_dir)
@@ -155,6 +161,26 @@ def push_dpo_run(
     if not isinstance(accepted_target, dict):
         raise ValueError("DPO run manifest is missing accepted-target accounting")
     files = discover_jsonl_files(dataset_root)
+    manifest_families = manifest_value.get("families") if isinstance(manifest_value, dict) else None
+    if not isinstance(manifest_families, list) or not all(
+        isinstance(family, str) and family for family in manifest_families
+    ):
+        raise ValueError("DPO run manifest is missing families")
+    files_by_family: dict[str, list[Path]] = {}
+    for file_path in files:
+        files_by_family.setdefault(family_from_dataset_path(file_path), []).append(file_path)
+    expected_families = set(manifest_families)
+    if set(files_by_family) != expected_families:
+        raise ValueError(
+            "DPO dataset files do not match run-manifest families: "
+            f"expected {sorted(expected_families)}, got {sorted(files_by_family)}"
+        )
+    if any(
+        len(family_files) != 1 or ".batch" in family_files[0].stem
+        for family_files in files_by_family.values()
+    ):
+        raise ValueError("consolidated DPO publishing requires exactly one final JSONL file per family")
+
     coverage_path = root / "coverage.json"
     if not coverage_path.is_file():
         raise FileNotFoundError(f"DPO acceptance report does not exist: {coverage_path}")
@@ -164,7 +190,10 @@ def push_dpo_run(
     require_publish_ready_report(coverage)
     live_report = build_coverage_report(files, require_holdout_check=False)
     require_publish_ready_report(live_report, artifact_name="DPO dataset files")
-    if coverage.get("row_count") != live_report["row_count"] or coverage.get("content_quality") != live_report["content_quality"]:
+    if (
+        coverage.get("row_count") != live_report["row_count"]
+        or coverage.get("content_quality") != live_report["content_quality"]
+    ):
         raise ValueError("DPO acceptance report is stale for the current dataset files; rebuild dpo-report")
     acceptance = coverage["acceptance"]
     expected_counts = {
@@ -179,76 +208,87 @@ def push_dpo_run(
     if acceptance["accepted_pairs"] != live_report["row_count"]:
         raise ValueError("DPO run manifest accepted count does not match current dataset files")
 
+    readme_path = root / "README.md"
+    if not readme_path.is_file():
+        raise FileNotFoundError(f"required DPO dataset card is missing: {readme_path}")
+    require_dpo_dataset_card_configs(readme_path, families=manifest_families)
+
     token = get_hf_token()
     api = HfApi(token=token)
-    files_by_family: dict[str, list[Path]] = {}
-    for file_path in files:
-        files_by_family.setdefault(family_from_dataset_path(file_path), []).append(file_path)
+    create_repo(repo_id=clean_repo_id, repo_type="dataset", private=private, exist_ok=True)
 
-    repos: dict[str, dict[str, Any]] = {}
-    for family, family_files in sorted(files_by_family.items()):
-        repo_id = repo_id_for_family(repo_owner=repo_owner, repo_prefix=repo_prefix, family=family)
-        create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
-        total_rows = 0
-        uploaded_files: list[str] = []
-        operations = legacy_metadata_delete_operations(api, repo_id=repo_id)
-
-        for file_path in family_files:
-            row_count = count_and_validate_jsonl(file_path)
-            total_rows += row_count
-            path_in_repo = f"data/{file_path.relative_to(dataset_root).as_posix()}"
-            print(f"[push_hf] staging {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")
-            operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
-            uploaded_files.append(path_in_repo)
-
-        family_readme = build_family_dataset_card(
-            kind="dpo",
-            family=family,
-            jsonl_paths=family_files,
+    total_pairs = 0
+    uploaded_files: list[str] = []
+    data_operations: list[CommitOperationAdd] = []
+    for family in sorted(files_by_family):
+        file_path = files_by_family[family][0]
+        pair_count = count_and_validate_jsonl(file_path)
+        total_pairs += pair_count
+        path_in_repo = f"data/{family}.jsonl"
+        print(f"[push_hf] staging {file_path} -> {clean_repo_id}/{path_in_repo} pairs={pair_count}")
+        data_operations.append(
+            CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path))
         )
+        uploaded_files.append(path_in_repo)
+
+    manifest_paths = _artifact_manifest_paths(run_dir=root, skip_manifests=skip_manifests)
+    current_data_paths = set(uploaded_files)
+    current_manifest_paths = {
+        f"artifacts/manifests/{manifest_path.name}" for manifest_path in manifest_paths
+    }
+    operations = legacy_metadata_delete_operations(api, repo_id=clean_repo_id)
+    operations.extend(
+        _stale_repository_delete_operations(
+            api,
+            repo_id=clean_repo_id,
+            current_data_paths=current_data_paths,
+            current_manifest_paths=current_manifest_paths,
+        )
+    )
+    operations.extend(data_operations)
+    operations.append(
+        CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=readme_path.read_bytes())
+    )
+    coverage_op = add_file_operation(
+        coverage_path,
+        path_in_repo="artifacts/coverage.json",
+        required=True,
+    )
+    if coverage_op is not None:
+        operations.append(coverage_op)
+    for manifest_path in manifest_paths:
         operations.append(
             CommitOperationAdd(
-                path_in_repo="README.md",
-                path_or_fileobj=family_readme.encode("utf-8"),
+                path_in_repo=f"artifacts/manifests/{manifest_path.name}",
+                path_or_fileobj=str(manifest_path),
             )
         )
-        coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json")
-        if coverage_op is not None:
-            operations.append(coverage_op)
-        for manifest_path in _artifact_manifest_paths(
-            run_dir=root,
-            family=family,
-            run_manifest=run_manifest,
-            skip_manifests=skip_manifests,
-        ):
-            operations.append(
-                CommitOperationAdd(
-                    path_in_repo=f"artifacts/manifests/{manifest_path.name}",
-                    path_or_fileobj=str(manifest_path),
-                )
-            )
 
-        print(f"[push_hf] committing {len(operations)} file operation(s) to {repo_id}")
-        create_dataset_commit(
-            api,
-            repo_id=repo_id,
-            operations=operations,
-            commit_message=f"Update DPO family dataset: {family}",
-        )
-
-        repos[family] = {"repo_id": repo_id, "files": uploaded_files, "rows": total_rows}
-        print(f"[push_hf] Completed DPO push repo={repo_id} files={len(uploaded_files)} rows={total_rows}")
-
-    result = {"repos": repos, "repo_count": len(repos), "rows": sum(item["rows"] for item in repos.values())}
-    print(f"[push_hf] Completed DPO family push repos={len(repos)} rows={result['rows']}")
+    print(f"[push_hf] committing {len(operations)} file operation(s) to {clean_repo_id}")
+    create_dataset_commit(
+        api,
+        repo_id=clean_repo_id,
+        operations=operations,
+        commit_message="Update consolidated generic DPO dataset",
+    )
+    result = {
+        "repo_id": clean_repo_id,
+        "files": uploaded_files,
+        "families": sorted(files_by_family),
+        "family_count": len(files_by_family),
+        "pairs": total_pairs,
+    }
+    print(
+        f"[push_hf] Completed consolidated DPO push repo={clean_repo_id} "
+        f"families={result['family_count']} files={len(uploaded_files)} pairs={total_pairs}"
+    )
     return result
 
 
 def cli() -> None:
-    parser = argparse.ArgumentParser(description="Push DPO run outputs to per-family Hugging Face dataset repos.")
+    parser = argparse.ArgumentParser(description="Push one consolidated generic DPO dataset to Hugging Face.")
     parser.add_argument("--dataset-dir", required=True)
-    parser.add_argument("--repo-owner", required=True)
-    parser.add_argument("--repo-prefix", default="slm-synthetic-dpo")
+    parser.add_argument("--repo-id", required=True)
     parser.add_argument("--run-dir", default=None)
     parser.add_argument("--private", action="store_true")
     parser.add_argument("--env-file", default=None)
@@ -256,8 +296,7 @@ def cli() -> None:
     args = parser.parse_args()
     push_dpo_run(
         dataset_dir=args.dataset_dir,
-        repo_owner=args.repo_owner,
-        repo_prefix=args.repo_prefix,
+        repo_id=args.repo_id,
         private=args.private,
         env_file=args.env_file,
         run_dir=args.run_dir,

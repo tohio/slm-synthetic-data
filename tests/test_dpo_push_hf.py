@@ -1,9 +1,11 @@
 import json
+from pathlib import Path
 
 import pytest
 
-from slm_synth.dpo.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_dpo_run, repo_id_for_family
-from slm_synth.dpo.report import build_coverage_report
+from slm_synth.cards import build_dataset_card
+from slm_synth.dpo.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_dpo_run
+from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
@@ -31,13 +33,6 @@ def test_count_and_validate_dpo_jsonl_rejects_bad_public_row(tmp_path):
 
     with pytest.raises(ValueError, match="unsupported field"):
         count_and_validate_jsonl(dataset)
-
-
-def test_repo_id_for_dpo_family_uses_slm_synthetic_dpo_prefix():
-    assert (
-        repo_id_for_family(repo_owner="tohio", repo_prefix="slm-synthetic-dpo", family="basic_arithmetic_qa")
-        == "tohio/slm-synthetic-dpo-basic-arithmetic-qa"
-    )
 
 
 def test_discover_dpo_jsonl_prefers_final_files_over_stale_batches(tmp_path):
@@ -76,45 +71,48 @@ def test_discover_dpo_jsonl_ignores_internal_dirs(tmp_path, dirname):
     assert discover_jsonl_files(dataset_dir) == [public_path]
 
 
-def test_push_dpo_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
+def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkeypatch):
     run_dir = tmp_path / "run"
     dataset_dir = run_dir / "datasets"
     manifest_dir = run_dir / "manifests"
     dataset_dir.mkdir(parents=True)
     manifest_dir.mkdir()
-    (dataset_dir / "basic_arithmetic_qa.batch000001.jsonl").write_text(
+    (dataset_dir / "basic_arithmetic_qa.jsonl").write_text(
         json.dumps(_dpo_row("dpo-1")) + "\n",
         encoding="utf-8",
     )
-    (dataset_dir / "basic_arithmetic_qa.batch000002.jsonl").write_text(
-        json.dumps(_dpo_row("dpo-2")) + "\n",
+    ai_row = _dpo_row("dpo-2")
+    ai_row["metadata"]["eval_family"] = "ai_concept_explanation"
+    (dataset_dir / "ai_concept_explanation.jsonl").write_text(
+        json.dumps(ai_row) + "\n",
         encoding="utf-8",
     )
-    (dataset_dir / "ai_concept_explanation.batch000001.jsonl").write_text(
-        json.dumps(_dpo_row("dpo-3")) + "\n",
-        encoding="utf-8",
+    families = ["ai_concept_explanation", "basic_arithmetic_qa"]
+    (run_dir / "README.md").write_text(
+        build_dataset_card("dpo", total=2, signals=families), encoding="utf-8"
     )
-    (run_dir / "README.md").write_text("# DPO dataset\n", encoding="utf-8")
     (manifest_dir / "basic_arithmetic_qa.batch000001.dpo-run.manifest.json").write_text("{}", encoding="utf-8")
+    (manifest_dir / "ai_concept_explanation.batch000001.dpo-run.manifest.json").write_text("{}", encoding="utf-8")
     run_manifest = manifest_dir / "dpo-run.manifest.json"
     run_manifest.write_text(json.dumps({
         "dataset_type": "dpo",
+        "families": families,
         "metadata": {
             "publish_ready": True,
-            "planned_pairs": 3,
-            "accepted_pairs": 3,
+            "planned_pairs": 2,
+            "accepted_pairs": 2,
             "rejected_pairs": 0,
             "duplicate_pairs": 0,
             "accepted_target": {
-                "unit": "pairs", "target": 3, "accepted": 3,
-                "attempted": 3, "remaining": 0, "publish_ready": True,
+                "unit": "pairs", "target": 2, "accepted": 2,
+                "attempted": 2, "remaining": 0, "publish_ready": True,
             },
         },
     }), encoding="utf-8")
     coverage = build_coverage_report(
         [dataset_dir], holdout_registry=HoldoutRegistry([]), run_manifest=run_manifest,
     )
-    (run_dir / "coverage.json").write_text(json.dumps(coverage), encoding="utf-8")
+    write_coverage_report(report=coverage, path=run_dir / "coverage.json")
 
     calls = []
 
@@ -124,14 +122,24 @@ def test_push_dpo_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
 
         def list_repo_files(self, **kwargs):
             calls.append(("list", kwargs["repo_id"]))
-            return ["coverage.json", "manifests/old.manifest.json", "README.md"]
+            return [
+                "coverage.json",
+                "manifests/old.manifest.json",
+                "README.md",
+                "data/removed_family.jsonl",
+                "artifacts/manifests/obsolete.manifest.json",
+            ]
 
         def create_commit(self, **kwargs):
+            readme_operation = next(
+                operation for operation in kwargs["operations"] if operation.path_in_repo == "README.md"
+            )
             calls.append(
                 (
                     "commit",
                     kwargs["repo_id"],
                     [operation.path_in_repo for operation in kwargs["operations"]],
+                    readme_operation.path_or_fileobj.decode("utf-8"),
                 )
             )
 
@@ -139,25 +147,37 @@ def test_push_dpo_run_uploads_one_repo_per_family(tmp_path, monkeypatch):
     monkeypatch.setattr("slm_synth.dpo.push_hf.HfApi", FakeApi)
     monkeypatch.setattr("slm_synth.dpo.push_hf.create_repo", lambda **kwargs: calls.append(("repo", kwargs)))
 
-    result = push_dpo_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_owner="tohio")
+    result = push_dpo_run(
+        dataset_dir=dataset_dir, run_dir=run_dir, repo_id="tohio/slm-synthetic-dpo"
+    )
 
-    assert result["repo_count"] == 2
-    assert result["rows"] == 3
-    assert result["repos"]["basic_arithmetic_qa"]["repo_id"] == "tohio/slm-synthetic-dpo-basic-arithmetic-qa"
-    assert result["repos"]["ai_concept_explanation"]["repo_id"] == "tohio/slm-synthetic-dpo-ai-concept-explanation"
-    assert ("repo", {"repo_id": "tohio/slm-synthetic-dpo-basic-arithmetic-qa", "repo_type": "dataset", "private": False, "exist_ok": True}) in calls
+    assert result == {
+        "repo_id": "tohio/slm-synthetic-dpo",
+        "files": ["data/ai_concept_explanation.jsonl", "data/basic_arithmetic_qa.jsonl"],
+        "families": families,
+        "family_count": 2,
+        "pairs": 2,
+    }
+    assert ("repo", {"repo_id": "tohio/slm-synthetic-dpo", "repo_type": "dataset", "private": False, "exist_ok": True}) in calls
     commit_calls = [call for call in calls if call[0] == "commit"]
-    assert len(commit_calls) == 2
-    basic_ops = next(call[2] for call in commit_calls if call[1] == "tohio/slm-synthetic-dpo-basic-arithmetic-qa")
-    ai_ops = next(call[2] for call in commit_calls if call[1] == "tohio/slm-synthetic-dpo-ai-concept-explanation")
-    assert "data/basic_arithmetic_qa.batch000001.jsonl" in basic_ops
-    assert "data/basic_arithmetic_qa.batch000002.jsonl" in basic_ops
-    assert "data/ai_concept_explanation.batch000001.jsonl" in ai_ops
-    assert "README.md" in basic_ops
-    assert "artifacts/coverage.json" in basic_ops
-    assert "artifacts/manifests/sft-run.manifest.json" in basic_ops or "artifacts/manifests/dpo-run.manifest.json" in basic_ops
-    assert "coverage.json" in basic_ops
-    assert "manifests/old.manifest.json" in basic_ops
+    assert len(commit_calls) == 1
+    assert commit_calls[0][1] == "tohio/slm-synthetic-dpo"
+    operations = commit_calls[0][2]
+    assert "data/basic_arithmetic_qa.jsonl" in operations
+    assert "data/ai_concept_explanation.jsonl" in operations
+    assert "data/removed_family.jsonl" in operations
+    assert "artifacts/manifests/obsolete.manifest.json" in operations
+    assert "README.md" in operations
+    assert "artifacts/coverage.json" in operations
+    assert "artifacts/manifests/dpo-run.manifest.json" in operations
+    assert "artifacts/manifests/basic_arithmetic_qa.batch000001.dpo-run.manifest.json" in operations
+    assert "artifacts/manifests/ai_concept_explanation.batch000001.dpo-run.manifest.json" in operations
+    assert "coverage.json" in operations
+    assert "manifests/old.manifest.json" in operations
+    uploaded_readme = commit_calls[0][3]
+    assert "config_name: default" in uploaded_readme
+    assert "config_name: ai_concept_explanation" in uploaded_readme
+    assert "path: data/ai_concept_explanation.jsonl" in uploaded_readme
 
 
 def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_path, monkeypatch):
@@ -171,6 +191,7 @@ def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_p
     )
     (manifest_dir / "run.manifest.json").write_text(json.dumps({
         "dataset_type": "dpo",
+        "families": ["basic_arithmetic_qa"],
         "metadata": {
             "publish_ready": True,
             "accepted_target": {"target": 1, "accepted": 1, "attempted": 1, "remaining": 0},
@@ -180,4 +201,16 @@ def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_p
     monkeypatch.delenv("HUGGINGFACE_HUB_TOKEN", raising=False)
 
     with pytest.raises(FileNotFoundError, match="acceptance report"):
-        push_dpo_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_owner="tohio")
+        push_dpo_run(dataset_dir=dataset_dir, run_dir=run_dir, repo_id="tohio/slm-synthetic-dpo")
+
+
+def test_dpo_push_make_target_uses_one_exact_repository():
+    makefile = (Path(__file__).resolve().parents[1] / "Makefile").read_text(encoding="utf-8")
+    block = makefile.split("\ndpo-push:", 1)[1].split("\nhf-delete-datasets:", 1)[0]
+
+    assert "DPO_HF_REPO" in block
+    assert "--repo-id $(DPO_HF_REPO)" in block
+    assert "--repo-owner" not in block
+    assert "--repo-prefix" not in block
+    assert "DPO_HF_REPO ?=" in makefile
+    assert "/slm-synthetic-dpo" in makefile

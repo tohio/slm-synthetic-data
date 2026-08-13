@@ -128,6 +128,7 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["dataset_type"] == "dpo"
     assert manifest["generation_mode"] == "live_llm_run"
     assert manifest["total_rows"] == 3
+    assert manifest["total_pairs"] == 3
     assert manifest["teacher_provider"] == "openrouter"
     assert manifest["metadata"]["batch_size"] == 2
     assert manifest["metadata"]["concurrency"] == 2

@@ -23,7 +23,7 @@ def build_hf_data_files_yaml(*, kind: str, signals: Iterable[str] | None = None)
     """Build dataset-card YAML with a default config and optional SFT family configs."""
     clean_signals = _clean_list(signals)
     lines = ["---", "configs:", "- config_name: default", "  data_files:", "  - split: train", "    path: data/*.jsonl"]
-    if kind == "sft":
+    if kind in {"sft", "dpo"}:
         for family in clean_signals:
             lines.extend(
                 [
