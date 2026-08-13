@@ -234,6 +234,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
                 "custom.manifest.json",
                 "--concurrency",
                 "2",
+                "--resume",
             ]
         )
         == 0
@@ -263,7 +264,8 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "adaptive_initial_batch_size": 4,
             "adaptive_batch_increase_successes": 4,
             "concurrency": 2,
-            "max_backfill_rounds": 2,
+                "max_backfill_rounds": 2,
+                "resume": True,
                 "run_manifest_filename": "custom.manifest.json",
                 "holdout_registry": None,
         }

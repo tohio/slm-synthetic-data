@@ -357,6 +357,8 @@ def _validate_rows_against_specs(
         spec = specs_by_id.get(row["id"])
         if spec is None:
             continue
+        if row["metadata"] != spec["metadata"]:
+            raise ValueError(f"DPO row {row['id']} metadata does not match its input spec")
         _validate_exact_targeted_row(row, spec=spec)
         _validate_prompt_does_not_leak_answer(row, spec=spec)
 

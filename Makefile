@@ -141,6 +141,8 @@ DPO_INITIAL_CONCURRENCY ?= 8
 DPO_INITIAL_BATCH_SIZE ?= 4
 DPO_BATCH_INCREASE_SUCCESSES ?= 4
 DPO_MAX_BACKFILL_ROUNDS ?= 2
+DPO_RESUME ?= false
+DPO_RESUME_ARG := $(if $(filter true yes 1,$(DPO_RESUME)),--resume,)
 DPO_MAX_TOKENS ?= 4096
 DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
@@ -497,7 +499,8 @@ dpo-smoke:
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS)
+>   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS) \
+>   $(DPO_RESUME_ARG)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_RUN)
 
 dpo-generate:
@@ -516,7 +519,8 @@ dpo-generate:
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS)
+>   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS) \
+>   $(DPO_RESUME_ARG)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_TARGET_RUN)
 
 dpo-report:

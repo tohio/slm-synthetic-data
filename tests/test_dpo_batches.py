@@ -178,6 +178,15 @@ def test_validate_dpo_batch_response_rejects_clean_but_wrong_function_body():
         validate_dpo_batch_response({"items": [row]}, expected_specs=[spec])
 
 
+def test_validate_dpo_batch_response_rejects_metadata_changed_from_spec():
+    spec = _dpo_spec()
+    row = _dpo_row()
+    row["metadata"] = {**row["metadata"], "failure_mode": "wrong_numeric_answer"}
+
+    with pytest.raises(ValueError, match="metadata does not match"):
+        validate_dpo_batch_response({"items": [row]}, expected_specs=[spec])
+
+
 def test_validate_dpo_batch_response_rejects_list_prompt_answer_leakage():
     spec = {
         "id": "dpo_list_exact_n_items_000001",

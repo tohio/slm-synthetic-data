@@ -42,6 +42,14 @@ class StructuredTeacherBackend(Protocol):
         ...
 
 
+class DPOBatchAcceptanceError(ValueError):
+    """Raised when a completed teacher response fails local DPO acceptance."""
+
+    def __init__(self, message: str, *, telemetry: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.telemetry = dict(telemetry or {})
+
+
 @dataclass(frozen=True)
 class DPOLLMBatchResult:
     """Result of materializing one saved LLM DPO batch."""
@@ -226,22 +234,25 @@ def generate_llm_batch(
             specs=validated_specs,
             backend=active_backend,
         )
-    return materialize_llm_batch(
-        specs=validated_specs,
-        teacher_response=teacher_response,
-        output_path=output_path,
-        manifest_path=manifest_path,
-        teacher_model=teacher_model,
-        teacher_provider=provider,
-        generation_run=generation_run,
-        metadata={
-            "generation_mode": "live_llm_batch",
-            "spec_count": len(validated_specs),
-            "llm_telemetry": telemetry,
-            **dict(metadata or {}),
-        },
-        holdout_registry=holdout_registry,
-    )
+    try:
+        return materialize_llm_batch(
+            specs=validated_specs,
+            teacher_response=teacher_response,
+            output_path=output_path,
+            manifest_path=manifest_path,
+            teacher_model=teacher_model,
+            teacher_provider=provider,
+            generation_run=generation_run,
+            metadata={
+                "generation_mode": "live_llm_batch",
+                "spec_count": len(validated_specs),
+                "llm_telemetry": telemetry,
+                **dict(metadata or {}),
+            },
+            holdout_registry=holdout_registry,
+        )
+    except DPOBatchAcceptanceError as exc:
+        raise DPOBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
 
 
 def generate_llm_batch_from_files(
@@ -316,20 +327,23 @@ def materialize_llm_batch(
     if len(expected_ids) != len(set(expected_ids)):
         raise ValueError("DPO specs contain duplicate id(s)")
 
-    if _all_exact_target_specs(validated_specs):
-        repaired_response = build_exact_target_dpo_batch_response(validated_specs)
-    else:
-        repaired_response = _repair_identical_rejected_answers(
-            teacher_response=teacher_response,
-            specs=validated_specs,
+    try:
+        if _all_exact_target_specs(validated_specs):
+            repaired_response = build_exact_target_dpo_batch_response(validated_specs)
+        else:
+            repaired_response = _repair_identical_rejected_answers(
+                teacher_response=teacher_response,
+                specs=validated_specs,
+            )
+        rows = validate_dpo_batch_response(
+            repaired_response,
+            expected_ids=expected_ids,
+            expected_count=len(validated_specs),
+            expected_specs=validated_specs,
         )
-    rows = validate_dpo_batch_response(
-        repaired_response,
-        expected_ids=expected_ids,
-        expected_count=len(validated_specs),
-        expected_specs=validated_specs,
-    )
-    _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
+        _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
+    except (TypeError, ValueError) as exc:
+        raise DPOBatchAcceptanceError(str(exc)) from exc
 
     dataset_path = Path(output_path)
     row_count = write_jsonl(rows, dataset_path)

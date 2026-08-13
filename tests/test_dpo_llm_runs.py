@@ -49,6 +49,56 @@ class SplitOnLargeDPOBackend(FakeDPOBackend):
         }
 
 
+class DuplicatePromptDPOBackend(FakeDPOBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        self.calls.append([spec["id"] for spec in specs])
+        return {
+            "data": {"items": [
+                {
+                    "id": spec["id"],
+                    "prompt": [{"role": "user", "content": "Answer the repeated prompt."}],
+                    "chosen": [{"role": "assistant", "content": f"Correct {spec['id']}"}],
+                    "rejected": [{"role": "assistant", "content": f"Wrong {spec['id']}"}],
+                    "metadata": spec["metadata"],
+                }
+                for spec in specs
+            ]},
+            "telemetry": {"usage": {"total_tokens": 12}},
+        }
+
+
+class OneRoundBackfillDPOBackend(FakeDPOBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        self.calls.append([spec["id"] for spec in specs])
+        items = []
+        for spec in specs:
+            index = int(spec["id"].rsplit("_", 1)[1])
+            user_prompt = "Answer the repeated initial prompt." if index <= 2 else f"Answer unique item {index}."
+            items.append(
+                {
+                    "id": spec["id"],
+                    "prompt": [{"role": "user", "content": user_prompt}],
+                    "chosen": [{"role": "assistant", "content": f"Correct {index}"}],
+                    "rejected": [{"role": "assistant", "content": f"Wrong {index}"}],
+                    "metadata": spec["metadata"],
+                }
+            )
+        return {"data": {"items": items}, "telemetry": {"usage": {"total_tokens": 12}}}
+
+
+class RejectSecondDPOBackend(OneRoundBackfillDPOBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        result = super().generate_structured_object_with_metadata(
+            prompt=prompt, schema=schema, schema_name=schema_name
+        )
+        for item in result["data"]["items"]:
+            if item["id"].endswith("000002"):
+                item["metadata"] = {**item["metadata"], "failure_mode": "extra_explanation"}
+        return result
+
+
 def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     backend = FakeDPOBackend()
 
@@ -226,6 +276,163 @@ def test_generate_dpo_llm_run_accepts_target_pairs_and_records_planning(tmp_path
     assert manifest["metadata"]["count_per_family"] is None
 
 
+def test_generate_dpo_llm_run_backfills_duplicates_with_new_source_indexes(tmp_path):
+    backend = OneRoundBackfillDPOBackend()
+
+    result = generate_llm_run(
+        families=["ai_concept_explanation"],
+        count_per_family=2,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="dpo-backfill-run-001",
+        max_tokens=1024,
+        max_backfill_rounds=1,
+        backend=backend,
+    )
+
+    assert result.row_count == 2
+    assert backend.calls == [
+        ["dpo_ai_concept_explanation_000001", "dpo_ai_concept_explanation_000002"],
+        ["dpo_ai_concept_explanation_000003"],
+    ]
+    public_rows = [
+        json.loads(line)
+        for line in (tmp_path / "datasets" / "ai_concept_explanation.jsonl").read_text().splitlines()
+    ]
+    assert [row["id"] for row in public_rows] == [
+        "dpo_ai_concept_explanation_000001",
+        "dpo_ai_concept_explanation_000003",
+    ]
+    manifest = json.loads(result.manifest_path.read_text())
+    assert manifest["metadata"]["attempted_pairs"] == 3
+    assert manifest["metadata"]["accepted_pairs"] == 2
+    assert manifest["metadata"]["duplicate_pairs"] == 1
+    assert manifest["metadata"]["backfill_rounds"] == 1
+    assert manifest["metadata"]["next_start_index_per_family"] == {"ai_concept_explanation": 4}
+    assert manifest["metadata"]["publish_ready"] is True
+
+
+def test_generate_dpo_llm_run_exhausts_backfill_budget_without_counting_duplicates(tmp_path):
+    with pytest.raises(UnderfilledRunError, match="remaining=1"):
+        generate_llm_run(
+            families=["ai_concept_explanation"],
+            count_per_family=2,
+            batch_size=2,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini",
+            generation_run="dpo-backfill-exhausted-001",
+            max_tokens=1024,
+            max_backfill_rounds=1,
+            backend=DuplicatePromptDPOBackend(),
+        )
+
+    manifest = json.loads((tmp_path / "manifests" / "dpo-backfill-exhausted-001.manifest.json").read_text())
+    assert manifest["metadata"]["attempted_pairs"] == 3
+    assert manifest["metadata"]["accepted_pairs"] == 1
+    assert manifest["metadata"]["duplicate_pairs"] == 2
+    assert manifest["metadata"]["remaining_pairs"] == 1
+    assert manifest["metadata"]["accepted_target"]["backfill_budget_exhausted"] is True
+
+
+def test_generate_dpo_llm_run_backfills_terminal_validation_rejections(tmp_path):
+    result = generate_llm_run(
+        families=["ai_concept_explanation"],
+        count_per_family=2,
+        batch_size=2,
+        output_dir=tmp_path / "datasets",
+        manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini",
+        generation_run="dpo-rejection-backfill-001",
+        max_tokens=1024,
+        max_backfill_rounds=1,
+        backend=RejectSecondDPOBackend(),
+    )
+
+    assert result.row_count == 2
+    manifest = json.loads(result.manifest_path.read_text())
+    assert manifest["metadata"]["attempted_pairs"] == 3
+    assert manifest["metadata"]["accepted_pairs"] == 2
+    assert manifest["metadata"]["rejected_pairs"] == 1
+    assert manifest["metadata"]["duplicate_pairs"] == 0
+    assert manifest["metadata"]["rejection_reason_counts"] == {"batch_acceptance_error": 1}
+    assert manifest["metadata"]["backfill_rounds"] == 1
+
+
+def test_generate_dpo_llm_run_resumes_without_repeating_prior_indexes(tmp_path):
+    with pytest.raises(UnderfilledRunError):
+        generate_llm_run(
+            families=["ai_concept_explanation"], count_per_family=2, batch_size=2,
+            output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini", generation_run="dpo-resume-run-001",
+            max_tokens=1024, max_backfill_rounds=0, backend=OneRoundBackfillDPOBackend(),
+        )
+
+    resume_backend = OneRoundBackfillDPOBackend()
+    result = generate_llm_run(
+        families=["ai_concept_explanation"], count_per_family=2, batch_size=2,
+        output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini", generation_run="dpo-resume-run-001",
+        max_tokens=1024, max_backfill_rounds=1, resume=True, backend=resume_backend,
+    )
+
+    assert result.row_count == 2
+    assert resume_backend.calls == [["dpo_ai_concept_explanation_000003"]]
+    manifest = json.loads(result.manifest_path.read_text())
+    assert manifest["metadata"]["attempted_pairs"] == 3
+    assert manifest["metadata"]["duplicate_pairs"] == 1
+    assert manifest["datasets"][0]["batch_count"] == 2
+
+
+def test_generate_dpo_llm_run_complete_resume_does_not_construct_backend(tmp_path, monkeypatch):
+    generate_llm_run(
+        families=["ai_concept_explanation"], count_per_family=2, batch_size=2,
+        output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini", generation_run="dpo-complete-resume-001",
+        max_tokens=1024, backend=FakeDPOBackend(),
+    )
+    monkeypatch.setattr(
+        "slm_synth.dpo.runs.build_openrouter_backend",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("backend must not be constructed")),
+    )
+
+    resumed = generate_llm_run(
+        families=["ai_concept_explanation"], count_per_family=2, batch_size=2,
+        output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
+        teacher_model="openai/gpt-4.1-mini", generation_run="dpo-complete-resume-001",
+        max_tokens=1024, resume=True,
+    )
+
+    assert resumed.row_count == 2
+    assert resumed.results == ()
+
+
+def test_generate_dpo_llm_run_resume_rejects_modified_accepted_data(tmp_path):
+    with pytest.raises(UnderfilledRunError):
+        generate_llm_run(
+            families=["ai_concept_explanation"], count_per_family=2, batch_size=2,
+            output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini", generation_run="dpo-tampered-run-001",
+            max_tokens=1024, max_backfill_rounds=0, backend=DuplicatePromptDPOBackend(),
+        )
+    dataset_path = tmp_path / "datasets" / "ai_concept_explanation.jsonl"
+    row = json.loads(dataset_path.read_text())
+    row["prompt"][0]["content"] = "Modified after the failed run."
+    dataset_path.write_text(json.dumps(row) + "\n")
+    backend = OneRoundBackfillDPOBackend()
+
+    with pytest.raises(ValueError, match="content fingerprint"):
+        generate_llm_run(
+            families=["ai_concept_explanation"], count_per_family=2, batch_size=2,
+            output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
+            teacher_model="openai/gpt-4.1-mini", generation_run="dpo-tampered-run-001",
+            max_tokens=1024, max_backfill_rounds=1, resume=True, backend=backend,
+        )
+    assert backend.calls == []
+
+
 def test_generate_dpo_llm_run_rejects_multiple_planning_strategies(tmp_path):
     with pytest.raises(ValueError, match="provide exactly one"):
         generate_llm_run(
@@ -243,10 +450,11 @@ def test_generate_dpo_llm_run_rejects_multiple_planning_strategies(tmp_path):
 
 
 def test_generate_dpo_llm_run_fails_when_public_pairs_underfill_after_budget(tmp_path, monkeypatch):
-    def write_underfilled_public_family_files(*, jobs, output_dir):
+    def write_underfilled_public_family_files(*, jobs, output_dir, families, **kwargs):
         dataset_path = output_dir / "ai_concept_explanation.jsonl"
         dataset_path.parent.mkdir(parents=True, exist_ok=True)
         dataset_path.write_text("", encoding="utf-8")
+        accepted_rows = {family: [] for family in families}
         return ([{
                 "family": "ai_concept_explanation",
                 "dataset_path": dataset_path,
@@ -259,11 +467,12 @@ def test_generate_dpo_llm_run_fails_when_public_pairs_underfill_after_budget(tmp
                 "rejected_pairs": 0,
                 "duplicate_pairs": 1,
                 "duplicate_reason_counts": {"duplicate_prompt": 1},
+                "rejection_reason_counts": {},
                 "attempted_pairs_per_family": {"ai_concept_explanation": 2},
                 "accepted_pairs_per_family": {"ai_concept_explanation": 1},
                 "rejected_pairs_per_family": {"ai_concept_explanation": 0},
                 "duplicate_pairs_per_family": {"ai_concept_explanation": 1},
-            })
+            }, accepted_rows)
 
     monkeypatch.setattr(
         "slm_synth.dpo.runs._write_public_family_files",
