@@ -18,6 +18,7 @@ from slm_synth.distillation_dpo.report import build_coverage_report
 from slm_synth.distillation_dpo.pair_quality import filter_pairs_by_quality
 from slm_synth.distillation_dpo.runs import generate_llm_run, normalize_family_pair_counts
 from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 def _row(row_id="distillation-dpo-1"):
@@ -221,7 +222,10 @@ def test_distillation_dpo_report_and_card(tmp_path):
         backend=_EchoDistillationDPOBackend(),
     )
 
-    report = build_coverage_report([tmp_path / "datasets"])
+    report = build_coverage_report(
+        [tmp_path / "datasets"],
+        holdout_registry=HoldoutRegistry([]),
+    )
     assert report["dataset_type"] == "distillation-dpo"
     assert report["row_count"] == 2
     assert report["failure_modes"]
@@ -270,7 +274,11 @@ def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
     manifest_dir.mkdir()
     (dataset_dir / "teacher_response_preference.jsonl").write_text(json.dumps(_row()) + "\n", encoding="utf-8")
     (run_dir / "README.md").write_text("# Distillation DPO\n", encoding="utf-8")
-    (run_dir / "coverage.json").write_text("{}", encoding="utf-8")
+    coverage = build_coverage_report(
+        [dataset_dir],
+        holdout_registry=HoldoutRegistry([]),
+    )
+    (run_dir / "coverage.json").write_text(json.dumps(coverage), encoding="utf-8")
     acceptance = build_dataset_acceptance_report([_row()])
     (manifest_dir / "distillation-dpo-smoke-001.manifest.json").write_text(
         json.dumps({"metadata": {"dataset_acceptance": acceptance}}),

@@ -231,6 +231,7 @@ make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-targ
 | `DISTILLATION_DPO_RUN_ROOT` | `data/distillation-dpo/runs` | Run output root. |
 | `DISTILLATION_DPO_MODEL` | `$(MODEL)` | Teacher lineage model recorded in manifests. |
 | `DISTILLATION_DPO_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget after pair quality gates. |
+| `DISTILLATION_DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
 
 ## Reports and Publishing
 

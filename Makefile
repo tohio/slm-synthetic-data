@@ -88,6 +88,7 @@ DISTILLATION_DPO_INITIAL_BATCH_SIZE ?= 4
 DISTILLATION_DPO_BATCH_INCREASE_SUCCESSES ?= 4
 DISTILLATION_DPO_MAX_TOKENS ?= 4096
 DISTILLATION_DPO_DATASET_NAME ?= SLM Synthetic Distillation DPO
+DISTILLATION_DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DISTILLATION_DPO_MAX_BACKFILL_ROUNDS ?= 2
 DISTILLATION_DPO_PUSH_RUN ?= $(DISTILLATION_DPO_REPORT_RUN)
 DISTILLATION_DPO_HF_NAMESPACE ?= $(HF_NAMESPACE)
@@ -400,7 +401,8 @@ distillation-dpo-smoke:
 >   --adaptive-initial-in-flight $(DISTILLATION_DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DISTILLATION_DPO_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(DISTILLATION_DPO_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS)
+>   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS) \
+>   --holdout-registry $(DISTILLATION_DPO_HOLDOUT_REGISTRY)
 > $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_RUN)
 
 distillation-dpo-generate:
@@ -418,12 +420,14 @@ distillation-dpo-generate:
 >   --adaptive-initial-in-flight $(DISTILLATION_DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DISTILLATION_DPO_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(DISTILLATION_DPO_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS)
+>   --max-backfill-rounds $(DISTILLATION_DPO_MAX_BACKFILL_ROUNDS) \
+>   --holdout-registry $(DISTILLATION_DPO_HOLDOUT_REGISTRY)
 > $(MAKE) distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=$(DISTILLATION_DPO_TARGET_RUN)
 
 distillation-dpo-report:
 > $(PYTHON) -m slm_synth.distillation_dpo.cli report-coverage \
 >   --input $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/datasets \
+>   --holdout-registry $(DISTILLATION_DPO_HOLDOUT_REGISTRY) \
 >   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/coverage.json
 > $(PYTHON) -m slm_synth.distillation_dpo.cli build-dataset-card \
 >   --run-manifest $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/manifests/$(DISTILLATION_DPO_REPORT_RUN).manifest.json \

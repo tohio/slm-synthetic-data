@@ -266,6 +266,11 @@ make distillation-dpo-inspect DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-smal
 make distillation-dpo-report DISTILLATION_DPO_REPORT_RUN=distillation-dpo-small-001
 ```
 
+Generation preflights the complete initial-plus-backfill source range against
+`configs/eval_holdouts.yaml`. Reporting records the holdout check, and publishing
+is blocked when the check is missing, a collision exists, or the saved report is
+stale for the current dataset files.
+
 Production target:
 
 ```bash

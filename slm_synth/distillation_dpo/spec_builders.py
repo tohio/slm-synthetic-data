@@ -10,6 +10,7 @@ from hashlib import sha256
 from typing import Any
 
 from slm_synth.distillation_dpo.seeds import validate_family
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 PairBuilder = Callable[[int], dict[str, Any]]
 
@@ -58,7 +59,11 @@ def build_production_rows(*, family: str, count: int, start_index: int = 1) -> l
 
 
 def build_source_capacity_summary(
-    *, family: str, count: int, start_index: int = 1
+    *,
+    family: str,
+    count: int,
+    start_index: int = 1,
+    holdout_registry: HoldoutRegistry | None = None,
 ) -> dict[str, Any]:
     """Prove prompt/triple uniqueness for a source range without provider calls."""
     normalized_family = validate_family(family)
@@ -75,6 +80,8 @@ def build_source_capacity_summary(
         prompt = _message_content(row["prompt"])
         chosen = _message_content(row["chosen"])
         rejected = _message_content(row["rejected"])
+        if holdout_registry is not None:
+            holdout_registry.reject_if_holdout(prompt=prompt)
         prompt_fingerprints.add(_fingerprint(_normalize_text(prompt)))
         triple_fingerprints.add(
             _fingerprint(
@@ -103,6 +110,8 @@ def build_source_capacity_summary(
             f"rows={count} prompts={summary['unique_prompt_count']} "
             f"triples={summary['unique_triple_count']}"
         )
+    if holdout_registry is not None:
+        summary["holdouts"] = {"status": "checked", "collision_count": 0}
     return summary
 
 
@@ -112,6 +121,7 @@ def require_source_capacity(
     target_pairs: int,
     start_index: int = 1,
     max_backfill_rounds: int = 2,
+    holdout_registry: HoldoutRegistry | None = None,
 ) -> dict[str, Any]:
     """Preflight the complete initial-plus-replacement source range."""
     _validate_positive_int(target_pairs, "target_pairs")
@@ -121,6 +131,7 @@ def require_source_capacity(
         family=family,
         count=target_pairs * (max_backfill_rounds + 1),
         start_index=start_index,
+        holdout_registry=holdout_registry,
     )
 
 

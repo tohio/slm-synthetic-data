@@ -16,6 +16,7 @@ from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
 )
 from slm_synth.distillation_dpo.seeds import DISTILLATION_DPO_FAMILIES
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None]:
@@ -52,6 +53,7 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         concurrency=args.concurrency,
         max_backfill_rounds=args.max_backfill_rounds,
         run_manifest_filename=args.run_manifest_filename,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
         **_openrouter_routing_kwargs(args),
     )
     print(
@@ -65,7 +67,10 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
 
 
 def cmd_report_coverage(args: argparse.Namespace) -> int:
-    report = build_coverage_report(args.input)
+    report = build_coverage_report(
+        args.input,
+        holdout_registry=_load_holdout_registry(args.holdout_registry),
+    )
     if args.output:
         output_path = write_coverage_report(report=report, path=args.output)
         print(f"wrote distillation-DPO coverage report to {output_path}")
@@ -125,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     generate_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
+    generate_run_parser.add_argument("--holdout-registry", default=None)
     generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     generate_run_parser.add_argument("--openrouter-provider", default=None)
     generate_run_parser.set_defaults(func=cmd_generate_llm_run)
@@ -132,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument("--input", nargs="+", required=True)
     coverage_parser.add_argument("--output", default=None)
+    coverage_parser.add_argument("--holdout-registry", default=None)
     coverage_parser.set_defaults(func=cmd_report_coverage)
 
     card_parser = subparsers.add_parser("build-dataset-card")
@@ -143,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
     card_parser.set_defaults(func=cmd_build_dataset_card)
 
     return parser
+
+
+def _load_holdout_registry(path: str | None) -> HoldoutRegistry | None:
+    return HoldoutRegistry.from_file(path) if path else None
 
 
 def main(argv: list[str] | None = None) -> int:

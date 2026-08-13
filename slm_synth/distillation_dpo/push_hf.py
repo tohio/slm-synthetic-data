@@ -17,6 +17,10 @@ from slm_synth.distillation_dpo.acceptance import (
     require_dataset_acceptance,
 )
 from slm_synth.distillation_dpo.io import read_jsonl
+from slm_synth.distillation_dpo.report import (
+    build_coverage_report,
+    require_publish_ready_report,
+)
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
@@ -180,6 +184,32 @@ def push_distillation_dpo_run(
         expected_failure_modes=expected_failure_modes,
     )
     require_dataset_acceptance(actual_acceptance, artifact_name="distillation DPO dataset")
+    if root is not None:
+        coverage_path = root / "coverage.json"
+        if not coverage_path.is_file():
+            raise FileNotFoundError(
+                f"Distillation-DPO acceptance report does not exist: {coverage_path}"
+            )
+        coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+        if not isinstance(coverage, dict):
+            raise ValueError(
+                f"Distillation-DPO acceptance report must contain a JSON object: {coverage_path}"
+            )
+        require_publish_ready_report(coverage)
+        live_report = build_coverage_report(files, require_holdout_check=False)
+        if (
+            coverage.get("row_count") != live_report["row_count"]
+            or coverage.get("categories") != live_report["categories"]
+            or coverage.get("failure_modes") != live_report["failure_modes"]
+            or coverage.get("dataset_acceptance", {}).get("unique_prompt_count")
+            != live_report["dataset_acceptance"]["unique_prompt_count"]
+            or coverage.get("dataset_acceptance", {}).get("unique_triple_count")
+            != live_report["dataset_acceptance"]["unique_triple_count"]
+        ):
+            raise ValueError(
+                "Distillation-DPO acceptance report is stale for the current dataset files; "
+                "rebuild distillation-dpo-report"
+            )
     token = get_hf_token()
     api = HfApi(token=token)
     files_by_family: dict[str, list[Path]] = {}

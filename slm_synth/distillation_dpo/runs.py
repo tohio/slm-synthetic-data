@@ -44,6 +44,7 @@ from slm_synth.throughput_defaults import (
     MIN_OPENROUTER_BATCH_SIZE,
     MIN_OPENROUTER_CONCURRENCY,
 )
+from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
 @dataclass(frozen=True)
@@ -154,6 +155,7 @@ def generate_llm_run(
     openrouter_provider: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     backend: StructuredTeacherBackend | None = None,
+    holdout_registry: HoldoutRegistry | None = None,
 ) -> DistillationDPORunResult:
     """Generate distillation-DPO preference pairs with an LLM teacher."""
     normalized_families = resolve_families(families)
@@ -181,6 +183,7 @@ def generate_llm_run(
             target_pairs=count_plan.counts_by_key[family],
             start_index=start_index,
             max_backfill_rounds=max_backfill_rounds,
+            holdout_registry=holdout_registry,
         )
         for family in normalized_families
     }
