@@ -29,6 +29,10 @@ Run `make help` to print the command surface from the Makefile.
 
 OpenRouter routing defaults to `auto`. Use `prefer` to try one provider first while allowing fallback, or `strict` to require one provider. `prefer` and `strict` require `OPENROUTER_PROVIDER`.
 
+`MODEL` is a runtime default, not a fixed allowlist. Override it globally for a command with `MODEL=<openrouter-model-id>`, or override one workflow with variables such as `SFT_MODEL` or `DPO_MODEL`. Models outside the validated registry are allowed but emit a warning.
+
+For providers that throttle, keep `OPENROUTER_ROUTING_MODE=auto` or use `prefer`; both retain fallback. `strict` disables fallback and can turn provider throttling into a terminal run failure.
+
 ## Pretraining
 
 ```bash

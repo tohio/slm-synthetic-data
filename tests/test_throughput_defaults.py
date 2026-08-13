@@ -26,6 +26,30 @@ def test_make_live_generation_paths_inherit_a_validated_default_model():
         assert f"{name}_MODEL ?= $(MODEL)" in makefile
 
 
+def test_make_live_generation_targets_preserve_openrouter_routing_controls():
+    makefile = Path("Makefile").read_text()
+
+    assert "OPENROUTER_ROUTING_MODE ?= auto" in makefile
+    assert "OPENROUTER_ROUTING_ARGS := --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE)" in makefile
+    targets = {
+        "pretrain-smoke": False,
+        "pretrain-generate": False,
+        "distillation-sft-smoke": True,
+        "distillation-sft-generate": True,
+        "distillation-dpo-smoke": False,
+        "distillation-dpo-generate": False,
+        "sft-smoke": True,
+        "sft-generate": True,
+        "dpo-smoke": True,
+        "dpo-generate": True,
+    }
+    for target, uses_cli_routing_args in targets.items():
+        recipe = makefile.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
+        assert "$(OPENROUTER_ENV)" in recipe
+        if uses_cli_routing_args:
+            assert "$(OPENROUTER_ROUTING_ARGS)" in recipe
+
+
 def test_grounded_pretrain_config_uses_shared_throughput_bounds():
     assert configure_synthetic.MIN_BATCH_SIZE == 1
     assert configure_synthetic.MAX_BATCH_SIZE == MAX_OPENROUTER_BATCH_SIZE

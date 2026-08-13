@@ -48,11 +48,19 @@ OPENROUTER_API_KEY=...
 HF_TOKEN=...
 ```
 
-The default live model is configured by `MODEL` and can be overridden on generation commands:
+The validated default live model is configured with an overrideable Make variable:
 
 ```bash
 MODEL=deepseek/deepseek-v4-flash
 ```
+
+Swap models for any run without editing the repository:
+
+```bash
+MODEL=<openrouter-model-id> make sft-smoke
+```
+
+OpenRouter routing defaults to `auto`, which preserves provider fallback when an endpoint is throttled. Use `prefer` to try a provider first while retaining fallback; use `strict` only when provider pinning is required.
 
 ### Smoke Run
 
