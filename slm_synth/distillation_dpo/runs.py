@@ -24,7 +24,7 @@ from slm_synth.distillation_dpo.pair_quality import (
     filter_pairs_by_quality,
 )
 from slm_synth.distillation_dpo.seeds import DISTILLATION_DPO_FAMILIES, validate_family
-from slm_synth.distillation_dpo.spec_builders import build_production_rows
+from slm_synth.distillation_dpo.spec_builders import build_production_rows, require_source_capacity
 from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend
 from slm_synth.planning import build_count_plan
 from slm_synth.run_summary import print_batch_failure, print_batch_progress
@@ -169,6 +169,16 @@ def generate_llm_run(
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     _validate_non_negative_int(max_backfill_rounds, "max_backfill_rounds")
 
+    source_capacity = {
+        family: require_source_capacity(
+            family=family,
+            target_pairs=count_plan.counts_by_key[family],
+            start_index=start_index,
+            max_backfill_rounds=max_backfill_rounds,
+        )
+        for family in normalized_families
+    }
+
     active_backend = backend or build_openrouter_backend(
         model=teacher_model,
         max_tokens=max_tokens,
@@ -230,6 +240,7 @@ def generate_llm_run(
             "adaptive_initial_in_flight": adaptive_initial_in_flight,
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
+            "source_capacity": source_capacity,
             "llm_telemetry": aggregate_llm_telemetry_from_manifests(llm_manifest_paths),
             **dict(metadata or {}),
         },

@@ -142,6 +142,34 @@ def test_generate_llm_run_writes_live_distillation_dpo_outputs(tmp_path):
     assert manifest["metadata"]["accepted_pairs"] == 3
     assert manifest["metadata"]["llm_telemetry"]["batch_count"] >= 1
     assert manifest["metadata"]["source_contract"]["target_consumer"] == "slm-distillation"
+    assert manifest["metadata"]["source_capacity"]["teacher_response_preference"] == {
+        "row_count": 9,
+        "unique_prompt_count": 9,
+        "unique_triple_count": 9,
+        "categories": {
+            "answer_only_compliance": 1,
+            "code_generation": 1,
+            "concise_factual_qa": 1,
+            "direct_arithmetic": 1,
+            "exact_output_format_control": 1,
+            "general_instruction_following": 1,
+            "private_info_restraint": 1,
+            "unknown_fact_restraint": 1,
+            "word_problem_arithmetic": 1,
+        },
+        "failure_modes": {
+            "code_syntax_error": 1,
+            "extra_explanation": 1,
+            "format_violation": 1,
+            "over_refusal": 1,
+            "unsafe_private_info_guess": 1,
+            "unknown_fact_fabrication": 1,
+            "wrong_factual_answer": 1,
+            "wrong_numeric_answer": 2,
+        },
+        "start_index": 1,
+        "next_start_index": 10,
+    }
     assert "teacher_model" not in rows[0]
     assert rows[0]["chosen"] != rows[0]["rejected"]
 
@@ -331,3 +359,26 @@ def test_distillation_dpo_llm_run_fails_underfilled_after_backfill_budget(tmp_pa
     assert run_manifest["metadata"]["failure_status"] == "failed"
     assert run_manifest["metadata"]["run_failed"] is True
     assert run_manifest["metadata"]["remaining_pairs"] == 2
+
+
+def test_distillation_dpo_capacity_overflow_fails_before_provider_setup(tmp_path, monkeypatch):
+    def unexpected_provider_setup(**_kwargs):
+        pytest.fail("provider setup must not run when source capacity is insufficient")
+
+    monkeypatch.setattr(
+        "slm_synth.distillation_dpo.runs.build_openrouter_backend",
+        unexpected_provider_setup,
+    )
+
+    with pytest.raises(ValueError, match="source capacity exceeded"):
+        generate_llm_run(
+            families=["teacher_response_preference"],
+            target_pairs=100_001,
+            batch_size=1,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="unused",
+            generation_run="distillation-dpo-capacity-overflow-001",
+            max_tokens=1,
+            max_backfill_rounds=2,
+        )
