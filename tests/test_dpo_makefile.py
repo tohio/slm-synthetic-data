@@ -15,3 +15,13 @@ def test_dpo_generation_targets_support_explicit_resume():
 
     assert "DPO_RESUME ?= false" in makefile
     assert "DPO_RESUME_ARG := $(if $(filter true yes 1,$(DPO_RESUME)),--resume,)" in makefile
+
+
+def test_dpo_report_uses_configured_run_root_and_acceptance_inputs():
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    block = _target_block(makefile, "dpo-report", "dpo-inspect")
+
+    assert "--holdout-registry $(DPO_HOLDOUT_REGISTRY)" in block
+    assert "--run-manifest $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/manifests/$(DPO_REPORT_RUN).manifest.json" in block
+    assert block.count("--run-dir $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)") == 2
+    assert "data/dpo/runs/$(DPO_REPORT_RUN)" not in block

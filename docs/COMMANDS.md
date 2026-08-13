@@ -112,6 +112,18 @@ DPO_TARGET_PAIRS=14000 DPO_TARGET_RUN=dpo-target-001 make dpo-generate
 make dpo-inspect DPO_INSPECT_RUN=dpo-target-001
 ```
 
+Resume a finalized underfilled run with a higher total backfill budget:
+
+```bash
+DPO_TARGET_PAIRS=14000 \
+DPO_TARGET_RUN=dpo-target-001 \
+DPO_MAX_BACKFILL_ROUNDS=3 \
+DPO_RESUME=true \
+make dpo-generate
+```
+
+The run id, target, selected families, start index, teacher model, and provider must match the existing run manifest.
+
 | Variable | Default | Purpose |
 |---|---:|---|
 | `DPO_RUN` | `dpo-smoke-001` | Smoke run id. |
@@ -127,6 +139,9 @@ make dpo-inspect DPO_INSPECT_RUN=dpo-target-001
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root. |
 | `DPO_MODEL` | `$(MODEL)` | Teacher model. |
 | `DPO_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget. |
+| `DPO_RESUME` | `false` | Resume a finalized underfilled run using its next unused source indexes. |
+| `DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
+| `DPO_HF_REPO` | `<HF_NAMESPACE>/slm-synthetic-dpo` | One consolidated generic DPO dataset repository. |
 
 ## Distillation SFT
 
@@ -197,6 +212,8 @@ make distillation-dpo-push DISTILLATION_DPO_HF_NAMESPACE=<namespace>
 ```
 
 `sft-push` creates one atomic version in `SFT_HF_REPO`. The default dataset configuration loads every family file; named family configurations load the same files individually. Legacy per-family SFT repositories are not modified by this target.
+
+`dpo-push` creates one atomic version in `DPO_HF_REPO` with the same default and per-family loading model. Legacy `slm-synthetic-dpo-*` family repositories are not modified by this target.
 
 ## Hugging Face Dataset Deletion
 

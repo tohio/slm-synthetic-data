@@ -96,6 +96,10 @@ slm_synth/sft/spec_builders.py
 
 Exact-target pairs are materialized locally for arithmetic, capital/color facts, expression evaluation, code generation/completion, exact lists/repetition, and short factual stopping. Concept explanation, code explanation, and private-fact restraint require teacher generation. Exact-target prompts preserve the source style/context axes; provider calls receive only specifications that require semantic generation.
 
+Every DPO family declares a finite unique source capacity inherited from its SFT source family. Generation preflights the initial target plus the configured replacement budget before constructing a provider backend. Accepted output must have unique normalized prompts and complete preference triples; replacements use later source indexes and retain the same family allocation.
+
+Failure-mode coverage, chosen/rejected similarity, and repeated negative constructions are reported at aggregate and per-family levels. They are inspection signals rather than automatic rejection thresholds. Exact duplicates, holdout collisions, inconsistent accounting, and underfilled accepted targets block publication.
+
 ## Distillation SFT Signals
 
 Distillation SFT creates teacher prompt/response rows. Public rows are per-signal JSONL files under `data/distillation/runs/<run>/datasets/` and include filterable `category`, `difficulty`, `template_family`, and `eval_family` metadata.

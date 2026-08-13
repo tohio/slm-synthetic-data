@@ -135,10 +135,62 @@ make dpo-report DPO_REPORT_RUN=dpo-prod-001
 Push after inspection:
 
 ```bash
-make dpo-push DPO_PUSH_RUN=dpo-prod-001
+make dpo-push \
+  DPO_PUSH_RUN=dpo-prod-001 \
+  DPO_HF_REPO=tohio/slm-synthetic-dpo
 ```
 
-Public pairs are written under `data/dpo/runs/<run>/datasets/`.
+Public pairs are written under `data/dpo/runs/<run>/datasets/`, with one final JSONL file per family. Batch shards remain under the sibling `batches/` directory.
+
+### DPO acceptance and backfill
+
+DPO accepts the first pair for each normalized ID, prompt, and complete `(prompt, chosen, rejected)` triple. Duplicate pairs and terminal local-validation failures do not count toward the target. Chosen/rejected similarity and repeated negative patterns are reported but remain diagnostic because controlled near-miss negatives can be intentional.
+
+Each generation round uses the next unused source indexes. If the run remains underfilled after its configured budget, generation preserves accepted public pairs, writes a failed run manifest, and exits nonzero. `DPO_MAX_BACKFILL_ROUNDS` is the total lifetime budget, including rounds recorded before resume.
+
+Resume a finalized underfilled run by keeping its run id and source plan, increasing the total budget, and enabling resume:
+
+```bash
+DPO_TARGET_PAIRS=14000 \
+DPO_TARGET_RUN=dpo-prod-001 \
+DPO_MAX_BACKFILL_ROUNDS=3 \
+DPO_RESUME=true \
+make dpo-generate
+```
+
+Resume validates the public files, content fingerprints, family allocation, batch manifests, accepted-target accounting, and next source indexes before making a request. A complete run resumes as a no-op.
+
+### DPO reporting and publish blockers
+
+`make dpo-report` loads `configs/eval_holdouts.yaml` and writes `coverage.json`. The report includes aggregate and per-family metadata coverage, normalized ID/prompt/triple uniqueness, chosen/rejected similarity, negative-pattern distribution, holdout collisions, and attempted/accepted/rejected/duplicate/remaining counts.
+
+Publication is blocked when:
+
+- IDs, normalized prompts, or normalized preference triples repeat.
+- Holdouts were not checked or a collision exists.
+- Accepted-target accounting is missing, inconsistent, or underfilled.
+- `coverage.json` is missing or stale relative to the public files.
+- The dataset card lacks the default or any required family configuration.
+
+### DPO consolidated publication
+
+`dpo-push` publishes one atomic commit to `DPO_HF_REPO`:
+
+```text
+tohio/slm-synthetic-dpo/
+├── README.md
+├── data/
+│   ├── ai_concept_explanation.jsonl
+│   ├── basic_arithmetic_qa.jsonl
+│   └── ...
+└── artifacts/
+    ├── coverage.json
+    └── manifests/
+```
+
+The `default` configuration loads all `data/*.jsonl` files as the train split. Each family configuration loads its family file without duplicating stored pairs. Families are metadata/configuration boundaries, not train/validation/test splits.
+
+The push target does not modify legacy `slm-synthetic-dpo-*` repositories. Keep them until the consolidated dataset has been published, loaded through both default and family configurations, inspected, and adopted downstream.
 
 ## Distillation SFT
 

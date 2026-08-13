@@ -2,34 +2,55 @@
 
 ## Purpose
 
-This package owns generic DPO preference dataset generation. It builds task specs, requests structured teacher preference rows, validates public DPO rows, writes family JSONL files, records manifests, reports coverage, and publishes public artifacts.
+This package generates generic DPO preference datasets. It owns source specifications, exact-target and teacher-backed pair generation, output acceptance, replacement rounds, safe resume, coverage reporting, manifests, dataset cards, and Hugging Face publication.
 
-It does not produce SFT chat rows, deterministic seed datasets, distillation-specific DPO pairs, or model-training artifacts.
+It does not produce SFT rows, distillation-specific pairs, pretraining records, or model-training artifacts.
 
 ## Contents
 
 ```text
 dpo/
-├── spec_builders.py  # capacity-bounded specs and controlled negatives
-├── specs.py          # teacher-visible spec validation
-├── batches.py        # batch prompt and response contract
-├── generation.py     # per-spec deterministic or teacher generation
-├── runs.py           # multi-family LLM run orchestration
+├── spec_builders.py  # capacity-bounded source specifications
+├── specs.py          # teacher-visible specification validation
+├── batches.py        # batch prompts, exact targets, and response validation
+├── generation.py     # deterministic and teacher-backed batch generation
+├── acceptance.py     # normalized uniqueness and pair-quality reporting
+├── runs.py           # multi-family generation, backfill, and resume
 ├── schema.py         # public row validation
 ├── manifest.py       # dataset and run manifests
-├── report.py         # coverage reporting
-├── push_hf.py        # Hugging Face publishing
+├── report.py         # acceptance, holdout, and coverage reporting
+├── card.py           # consolidated dataset-card configuration validation
+├── push_hf.py        # one-repository Hugging Face publication
 └── cli.py            # command-line entrypoint
 ```
 
-## How It Fits In
+## Generation
 
-Make targets `dpo-smoke`, `dpo-generate`, `dpo-report`, `dpo-inspect`, and `dpo-push` call this package. Public command details live in `../../docs/COMMANDS.md`.
+The 14 DPO families inherit the source capacities of their SFT counterparts. Eleven verifiable families are materialized locally from exact targets. Concept explanations, code explanations, and private-fact restraint use the configured teacher model. Provider calls receive only specifications that require semantic generation.
 
-## Conventions
+Requested source ranges, including the configured replacement budget, are validated before a provider backend is constructed. Model selection remains configurable through `DPO_MODEL`; OpenRouter routing remains configurable through the shared routing variables.
 
-Public DPO rows contain `id`, `prompt`, `chosen`, `rejected`, and public `metadata`. Generic DPO stays separate from `distillation_dpo`, which has different lineage and consumer metadata.
+## Acceptance and Resume
 
-Every family inherits the unique source capacity of its SFT source family. Arithmetic, factual answer-only, expression, exact-format, and verifiable code families are materialized locally from exact targets. Concept explanations, code explanations, and private-fact restraint remain teacher-generated. Mixed batches send only teacher-required specifications to the provider.
+Public output keeps the first pair for each normalized ID, prompt, and `(prompt, chosen, rejected)` triple. Duplicate or locally rejected pairs do not count toward the accepted target. Replacement rounds use new source indexes and preserve accepted pairs.
 
-At the approved 1,000-pair family target, source specifications are unique for all 14 families and normalized deterministic triples are unique for all 11 exact-target families. A requested source range that exceeds declared capacity fails before provider-backend construction.
+An exhausted run writes its accepted files and an underfilled manifest, then exits nonzero. Resume verifies the source plan, family allocation, accepted-file fingerprints, batch manifests, accounting, and next unused source indexes before generating replacements.
+
+Coverage reports include aggregate and per-family metadata, uniqueness, chosen/rejected similarity, negative-pattern distribution, holdout results, and attempted/accepted/rejected/duplicate/remaining counts. Similarity and repeated negative patterns are diagnostics; exact duplicates, holdout collisions, stale accounting, and underfilled targets are publication blockers.
+
+## Publication
+
+`dpo-push` publishes one complete run to `DPO_HF_REPO` in one commit:
+
+```text
+README.md
+data/<family>.jsonl
+artifacts/coverage.json
+artifacts/manifests/*.manifest.json
+```
+
+The default dataset configuration loads all family files. Named configurations load one family without duplicating stored pairs. Publication requires one final JSONL file per manifest family and a current publish-ready report and dataset card.
+
+## Commands
+
+Use `make dpo-smoke`, `make dpo-generate`, `make dpo-report`, `make dpo-inspect`, and `make dpo-push`. See `../../docs/COMMANDS.md` for variables and `../../docs/GENERATION_WORKFLOW.md` for the run ladder.

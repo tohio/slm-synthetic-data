@@ -528,8 +528,8 @@ dpo-report:
 >   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   --run-manifest $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/manifests/$(DPO_REPORT_RUN).manifest.json \
 >   --output $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/coverage.json
-> $(PYTHON) -m slm_synth.cards build --kind dpo --run-dir data/dpo/runs/$(DPO_REPORT_RUN)
-> $(PYTHON) -m slm_synth.manifest_totals normalize --kind dpo --run-dir data/dpo/runs/$(DPO_REPORT_RUN)
+> $(PYTHON) -m slm_synth.cards build --kind dpo --run-dir $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)
+> $(PYTHON) -m slm_synth.manifest_totals normalize --kind dpo --run-dir $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)
 
 dpo-inspect:
 > @echo "== DPO files =="

@@ -70,6 +70,8 @@ Public DPO rows use this schema:
 
 Chosen and rejected responses are public. Teacher/provider details, retries, cost, task variables, and `holdout_key` stay in manifests.
 
+Published generic DPO data uses one repository containing one `data/<family>.jsonl` file per family. The default dataset configuration loads every family file; named configurations select one family. These configurations do not create train/validation/test splits or duplicate stored pairs.
+
 ## Distillation SFT Data
 
 Distillation SFT rows are teacher prompt/response examples. Public artifacts are per-signal JSONL files; downstream train/validation/test splitting belongs to `slm-distillation`.
