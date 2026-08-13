@@ -16,7 +16,8 @@ from slm_synth.planning import build_count_plan
 from slm_synth.dpo.generation import StructuredTeacherBackend, build_openrouter_backend, generate_llm_batch
 from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import write_manifest, write_run_manifest
-from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_specs
+from slm_synth.dpo.batches import is_exact_target_dpo_spec
+from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_specs, validate_spec_range
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 from slm_synth.telemetry import aggregate_llm_telemetry_from_manifests
 from slm_synth.throughput_defaults import (
@@ -98,20 +99,33 @@ def generate_llm_run(
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     adaptive_maximum_in_flight = concurrency
 
-    active_backend = backend or build_openrouter_backend(
-        model=teacher_model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        request_timeout=request_timeout,
-        max_request_retries=max_request_retries,
-        max_retryable_request_attempts=max_retryable_request_attempts,
-        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-        adaptive_initial_in_flight=adaptive_initial_in_flight,
-        openrouter_routing_mode=openrouter_routing_mode,
-        openrouter_provider=openrouter_provider,
-    )
+    for family in resolved_families:
+        validate_spec_range(
+            family=family,
+            count=count_plan.counts_by_key[family],
+            start_index=start_index,
+        )
+
+    active_backend = backend
+
+    def get_backend() -> StructuredTeacherBackend:
+        nonlocal active_backend
+        if active_backend is None:
+            active_backend = build_openrouter_backend(
+                model=teacher_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                request_timeout=request_timeout,
+                max_request_retries=max_request_retries,
+                max_retryable_request_attempts=max_retryable_request_attempts,
+                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                adaptive_initial_in_flight=adaptive_initial_in_flight,
+                openrouter_routing_mode=openrouter_routing_mode,
+                openrouter_provider=openrouter_provider,
+            )
+        return active_backend
 
     def run_job(job: dict[str, Any]) -> Any:
         return generate_llm_batch(
@@ -139,7 +153,11 @@ def generate_llm_run(
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
-            backend=active_backend,
+            backend=(
+                active_backend
+                if all(is_exact_target_dpo_spec(spec) for spec in job["specs"])
+                else get_backend()
+            ),
         )
 
     jobs: list[dict[str, Any]] = []

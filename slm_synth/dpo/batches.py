@@ -139,37 +139,89 @@ def _exact_target_prompt_text(family: str, variables: Mapping[str, Any]) -> str:
     if family == "direct_division":
         return f"What is {variables['dividend']} divided by {variables['divisor']}? Answer with only the integer result."
     if family == "capital_city_qa":
-        return f"What is the capital of {variables['country']}? Answer with only the capital city."
+        return _styled_prompt(
+            f"What is the capital of {variables['country']}? Answer with only the capital city.",
+            variables,
+            include_context=True,
+        )
     if family == "short_factual_stop_behavior":
-        return f"What is the capital of {variables['country']}? Answer with only the capital city."
+        return _styled_prompt(
+            f"What is the capital of {variables['country']}? Answer with only the capital city.",
+            variables,
+            include_context=True,
+        )
     if family == "clear_sky_color_qa":
-        return f"What color is {variables['topic']}? Answer with only the color."
+        question = (
+            f"Under {variables['observation_condition']}, what color is {variables['topic']}? "
+            "Answer with only the color."
+        )
+        return _styled_prompt(question, variables, include_context=True)
     if family == "code_expression_result":
         return f"Evaluate this Python expression and answer with only the result:\n{variables['expression']}"
     if family == "repeat_exact_n_times":
-        return (
+        question = (
             f"Repeat {variables['word']} exactly {variables['count']} times. "
             "Use single spaces only and do not add punctuation or extra text."
         )
+        return _styled_prompt(question, variables)
     if family == "list_exact_n_items":
-        return (
+        question = (
             f"List exactly {variables['count']} {variables['item_type']}. "
             "Use comma-space separators and do not include numbering, bullets, prose, or extra items."
         )
+        return _styled_prompt(question, variables, include_context=True)
     if family == "function_completion_body_only":
-        return (
+        requirement = variables.get("docstring", "Implement the requested function behavior.")
+        implementation_focus = variables.get("implementation_focus", "clarity")
+        question = (
             "Complete this Python function body only.\n"
             f"Signature:\n{variables['function_signature']}\n"
+            f"Requirement: {requirement}\n"
+            f"Implementation focus: {implementation_focus}.\n"
             "Return only the function body. Do not include the signature, prose, or Markdown fences."
         )
+        return _styled_prompt(question, variables, include_context=True)
     if family == "code_generation_function":
-        return (
+        implementation_focus = variables.get("implementation_focus", "clarity")
+        question = (
             "Write a complete Python function with this exact signature.\n"
             f"Signature:\n{variables['function_signature']}\n"
             f"Requirement: {variables['requirement']}\n"
+            f"Implementation focus: {implementation_focus}.\n"
             "Return Python code only. Do not include prose or Markdown fences."
         )
+        return _styled_prompt(question, variables, include_context=True)
     raise ValueError(f"Unsupported exact-target DPO eval_family: {family}")
+
+
+def _styled_prompt(
+    question: str,
+    variables: Mapping[str, Any],
+    *,
+    include_context: bool = False,
+) -> str:
+    style = str(variables.get("prompt_style", "plain"))
+    style_prefixes = {
+        "plain": "",
+        "classroom": "Classroom exercise: ",
+        "quiz": "Quick quiz: ",
+        "direct": "Give a direct response: ",
+        "formal": "Formal question: ",
+        "friendly": "Please answer this friendly question: ",
+        "compact": "Brief response requested: ",
+        "neutral": "Neutral knowledge check: ",
+        "beginner": "Beginner exercise: ",
+        "assessment": "Assessment item: ",
+    }
+    if style not in style_prefixes:
+        raise ValueError(f"Unsupported exact-target DPO prompt_style: {style}")
+    context_prefix = ""
+    if include_context:
+        context = variables.get("prompt_context", "standalone question")
+        if not isinstance(context, str) or not context.strip():
+            raise ValueError("exact-target DPO variables.prompt_context must be a non-empty string")
+        context_prefix = f"Context: {context.strip()}. "
+    return f"{context_prefix}{style_prefixes[style]}{question}"
 
 
 def build_dpo_teacher_request_items(specs: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:

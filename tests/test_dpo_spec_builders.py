@@ -3,13 +3,22 @@ import json
 import pytest
 
 from slm_synth.dpo.generation import read_specs_jsonl
+from slm_synth.dpo.batches import build_exact_target_dpo_batch_response, is_exact_target_dpo_spec
 from slm_synth.dpo.spec_builders import (
+    DPO_SPEC_CAPACITIES,
     DPO_SPEC_FAMILIES,
     build_and_write_specs,
     build_specs,
     write_specs_jsonl,
 )
-from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
+from slm_synth.dpo.specs import dpo_source_fingerprint, teacher_visible_dpo_spec, validate_dpo_spec
+
+
+TEACHER_GENERATED_FAMILIES = {
+    "ai_concept_explanation",
+    "code_explanation_no_code",
+    "private_or_unverifiable_company_fact",
+}
 
 
 @pytest.mark.parametrize("family", sorted(DPO_SPEC_FAMILIES))
@@ -92,6 +101,47 @@ def test_build_dpo_specs_rejects_unknown_family():
 def test_build_dpo_specs_rejects_bad_count():
     with pytest.raises(ValueError, match="count"):
         build_specs(family="basic_arithmetic_qa", count=0)
+
+
+@pytest.mark.parametrize("family", sorted(DPO_SPEC_FAMILIES))
+def test_dpo_sources_are_unique_at_approved_family_target(family):
+    specs = build_specs(family=family, count=1000)
+
+    assert DPO_SPEC_CAPACITIES[family] >= 1000
+    assert len({dpo_source_fingerprint(spec) for spec in specs}) == 1000
+
+
+@pytest.mark.parametrize("family", sorted(DPO_SPEC_FAMILIES - TEACHER_GENERATED_FAMILIES))
+def test_exact_target_dpo_triples_are_unique_at_approved_family_target(family):
+    specs = build_specs(family=family, count=1000)
+
+    assert all(is_exact_target_dpo_spec(spec) for spec in specs)
+    rows = build_exact_target_dpo_batch_response(specs)["items"]
+    fingerprints = {
+        json.dumps(
+            [row["prompt"], row["chosen"], row["rejected"]],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        for row in rows
+    }
+    assert len(fingerprints) == 1000
+
+
+@pytest.mark.parametrize("family", sorted(TEACHER_GENERATED_FAMILIES))
+def test_semantic_dpo_families_remain_teacher_generated(family):
+    assert not any(is_exact_target_dpo_spec(spec) for spec in build_specs(family=family, count=1000))
+
+
+def test_dpo_capacity_rejects_range_beyond_unique_source_limit():
+    family = "direct_division"
+
+    with pytest.raises(ValueError, match="exceeds declared unique source capacity"):
+        build_specs(
+            family=family,
+            count=2,
+            start_index=DPO_SPEC_CAPACITIES[family],
+        )
 
 
 def test_function_completion_dpo_specs_ground_signature_and_exact_body():

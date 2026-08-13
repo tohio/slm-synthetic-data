@@ -134,10 +134,12 @@ def generate_teacher_batch_response_with_metadata(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call a teacher backend and return the response object plus operational telemetry."""
     validated_specs = [validate_dpo_spec(spec) for spec in specs]
-    if _all_exact_target_specs(validated_specs):
+    exact_specs = [spec for spec in validated_specs if is_exact_target_dpo_spec(spec)]
+    teacher_specs = [spec for spec in validated_specs if not is_exact_target_dpo_spec(spec)]
+    if not teacher_specs:
         return build_exact_target_dpo_batch_response(validated_specs), {"exact_target_materialized": True}
 
-    rendered_prompt = render_dpo_batch_prompt(validated_specs)
+    rendered_prompt = render_dpo_batch_prompt(teacher_specs)
     result = backend.generate_structured_object_with_metadata(
         prompt=rendered_prompt,
         schema=DPO_BATCH_RESPONSE_SCHEMA,
@@ -147,7 +149,28 @@ def generate_teacher_batch_response_with_metadata(
     if not isinstance(data, Mapping):
         raise ValueError("DPO teacher backend returned non-object data")
     telemetry = result.get("telemetry")
-    return dict(data), dict(telemetry) if isinstance(telemetry, Mapping) else {}
+    teacher_response = dict(data)
+    if not exact_specs:
+        return teacher_response, dict(telemetry) if isinstance(telemetry, Mapping) else {}
+
+    teacher_rows = validate_dpo_batch_response(
+        teacher_response,
+        expected_ids=[spec["id"] for spec in teacher_specs],
+        expected_count=len(teacher_specs),
+        expected_specs=teacher_specs,
+    )
+    exact_rows = build_exact_target_dpo_batch_response(exact_specs)["items"]
+    rows_by_id = {row["id"]: row for row in [*teacher_rows, *exact_rows]}
+    combined = {"items": [rows_by_id[spec["id"]] for spec in validated_specs]}
+    combined_telemetry = dict(telemetry) if isinstance(telemetry, Mapping) else {}
+    combined_telemetry.update(
+        {
+            "exact_target_materialized": True,
+            "exact_target_count": len(exact_specs),
+            "teacher_target_count": len(teacher_specs),
+        }
+    )
+    return combined, combined_telemetry
 
 
 def generate_llm_batch(
@@ -179,24 +202,30 @@ def generate_llm_batch(
     if not validated_specs:
         raise ValueError("at least one DPO spec is required")
 
-    active_backend = backend or build_openrouter_backend(
-        model=teacher_model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        request_timeout=request_timeout,
-        max_request_retries=max_request_retries,
-        max_retryable_request_attempts=max_retryable_request_attempts,
-        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-        adaptive_initial_in_flight=adaptive_initial_in_flight,
-        openrouter_routing_mode=openrouter_routing_mode,
-        openrouter_provider=openrouter_provider,
-    )
-    teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
-        specs=validated_specs,
-        backend=active_backend,
-    )
+    active_backend = backend
+    if active_backend is None and not _all_exact_target_specs(validated_specs):
+        active_backend = build_openrouter_backend(
+            model=teacher_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            openrouter_routing_mode=openrouter_routing_mode,
+            openrouter_provider=openrouter_provider,
+        )
+    if active_backend is None:
+        teacher_response = build_exact_target_dpo_batch_response(validated_specs)
+        telemetry = {"exact_target_materialized": True}
+    else:
+        teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
+            specs=validated_specs,
+            backend=active_backend,
+        )
     return materialize_llm_batch(
         specs=validated_specs,
         teacher_response=teacher_response,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -53,6 +54,30 @@ def teacher_visible_dpo_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     if "constraints" in validated:
         visible["constraints"] = validated["constraints"]
     return visible
+
+
+def dpo_source_fingerprint(spec: Mapping[str, Any]) -> str:
+    """Return a canonical fingerprint of teacher-visible DPO task content."""
+    visible = teacher_visible_dpo_spec(spec)
+    visible.pop("id", None)
+    return json.dumps(visible, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def require_unique_dpo_sources(specs: Sequence[Mapping[str, Any]]) -> None:
+    """Reject repeated teacher-visible DPO source specifications."""
+    seen: dict[str, str] = {}
+    duplicates: list[tuple[str, str]] = []
+    for spec in specs:
+        validated = validate_dpo_spec(spec)
+        fingerprint = dpo_source_fingerprint(validated)
+        prior_id = seen.get(fingerprint)
+        if prior_id is not None:
+            duplicates.append((prior_id, validated["id"]))
+        else:
+            seen[fingerprint] = validated["id"]
+    if duplicates:
+        examples = ", ".join(f"{left}/{right}" for left, right in duplicates[:5])
+        raise ValueError(f"DPO specs contain repeated teacher-visible source content: {examples}")
 
 
 def _require_non_empty_string(value: Any, field_name: str) -> str:

@@ -4,6 +4,7 @@ import pytest
 
 from slm_synth.dpo.generation import (
     generate_llm_batch,
+    generate_teacher_batch_response_with_metadata,
     materialize_llm_batch,
     materialize_llm_batch_from_files,
     read_specs_jsonl,
@@ -212,6 +213,62 @@ def test_generate_llm_batch_materializes_exact_code_generation_without_teacher_c
     assert rows[1]["chosen"][0]["content"] == specs[1]["variables"]["chosen_answer"]
     manifest = json.loads((tmp_path / "dpo.manifest.json").read_text())
     assert manifest["metadata"]["llm_telemetry"] == {"exact_target_materialized": True}
+
+
+def test_generate_llm_batch_does_not_construct_backend_for_exact_targets(tmp_path, monkeypatch):
+    def unexpected_backend(**kwargs):
+        raise AssertionError("exact-target DPO batches must not construct a provider backend")
+
+    monkeypatch.setattr("slm_synth.dpo.generation.build_openrouter_backend", unexpected_backend)
+    result = generate_llm_batch(
+        specs=build_specs(family="basic_arithmetic_qa", count=2),
+        output_path=tmp_path / "dpo.jsonl",
+        manifest_path=tmp_path / "dpo.manifest.json",
+        teacher_model="unused/model",
+        generation_run="dpo-exact-target-001",
+        max_tokens=1024,
+    )
+
+    assert result.row_count == 2
+
+
+def test_mixed_batch_calls_teacher_only_for_non_exact_specs():
+    exact_spec = build_specs(family="basic_arithmetic_qa", count=1)[0]
+    teacher_spec = build_specs(family="ai_concept_explanation", count=1)[0]
+
+    class OneTeacherSpecBackend:
+        def __init__(self):
+            self.ids = []
+
+        def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+            visible_specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+            self.ids = [spec["id"] for spec in visible_specs]
+            spec = visible_specs[0]
+            return {
+                "data": {
+                    "items": [
+                        {
+                            "id": spec["id"],
+                            "prompt": [{"role": "user", "content": "What is an embedding?"}],
+                            "chosen": [{"role": "assistant", "content": "A vector representation."}],
+                            "rejected": [{"role": "assistant", "content": "An electrical cable."}],
+                            "metadata": spec["metadata"],
+                        }
+                    ]
+                },
+                "telemetry": {"usage": {"total_tokens": 10}},
+            }
+
+    backend = OneTeacherSpecBackend()
+    response, telemetry = generate_teacher_batch_response_with_metadata(
+        specs=[exact_spec, teacher_spec],
+        backend=backend,
+    )
+
+    assert backend.ids == [teacher_spec["id"]]
+    assert [row["id"] for row in response["items"]] == [exact_spec["id"], teacher_spec["id"]]
+    assert telemetry["exact_target_count"] == 1
+    assert telemetry["teacher_target_count"] == 1
 
 
 def test_materialize_llm_batch_ignores_collapsed_teacher_response_for_exact_targets(tmp_path):

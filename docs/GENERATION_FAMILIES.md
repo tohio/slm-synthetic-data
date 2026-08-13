@@ -72,20 +72,20 @@ Generic DPO uses the same supported family set as SFT, but each family adds a re
 
 | Family | Failure mode | Preference objective |
 |---|---|---|
-| `ai_concept_explanation` | `wrong_factual_answer` | Prefer correct, concise concept explanation over incorrect explanation. |
+| `ai_concept_explanation` | `wrong_factual_answer`, `incomplete_instruction_guess` | Prefer correct, concise concept explanation over incorrect or incomplete explanation. |
 | `basic_arithmetic_qa` | `wrong_numeric_answer` | Prefer exact numeric answer over wrong number. |
 | `capital_city_qa` | `wrong_factual_answer` | Prefer correct capital over incorrect factual answer. |
 | `clear_sky_color_qa` | `wrong_factual_answer` | Prefer correct common fact over incorrect answer. |
-| `code_explanation_no_code` | `code_includes_explanation` | Prefer compliant plain-text explanation over response that violates the expected surface. |
+| `code_explanation_no_code` | `code_includes_explanation`, `code_logic_error` | Prefer correct plain-text explanation over code-surface or logic failures. |
 | `code_expression_result` | `wrong_numeric_answer` | Prefer exact expression result over wrong value. |
-| `code_generation_function` | `code_includes_explanation` | Prefer code-only complete function over Markdown/prose-wrapped response. |
+| `code_generation_function` | `code_includes_explanation`, `format_violation` | Prefer code-only complete function over prose, Markdown, or trailing explanation. |
 | `direct_division` | `wrong_numeric_answer` | Prefer exact integer quotient over wrong number. |
 | `direct_subtraction` | `wrong_numeric_answer` | Prefer exact subtraction result over wrong number. |
-| `function_completion_body_only` | `code_includes_explanation` | Prefer body-only function completion over response with prose/signature leakage. |
+| `function_completion_body_only` | `code_includes_explanation`, `format_violation` | Prefer body-only function completion over prose, Markdown, or signature leakage. |
 | `list_exact_n_items` | `format_violation` | Prefer exact item count and separators over extra/misformatted items. |
-| `private_or_unverifiable_company_fact` | `unknown_fact_fabrication` | Prefer restraint over fabricated private or unverifiable details. |
+| `private_or_unverifiable_company_fact` | `unknown_fact_fabrication`, `unsafe_private_info_guess`, `persona_fabrication` | Prefer restraint over fabricated private details, guesses, or invented sourcing. |
 | `repeat_exact_n_times` | `format_violation` | Prefer exact repeat count over extra/missing repeated items. |
-| `short_factual_stop_behavior` | `verbosity_mismatch` | Prefer concise answer-only response over verbose completion. |
+| `short_factual_stop_behavior` | `verbosity_mismatch`, `extra_explanation` | Prefer concise answer-only response over restating or unnecessary explanation. |
 
 Implementation source of truth:
 
@@ -93,6 +93,8 @@ Implementation source of truth:
 slm_synth/dpo/spec_builders.py
 slm_synth/sft/spec_builders.py
 ```
+
+Exact-target pairs are materialized locally for arithmetic, capital/color facts, expression evaluation, code generation/completion, exact lists/repetition, and short factual stopping. Concept explanation, code explanation, and private-fact restraint require teacher generation. Exact-target prompts preserve the source style/context axes; provider calls receive only specifications that require semantic generation.
 
 ## Distillation SFT Signals
 

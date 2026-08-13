@@ -4,6 +4,7 @@ import pytest
 
 from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.dpo.runs import generate_llm_run, resolve_spec_families
+from slm_synth.dpo.spec_builders import DPO_SPEC_CAPACITIES
 
 
 def _fake_row_from_spec(spec):
@@ -169,6 +170,26 @@ def test_generate_dpo_llm_run_rejects_bad_concurrency(tmp_path):
             generation_run="dpo-live-run-001",
             max_tokens=1024,
             backend=FakeDPOBackend(),
+        )
+
+
+def test_generate_dpo_llm_run_preflights_capacity_before_backend_construction(tmp_path, monkeypatch):
+    def unexpected_backend(**kwargs):
+        raise AssertionError("provider backend must not be constructed")
+
+    monkeypatch.setattr("slm_synth.dpo.runs.build_openrouter_backend", unexpected_backend)
+    family = "direct_division"
+    with pytest.raises(ValueError, match="exceeds declared unique source capacity"):
+        generate_llm_run(
+            families=[family],
+            count_per_family=2,
+            start_index=DPO_SPEC_CAPACITIES[family],
+            batch_size=1,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="unused/model",
+            generation_run="dpo-capacity-001",
+            max_tokens=1024,
         )
 
 
