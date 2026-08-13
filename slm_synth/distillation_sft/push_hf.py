@@ -208,6 +208,43 @@ def require_publish_resolved_response_clusters(files: list[Path]) -> dict[str, A
     return summary
 
 
+def require_manifest_dataset_counts(manifest_path: str | Path, files: list[Path]) -> None:
+    """Reject a push when adjudication or another edit left manifest counts stale."""
+    path = Path(manifest_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    datasets = payload.get("datasets", []) if isinstance(payload, dict) else []
+    if not isinstance(datasets, list) or not datasets:
+        return
+
+    expected_by_signal: dict[str, int] = {}
+    for dataset in datasets:
+        if not isinstance(dataset, dict):
+            raise ValueError(f"distillation run manifest has an invalid dataset entry: {path}")
+        signal = dataset.get("signal")
+        row_count = dataset.get("row_count")
+        if not isinstance(signal, str) or not isinstance(row_count, int) or row_count < 0:
+            raise ValueError(f"distillation run manifest has an invalid dataset count: {path}")
+        expected_by_signal[signal] = expected_by_signal.get(signal, 0) + row_count
+
+    actual_by_signal: dict[str, int] = defaultdict(int)
+    for file_path in files:
+        signal = file_path.stem.split(".batch", 1)[0]
+        actual_by_signal[signal] += count_and_validate_jsonl(file_path)
+
+    mismatches = []
+    for signal in sorted(set(expected_by_signal) | set(actual_by_signal)):
+        expected = expected_by_signal.get(signal, 0)
+        actual = actual_by_signal.get(signal, 0)
+        if expected != actual:
+            mismatches.append(f"{signal}: manifest={expected} dataset={actual}")
+    if mismatches:
+        raise ValueError(
+            "distillation-SFT manifest counts do not match adjudicated datasets; "
+            "backfill and rebuild manifests before publishing: "
+            + "; ".join(mismatches)
+        )
+
+
 def get_hf_token() -> str:
     token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
     if not token:
@@ -322,6 +359,8 @@ def push_distillation_run(
         run_manifest = discover_run_manifest(root)
         require_publish_ready_manifest(run_manifest, artifact_name="distillation SFT")
     files = discover_jsonl_files(dataset_root)
+    if run_manifest is not None:
+        require_manifest_dataset_counts(run_manifest, files)
     prompt_uniqueness = require_publish_prompt_uniqueness(files)
     print(
         "[push_hf] distillation-SFT prompt uniqueness "

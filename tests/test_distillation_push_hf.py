@@ -8,6 +8,7 @@ from slm_synth.distillation_sft.push_hf import (
     discover_jsonl_files,
     discover_run_manifest,
     push_distillation_run,
+    require_manifest_dataset_counts,
     require_publish_prompt_uniqueness,
     require_publish_resolved_response_clusters,
 )
@@ -270,3 +271,32 @@ def test_push_blocks_unresolved_cluster_before_remote_calls(tmp_path, monkeypatc
 
     with pytest.raises(ValueError, match="unresolved repeated-response cluster"):
         push_distillation_run(dataset_dir=dataset_dir, repo_id="org/distill")
+
+
+def test_manifest_count_gate_blocks_quarantined_underfill(tmp_path):
+    dataset = tmp_path / "cloud.jsonl"
+    rows = []
+    for index in range(2):
+        row = _distillation_row(f"cloud-{index:06d}")
+        row["prompt"] = f"Unique cloud prompt {index}."
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    manifest = tmp_path / "run.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "datasets": [
+                    {
+                        "signal": "cloud",
+                        "dataset_path": str(dataset),
+                        "manifest_path": "cloud.manifest.json",
+                        "row_count": 3,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="backfill and rebuild manifests"):
+        require_manifest_dataset_counts(manifest, [dataset])

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from slm_synth.distillation_sft.cli import main
+from slm_synth.distillation_sft.response_diversity import build_response_diversity_summary
 
 
 def test_build_seed_prompts_cli_writes_internal_prompt_records(tmp_path, capsys):
@@ -516,6 +517,61 @@ def test_report_coverage_cli_reports_low_response_diversity_without_failing(tmp_
     diversity = json.loads(output.read_text(encoding="utf-8"))["response_diversity"]
     assert diversity["unique_response_ratio"] == 0.25
     assert diversity["signals"]["debugging"]["unique_response_ratio"] == 0.25
+
+
+def test_apply_response_cluster_adjudications_cli(tmp_path, capsys):
+    dataset_dir = tmp_path / "datasets"
+    rejected_dir = tmp_path / "rejected"
+    dataset_dir.mkdir()
+    dataset = dataset_dir / "cloud.jsonl"
+    rows = []
+    for index in range(2):
+        rows.append(
+            {
+                "id": f"cloud-{index:06d}",
+                "prompt": f"Explain distinct cloud concept {index}.",
+                "reasoning": None,
+                "response": "Use autoscaling to adjust capacity.",
+                "metadata": {
+                    "category": "general_instruction_following",
+                    "difficulty": 2,
+                    "template_family": "cloud_explanation",
+                    "eval_family": None,
+                },
+            }
+        )
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    cluster = build_response_diversity_summary([dataset])["repeated_response_clusters"][0]
+    adjudications = tmp_path / "adjudications.json"
+    adjudications.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "decisions": [
+                    {
+                        "member_fingerprint": member["member_fingerprint"],
+                        "decision": "keep",
+                        "reason": "reviewed as correct",
+                    }
+                    for member in cluster["members"]
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(
+        [
+            "apply-response-cluster-adjudications",
+            "--dataset-dir",
+            str(dataset_dir),
+            "--adjudications",
+            str(adjudications),
+            "--rejected-dir",
+            str(rejected_dir),
+        ]
+    ) == 0
+    assert "reviewed_rows=2" in capsys.readouterr().out
 
 
 def test_distillation_sft_generate_make_target_uses_production_prompt_specs():

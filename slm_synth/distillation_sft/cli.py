@@ -21,6 +21,7 @@ from slm_synth.distillation_sft.prompts import validate_prompt_record
 from slm_synth.distillation_sft.generation import generate_and_materialize_signal_batch
 from slm_synth.distillation_sft.orchestration import generate_prompt_spec_multi_signal_run, generate_seed_multi_signal_run
 from slm_synth.distillation_sft.report import build_coverage_report, write_coverage_report
+from slm_synth.distillation_sft.response_adjudication import apply_response_cluster_adjudications
 from slm_synth.distillation_sft.runs import materialize_teacher_batch
 from slm_synth.distillation_sft.seeds import build_seed_prompt_records
 from slm_synth.distillation_sft.spec_builders import build_prompt_spec_records
@@ -269,6 +270,22 @@ def cmd_report_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_apply_response_cluster_adjudications(args: argparse.Namespace) -> int:
+    summary = apply_response_cluster_adjudications(
+        dataset_dir=args.dataset_dir,
+        adjudications_path=args.adjudications,
+        rejected_dir=args.rejected_dir,
+    )
+    print(
+        "applied response-cluster adjudications: "
+        f"reviewed_rows={summary['reviewed_rows']} "
+        f"kept_rows={summary['kept_rows']} "
+        f"rejected_rows={summary['rejected_rows']} "
+        f"rejected_path={summary['rejected_path']}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.distillation_sft.cli",
@@ -412,6 +429,12 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.add_argument("--run-manifest", required=True)
     coverage_parser.add_argument("--output", default=None)
     coverage_parser.set_defaults(func=cmd_report_coverage)
+
+    adjudication_parser = subparsers.add_parser("apply-response-cluster-adjudications")
+    adjudication_parser.add_argument("--dataset-dir", required=True)
+    adjudication_parser.add_argument("--adjudications", required=True)
+    adjudication_parser.add_argument("--rejected-dir", required=True)
+    adjudication_parser.set_defaults(func=cmd_apply_response_cluster_adjudications)
 
     return parser
 

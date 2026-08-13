@@ -18,6 +18,17 @@ def normalize_response_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+def response_cluster_member_fingerprint(*, signal: str, row: Mapping[str, Any]) -> str:
+    """Return a content-bound identifier for one cluster member."""
+    payload = json.dumps(
+        {"signal": signal, "row": dict(row)},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
 def build_response_diversity_summary(files: Iterable[str | Path]) -> dict[str, Any]:
     """Build aggregate and per-signal exact response-diversity statistics."""
     counts_by_signal: dict[str, Counter[str]] = {}
@@ -43,6 +54,10 @@ def build_response_diversity_summary(files: Iterable[str | Path]) -> dict[str, A
                 cluster_members[normalized_response].append(
                     {
                         "id": row["id"],
+                        "member_fingerprint": response_cluster_member_fingerprint(
+                            signal=signal,
+                            row=row,
+                        ),
                         "prompt": row["prompt"],
                         "signal": signal,
                         "category": row["metadata"]["category"],

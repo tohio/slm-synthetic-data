@@ -123,6 +123,8 @@ def test_repeated_response_clusters_expose_all_29_cloud_rows_including_valid_con
     assert cluster["responses"] == [repeated_response]
     assert len(cluster["response_fingerprint"]) == 64
     assert len(cluster["members"]) == 29
+    assert all(len(member["member_fingerprint"]) == 64 for member in cluster["members"])
+    assert len({member["member_fingerprint"] for member in cluster["members"]}) == 29
     assert {member["id"] for member in cluster["members"]} == {row["id"] for row in rows}
     assert {member["prompt"] for member in cluster["members"]} == set(prompts)
     control = next(member for member in cluster["members"] if member["id"] == valid_control_id)
