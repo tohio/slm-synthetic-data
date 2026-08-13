@@ -49,6 +49,7 @@ DISTILLATION_SFT_TARGET_RUN ?= distillation-sft-target-001
 DISTILLATION_SFT_REPORT_RUN ?= $(DISTILLATION_SFT_RUN)
 DISTILLATION_SFT_INSPECT_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
 DISTILLATION_SFT_ADJUDICATION_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
+DISTILLATION_SFT_BACKFILL_RUN ?= $(DISTILLATION_SFT_ADJUDICATION_RUN)
 DISTILLATION_SFT_ADJUDICATIONS ?=
 DISTILLATION_SFT_TARGET_ROWS ?= 100000
 DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL ?= 2
@@ -164,7 +165,7 @@ HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_R
 .PHONY: help \
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
 	distillation-sft-smoke distillation-sft-generate \
-	distillation-sft-report distillation-sft-inspect distillation-sft-adjudicate distillation-sft-push \
+	distillation-sft-report distillation-sft-inspect distillation-sft-adjudicate distillation-sft-backfill distillation-sft-push \
 	distillation-dpo-smoke distillation-dpo-generate \
 	distillation-dpo-report distillation-dpo-inspect distillation-dpo-push \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
@@ -198,6 +199,7 @@ help:
 > @echo "  make pretrain-report     Rebuild pretraining reports and dataset card"
 > @echo "  make distillation-sft-report      Rebuild distillation SFT reports and dataset card"
 > @echo "  make distillation-sft-adjudicate  Apply reviewed repeated-response decisions"
+> @echo "  make distillation-sft-backfill    Replace rows rejected by adjudication"
 > @echo "  make distillation-dpo-report      Rebuild distillation DPO reports and dataset card"
 > @echo "  make sft-report          Rebuild SFT coverage and dataset card"
 > @echo "  make dpo-report          Rebuild DPO coverage and dataset card"
@@ -363,6 +365,18 @@ distillation-sft-adjudicate:
 >   --dataset-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/datasets \
 >   --adjudications $(DISTILLATION_SFT_ADJUDICATIONS) \
 >   --rejected-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/rejected
+
+distillation-sft-backfill:
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.cli backfill-adjudicated-run \
+>   --run-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_BACKFILL_RUN) \
+>   --max-tokens $(DISTILLATION_SFT_MAX_TOKENS) \
+>   $(OPENROUTER_ROUTING_ARGS) \
+>   --batch-size $(DISTILLATION_SFT_BATCH_SIZE) \
+>   --concurrency $(DISTILLATION_SFT_TARGET_CONCURRENCY) \
+>   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
+>   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
+>   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES) \
+>   --max-backfill-rounds $(DISTILLATION_SFT_MAX_BACKFILL_ROUNDS)
 
 distillation-sft-push:
 > test -n "$(DISTILLATION_SFT_HF_REPO)" || (echo "DISTILLATION_SFT_HF_REPO or HF_REPO is required" >&2; exit 2)

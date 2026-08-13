@@ -15,6 +15,7 @@ from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
 )
 from slm_synth.distillation_sft.batches import render_teacher_batch_prompt
+from slm_synth.distillation_sft.adjudication_backfill import backfill_adjudicated_run
 from slm_synth.distillation_sft.budget import DEFAULT_ESTIMATED_TOKENS_PER_ROW, build_token_budget_plan
 from slm_synth.distillation_sft.card import write_dataset_card
 from slm_synth.distillation_sft.prompts import validate_prompt_record
@@ -286,6 +287,31 @@ def cmd_apply_response_cluster_adjudications(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backfill_adjudicated_run(args: argparse.Namespace) -> int:
+    summary = backfill_adjudicated_run(
+        run_dir=args.run_dir,
+        max_tokens=args.max_tokens,
+        batch_size=args.batch_size,
+        concurrency=args.concurrency,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        request_timeout=args.request_timeout,
+        max_request_retries=args.max_request_retries,
+        max_retryable_request_attempts=args.max_retryable_request_attempts,
+        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
+        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
+        adaptive_initial_batch_size=args.adaptive_initial_batch_size,
+        adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
+        max_backfill_rounds=args.max_backfill_rounds,
+        **_openrouter_routing_kwargs(args),
+    )
+    print(
+        "completed adjudication backfill: "
+        f"added_rows={summary['added_rows']} rows={summary['rows']}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.distillation_sft.cli",
@@ -435,6 +461,27 @@ def build_parser() -> argparse.ArgumentParser:
     adjudication_parser.add_argument("--adjudications", required=True)
     adjudication_parser.add_argument("--rejected-dir", required=True)
     adjudication_parser.set_defaults(func=cmd_apply_response_cluster_adjudications)
+
+    adjudication_backfill_parser = subparsers.add_parser("backfill-adjudicated-run")
+    adjudication_backfill_parser.add_argument("--run-dir", required=True)
+    adjudication_backfill_parser.add_argument("--max-tokens", type=int, required=True)
+    adjudication_backfill_parser.add_argument("--batch-size", type=int, required=True)
+    adjudication_backfill_parser.add_argument("--concurrency", type=int, required=True)
+    adjudication_backfill_parser.add_argument("--temperature", type=float, default=0.2)
+    adjudication_backfill_parser.add_argument("--top-p", type=float, default=0.95)
+    adjudication_backfill_parser.add_argument("--request-timeout", type=float, default=None)
+    adjudication_backfill_parser.add_argument("--max-request-retries", type=int, default=3)
+    adjudication_backfill_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
+    adjudication_backfill_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
+    adjudication_backfill_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
+    adjudication_backfill_parser.add_argument("--adaptive-initial-batch-size", type=int, default=4)
+    adjudication_backfill_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=4)
+    adjudication_backfill_parser.add_argument("--max-backfill-rounds", type=int, default=2)
+    adjudication_backfill_parser.add_argument(
+        "--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None
+    )
+    adjudication_backfill_parser.add_argument("--openrouter-provider", default=None)
+    adjudication_backfill_parser.set_defaults(func=cmd_backfill_adjudicated_run)
 
     return parser
 
