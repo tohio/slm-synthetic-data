@@ -138,6 +138,7 @@ def validate_distillation_dpo_batch_response(
     *,
     expected_ids: Iterable[str] | None = None,
     expected_count: int | None = None,
+    expected_rows: Iterable[Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Validate a batched LLM distillation-DPO response and return normalized rows."""
     if not isinstance(response_object, Mapping):
@@ -160,7 +161,23 @@ def validate_distillation_dpo_batch_response(
 
     normalized_items = [_normalize_response_role_fields(item) for item in items]
     rows = [validate_distillation_dpo_row(item) for item in normalized_items]
-    _validate_response_ids([row["id"] for row in rows], expected_ids=expected_ids)
+    validated_expected_rows = (
+        [validate_distillation_dpo_row(row) for row in expected_rows]
+        if expected_rows is not None
+        else None
+    )
+    bound_ids = (
+        [row["id"] for row in validated_expected_rows]
+        if validated_expected_rows is not None
+        else expected_ids
+    )
+    if validated_expected_rows is not None and expected_ids is not None:
+        supplied_ids = list(expected_ids)
+        if supplied_ids != list(bound_ids):
+            raise ValueError("expected_ids do not match expected_rows ids")
+    _validate_response_ids([row["id"] for row in rows], expected_ids=bound_ids)
+    if validated_expected_rows is not None:
+        _validate_source_binding(rows, validated_expected_rows)
     return rows
 
 
@@ -224,3 +241,28 @@ def _validate_response_ids(row_ids: list[str], *, expected_ids: Iterable[str] | 
         raise ValueError(f"distillation-DPO batch response missing expected id(s): {missing}")
     if unexpected:
         raise ValueError(f"distillation-DPO batch response contains unexpected id(s): {unexpected}")
+
+
+def _validate_source_binding(
+    rows: list[dict[str, Any]],
+    expected_rows: list[dict[str, Any]],
+) -> None:
+    expected_ids = [row["id"] for row in expected_rows]
+    actual_ids = [row["id"] for row in rows]
+    if actual_ids != expected_ids:
+        raise ValueError(
+            "distillation-DPO batch response reordered ids: "
+            f"expected {expected_ids}, got {actual_ids}"
+        )
+
+    expected_by_id = {row["id"]: row for row in expected_rows}
+    for row in rows:
+        expected = expected_by_id[row["id"]]
+        if row["prompt"] != expected["prompt"]:
+            raise ValueError(
+                f"distillation-DPO batch response prompt mismatch for id {row['id']}"
+            )
+        if row["metadata"] != expected["metadata"]:
+            raise ValueError(
+                f"distillation-DPO batch response metadata mismatch for id {row['id']}"
+            )

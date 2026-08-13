@@ -51,3 +51,56 @@ def test_validate_distillation_dpo_batch_response_rejects_assistant_prompt_role(
 
     with pytest.raises(ValueError, match="prompt contains unsupported role"):
         validate_distillation_dpo_batch_response({"items": [row]})
+
+
+def test_batch_response_binds_prompt_to_the_matching_source_id():
+    first = _row("first")
+    second = _row("second")
+    second["prompt"] = [{"role": "user", "content": "What is 9 - 3?"}]
+    response_first = _row("first")
+    response_first["prompt"] = second["prompt"]
+
+    with pytest.raises(ValueError, match="prompt mismatch for id first"):
+        validate_distillation_dpo_batch_response(
+            {"items": [response_first, second]},
+            expected_rows=[first, second],
+        )
+
+
+def test_batch_response_binds_metadata_to_the_matching_source_id():
+    source = _row("source")
+    response = _row("source")
+    response["metadata"] = dict(response["metadata"])
+    response["metadata"]["failure_mode"] = "format_violation"
+
+    with pytest.raises(ValueError, match="metadata mismatch for id source"):
+        validate_distillation_dpo_batch_response(
+            {"items": [response]},
+            expected_rows=[source],
+        )
+
+
+def test_batch_response_rejects_reordered_source_ids():
+    first = _row("first")
+    second = _row("second")
+    second["prompt"] = [{"role": "user", "content": "What is 9 - 3?"}]
+
+    with pytest.raises(ValueError, match="reordered ids"):
+        validate_distillation_dpo_batch_response(
+            {"items": [second, first]},
+            expected_rows=[first, second],
+        )
+
+
+def test_batch_response_allows_new_chosen_and_rejected_content_when_source_is_bound():
+    source = _row("source")
+    response = _row("source")
+    response["chosen"] = [{"role": "assistant", "content": "The answer is 4."}]
+    response["rejected"] = [{"role": "assistant", "content": "The answer is 6."}]
+
+    rows = validate_distillation_dpo_batch_response(
+        {"items": [response]},
+        expected_rows=[source],
+    )
+
+    assert rows == [response]

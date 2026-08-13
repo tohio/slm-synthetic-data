@@ -107,6 +107,26 @@ class _BadDistillationDPOBackend:
         }
 
 
+class _MismatchedPromptBackend:
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        request = json.loads(prompt.split("Input specs:\n", 1)[1])
+        item = request["items"][0]
+        return {
+            "data": {
+                "items": [
+                    {
+                        "id": item["id"],
+                        "prompt": [{"role": "user", "content": "A different source prompt."}],
+                        "chosen": item["reference_chosen"],
+                        "rejected": item["reference_rejected"],
+                        "metadata": item["metadata"],
+                    }
+                ]
+            },
+            "telemetry": {},
+        }
+
+
 def test_distillation_dpo_schema_keeps_lineage_out_of_rows():
     row = _row()
     row["teacher_model"] = "deepseek/deepseek-v4-flash"
@@ -177,6 +197,22 @@ def test_generate_llm_run_writes_live_distillation_dpo_outputs(tmp_path):
     assert manifest["metadata"]["dataset_acceptance"]["unique_triple_count"] == 3
     assert "teacher_model" not in rows[0]
     assert rows[0]["chosen"] != rows[0]["rejected"]
+
+
+def test_generate_llm_run_rejects_mismatched_prompt_attached_to_expected_id(tmp_path):
+    with pytest.raises(ValueError, match="prompt mismatch"):
+        generate_llm_run(
+            families=["teacher_response_preference"],
+            count_per_family=1,
+            batch_size=1,
+            output_dir=tmp_path / "datasets",
+            manifest_dir=tmp_path / "manifests",
+            teacher_model="fake",
+            generation_run="distillation-dpo-source-mismatch-001",
+            max_tokens=64,
+            concurrency=1,
+            backend=_MismatchedPromptBackend(),
+        )
 
 
 def test_distillation_dpo_pair_quality_rejects_bad_pairs():

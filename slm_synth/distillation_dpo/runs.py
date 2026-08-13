@@ -542,11 +542,10 @@ def _run_llm_batch_job(
     if not isinstance(data, Mapping):
         raise ValueError("distillation-DPO teacher backend returned non-object data")
     telemetry = result.get("telemetry")
-    expected_ids = [str(row["id"]) for row in source_rows]
     rows = validate_distillation_dpo_batch_response(
         data,
-        expected_ids=expected_ids,
         expected_count=len(source_rows),
+        expected_rows=source_rows,
     )
     dataset_path = Path(job["dataset_path"])
     row_count = write_jsonl(rows, dataset_path)
