@@ -26,6 +26,7 @@ PAIR_QUALITY_CHECKS = (
     "chosen_code_complete",
     "rejected_code_failure_mode",
     "chosen_restraint_concise",
+    "machine_verifiable_response_contracts",
 )
 
 MAX_PRIVATE_RESTRAINT_WORDS = 60
@@ -35,6 +36,12 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 _SIGNATURE_ONLY_RE = re.compile(r"^\s*(?:async\s+)?def\s+[A-Za-z_]\w*\s*\([^\n]*\)\s*:\s*$")
 _EXPECTED_FUNCTION_RE = re.compile(r"\bnamed\s+([A-Za-z_]\w*)\b", re.IGNORECASE)
 _FUNCTION_DEF_RE = re.compile(r"\b(?:async\s+)?def\s+[A-Za-z_]\w*\s*\(")
+_GROUNDED_STATUS_RE = re.compile(r"deployment status ([a-z]+)", re.IGNORECASE)
+_SUBTRACTION_RE = re.compile(r"([+-]?\d+)\s*-\s*([+-]?\d+)")
+_WORD_PROBLEM_RE = re.compile(r"contains (\d+) boxes with (\d+) items", re.IGNORECASE)
+_REGION_RE = re.compile(r"belongs to region ([a-z]+)", re.IGNORECASE)
+_REPEAT_RE = re.compile(r"Repeat (\S+) exactly (\d+) times", re.IGNORECASE)
+_SORT_RE = re.compile(r"ascending order:\s*([^.]+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -158,6 +165,14 @@ def validate_pair_quality(row: Mapping[str, Any]) -> tuple[str, ...]:
             )
         if category == "private_info_restraint" and _word_count(chosen) > MAX_PRIVATE_RESTRAINT_WORDS:
             reasons.append("chosen_restraint_too_verbose")
+        reasons.extend(
+            _validate_machine_verifiable_contract(
+                prompt=prompt,
+                chosen=chosen,
+                rejected=rejected,
+                template_family=metadata.get("template_family"),
+            )
+        )
 
     return tuple(dict.fromkeys(reasons))
 
@@ -307,7 +322,125 @@ def _validate_code_generation_pair(
                 pass
             else:
                 reasons.append("rejected_code_missing_expected_syntax_error")
+    elif failure_mode == "code_includes_explanation":
+        if _is_code_only_response(rejected):
+            reasons.append("rejected_code_missing_expected_explanation")
+    elif failure_mode == "code_logic_error":
+        try:
+            rejected_tree = ast.parse(rejected.strip())
+        except SyntaxError:
+            reasons.append("rejected_code_not_valid_logic_error")
+        else:
+            rejected_functions = [
+                node
+                for node in ast.walk(rejected_tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ]
+            expected_name = expected_match.group(1) if expected_match is not None else None
+            if not rejected_functions or (
+                expected_name is not None
+                and not any(function.name == expected_name for function in rejected_functions)
+            ):
+                reasons.append("rejected_code_logic_error_missing_function")
     return reasons
+
+
+def _validate_machine_verifiable_contract(
+    *,
+    prompt: str,
+    chosen: str,
+    rejected: str,
+    template_family: Any,
+) -> list[str]:
+    if not isinstance(template_family, str):
+        return []
+    reasons: list[str] = []
+
+    if template_family == "distillation_dpo_grounded_record_fact":
+        match = _GROUNDED_STATUS_RE.search(prompt)
+        if match is not None:
+            expected = match.group(1).casefold()
+            if chosen.strip().casefold() != expected:
+                reasons.append("chosen_wrong_grounded_fact")
+            if rejected.strip().casefold() == expected:
+                reasons.append("rejected_matches_grounded_fact")
+    elif template_family == "distillation_dpo_integer_subtraction":
+        match = _SUBTRACTION_RE.search(prompt)
+        if match is not None:
+            expected = int(match.group(1)) - int(match.group(2))
+            reasons.extend(_validate_numeric_preference(chosen, rejected, expected))
+    elif template_family == "distillation_dpo_inventory_word_problem":
+        match = _WORD_PROBLEM_RE.search(prompt)
+        if match is not None:
+            expected = int(match.group(1)) * int(match.group(2))
+            reasons.extend(_validate_numeric_preference(chosen, rejected, expected))
+    elif template_family == "distillation_dpo_grounded_answer_only":
+        match = _REGION_RE.search(prompt)
+        if match is not None:
+            expected = match.group(1).casefold()
+            if chosen.strip().casefold() != expected:
+                reasons.append("chosen_answer_only_violation")
+            if rejected.strip().casefold() == expected:
+                reasons.append("rejected_not_answer_only_violation")
+    elif template_family == "distillation_dpo_exact_token_repeat":
+        match = _REPEAT_RE.search(prompt)
+        if match is not None:
+            expected = ",".join([match.group(1)] * int(match.group(2)))
+            if chosen.strip() != expected:
+                reasons.append("chosen_exact_format_violation")
+            if rejected.strip() == expected:
+                reasons.append("rejected_matches_exact_format")
+    elif template_family == "distillation_dpo_missing_transformation_context":
+        if not chosen.strip().endswith("?"):
+            reasons.append("chosen_missing_clarifying_question")
+    elif template_family == "distillation_dpo_benign_task_over_refusal":
+        match = _SORT_RE.search(prompt)
+        if match is not None:
+            values = [int(value) for value in re.findall(r"[+-]?\d+", match.group(1))]
+            expected = ", ".join(str(value) for value in sorted(values))
+            if chosen.strip() != expected:
+                reasons.append("chosen_incorrect_benign_sort")
+            if rejected.strip() == expected:
+                reasons.append("rejected_not_over_refusal")
+    elif template_family == "distillation_dpo_exact_two_bullets":
+        lines = [line.strip() for line in chosen.splitlines() if line.strip()]
+        if len(lines) != 2 or any(not line.startswith("- ") for line in lines):
+            reasons.append("chosen_two_bullet_violation")
+    elif template_family == "distillation_dpo_instruction_rewrite":
+        if _word_count(chosen) > 18:
+            reasons.append("chosen_rewrite_too_verbose")
+
+    return reasons
+
+
+def _validate_numeric_preference(chosen: str, rejected: str, expected: int) -> list[str]:
+    reasons: list[str] = []
+    chosen_value = _single_integer(chosen)
+    rejected_value = _single_integer(rejected)
+    if chosen_value != expected:
+        reasons.append("chosen_wrong_numeric_answer")
+    if rejected_value == expected:
+        reasons.append("rejected_matches_numeric_answer")
+    return reasons
+
+
+def _single_integer(text: str) -> int | None:
+    stripped = text.strip()
+    return int(stripped) if re.fullmatch(r"[+-]?\d+", stripped) else None
+
+
+def _is_code_only_response(text: str) -> bool:
+    stripped = text.strip()
+    if "```" in stripped:
+        return False
+    try:
+        tree = ast.parse(stripped)
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in ast.walk(tree)
+    )
 
 
 def _function_has_implementation(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
