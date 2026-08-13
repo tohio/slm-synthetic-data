@@ -138,7 +138,7 @@ Same-family training examples are allowed when variables and templates differ fr
 | Pretraining | `PRETRAIN_TARGET_TOKENS` | `1000000` |
 | SFT | `SFT_TARGET_ROWS` | `14000` |
 | DPO | `DPO_TARGET_PAIRS` | `14000` |
-| Distillation SFT | `DISTILLATION_SFT_TARGET_ROWS` | `100000` |
+| Distillation SFT | `DISTILLATION_SFT_TARGET_ROWS` | `30000` |
 | Distillation DPO | `DISTILLATION_DPO_TARGET_PAIRS` | `50000` |
 
 SFT and DPO also keep `SFT_COUNT_PER_FAMILY` and `DPO_COUNT_PER_FAMILY` as explicit lower-level overrides. Production distillation planning uses accepted row/pair counts.

@@ -213,13 +213,34 @@ make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-small-
 Production target:
 
 ```bash
-DISTILLATION_SFT_TARGET_ROWS=100000 DISTILLATION_SFT_TARGET_RUN=distillation-sft-prod-001 make distillation-sft-generate
+DISTILLATION_SFT_TARGET_ROWS=30000 DISTILLATION_SFT_TARGET_RUN=distillation-sft-prod-001 make distillation-sft-generate
 
 make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-prod-001
 make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-prod-001
 ```
 
-Push after inspection:
+Review `coverage.json` before publishing. If it contains unresolved
+`repeated_response_clusters`, record a `keep` or `reject` decision and reason
+for every `member_fingerprint`, then apply the decisions:
+
+```bash
+make distillation-sft-adjudicate \
+  DISTILLATION_SFT_ADJUDICATION_RUN=distillation-sft-prod-001 \
+  DISTILLATION_SFT_ADJUDICATIONS=adjudications/distillation-sft-prod-001.json
+```
+
+Rejected rows remain under `rejected/`. Backfill only the quarantined deficit,
+then rebuild and inspect the report. The backfill command makes provider calls.
+
+```bash
+make distillation-sft-backfill DISTILLATION_SFT_BACKFILL_RUN=distillation-sft-prod-001
+make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-prod-001
+make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-prod-001
+```
+
+Push only after the rebuilt report is accepted. Publication fails for
+unresolved repeated-response clusters, underfilled datasets, or stale manifest
+counts.
 
 ```bash
 make distillation-sft-push DISTILLATION_SFT_PUSH_RUN=distillation-sft-prod-001

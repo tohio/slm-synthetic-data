@@ -20,6 +20,8 @@ distillation_sft/
 ├── generation.py       # one-signal teacher generation
 ├── response_quality.py # lightweight response gates
 ├── response_diversity.py # aggregate/per-signal exact response diversity
+├── response_adjudication.py # member-level keep/reject decisions and quarantine
+├── adjudication_backfill.py # staged replacement of adjudication deficits
 ├── orchestration.py    # multi-signal smoke and production runs
 ├── schema.py           # public row and teacher-output validation
 ├── io.py               # JSONL and manifest writers
@@ -74,9 +76,16 @@ Regression checks require zero exact or normalized prompt duplicates at 30,000
 and 100,000 rows, at least four template families per signal, exactly 50 template
 families overall, and a maximum 30% template share within each signal. Coverage
 reports include aggregate and per-signal normalized exact-response diversity
-statistics for review. Response diversity is not a publish gate because correct
-arithmetic answers and safe factual-restraint responses may repeat across
-different prompts.
+statistics plus complete repeated-response cluster membership. Repeated
+responses are automatically cleared only when every member is independently
+machine-verifiable. Other clusters require explicit member-level adjudication
+and block publication while unresolved. Rejected members are preserved under
+the run's internal `rejected/` directory and must be backfilled before the run
+can become publish-ready again.
+
+The approved default targets are 2,000 accepted smoke rows and 30,000 accepted
+production rows. The 100,000-row check remains a local source-capacity
+regression, not the production default.
 
 To scale beyond the current ceiling:
 

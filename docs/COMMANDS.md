@@ -151,16 +151,17 @@ make distillation-sft-inspect
 ```
 
 ```bash
-DISTILLATION_SFT_TARGET_ROWS=100000 DISTILLATION_SFT_TARGET_RUN=distillation-sft-target-001 make distillation-sft-generate
+DISTILLATION_SFT_TARGET_ROWS=30000 DISTILLATION_SFT_TARGET_RUN=distillation-sft-target-001 make distillation-sft-generate
 make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-target-001
+make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-target-001
 ```
 
 | Variable | Default | Purpose |
 |---|---:|---|
 | `DISTILLATION_SFT_RUN` | `distillation-sft-smoke-001` | Smoke run id. |
 | `DISTILLATION_SFT_TARGET_RUN` | `distillation-sft-target-001` | Target run id. |
-| `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `2` | Smoke rows per signal. |
-| `DISTILLATION_SFT_TARGET_ROWS` | `100000` | Target accepted public rows. |
+| `DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL` | `200` | Smoke rows per signal; 2,000 accepted rows across ten signals. |
+| `DISTILLATION_SFT_TARGET_ROWS` | `30000` | Target accepted public rows. |
 | `DISTILLATION_SFT_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum prompts per teacher request. |
 | `DISTILLATION_SFT_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests. |
 | `DISTILLATION_SFT_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests. |
@@ -168,6 +169,44 @@ make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-targ
 | `DISTILLATION_SFT_SIGNALS` | unset | Optional signal list. |
 | `DISTILLATION_SFT_MODEL` | `$(MODEL)` | Teacher model. |
 | `DISTILLATION_SFT_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget after response quality gates. |
+| `DISTILLATION_SFT_ADJUDICATIONS` | unset | Required path to reviewed member-level decisions. |
+| `DISTILLATION_SFT_ADJUDICATION_RUN` | report run | Run receiving adjudication decisions. |
+| `DISTILLATION_SFT_BACKFILL_RUN` | adjudication run | Adjudicated run whose quarantined deficit will be replaced. |
+
+Repeated-response review uses the `member_fingerprint` values written to
+`coverage.json`. Every member of every unresolved cluster needs an explicit
+decision and reason:
+
+```json
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "member_fingerprint": "<64-character fingerprint>",
+      "decision": "keep",
+      "reason": "response matches this prompt"
+    }
+  ]
+}
+```
+
+Apply reviewed decisions locally, then replace only the resulting deficit:
+
+```bash
+make distillation-sft-adjudicate \
+  DISTILLATION_SFT_ADJUDICATION_RUN=distillation-sft-target-001 \
+  DISTILLATION_SFT_ADJUDICATIONS=adjudications/distillation-sft-target-001.json
+
+# This command makes provider requests for only the quarantined deficit.
+make distillation-sft-backfill DISTILLATION_SFT_BACKFILL_RUN=distillation-sft-target-001
+
+make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-target-001
+make distillation-sft-push DISTILLATION_SFT_PUSH_RUN=distillation-sft-target-001
+```
+
+Adjudication preserves rejected rows under the run's `rejected/` directory.
+Publication remains blocked for unresolved clusters, missing replacement rows,
+or stale manifest counts.
 
 ## Distillation DPO
 
