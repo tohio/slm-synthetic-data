@@ -201,6 +201,7 @@ def push_distillation_dpo_run(
             coverage.get("row_count") != live_report["row_count"]
             or coverage.get("categories") != live_report["categories"]
             or coverage.get("failure_modes") != live_report["failure_modes"]
+            or coverage.get("response_patterns") != live_report["response_patterns"]
             or coverage.get("dataset_acceptance", {}).get("unique_prompt_count")
             != live_report["dataset_acceptance"]["unique_prompt_count"]
             or coverage.get("dataset_acceptance", {}).get("unique_triple_count")

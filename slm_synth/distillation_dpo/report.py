@@ -7,7 +7,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from slm_synth.distillation_dpo.acceptance import build_dataset_acceptance_report
+from slm_synth.distillation_dpo.acceptance import (
+    build_dataset_acceptance_report,
+    build_response_pattern_report,
+)
 from slm_synth.distillation_dpo.io import DATASET_TYPE, read_jsonl
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
@@ -47,6 +50,7 @@ def build_coverage_report(
         "template_families": _count_metadata(rows, "template_family"),
         "difficulty_counts": _count_metadata(rows, "difficulty", stringify_keys=True),
         "failure_modes": _count_metadata(rows, "failure_mode"),
+        "response_patterns": build_response_pattern_report(rows),
         "holdouts": holdouts,
         "dataset_acceptance": acceptance,
     }
