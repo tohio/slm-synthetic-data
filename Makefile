@@ -8,7 +8,7 @@ MAKEFLAGS += --no-print-directory
 PYTHON ?= python
 
 # Shared defaults
-MODEL ?= openai/gpt-4.1-mini
+MODEL ?= deepseek/deepseek-v4-flash
 MAX_TOKENS ?= 4096
 OPENROUTER_ROUTING_MODE ?= auto
 OPENROUTER_PROVIDER ?=

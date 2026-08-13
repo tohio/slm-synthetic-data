@@ -51,7 +51,7 @@ HF_TOKEN=...
 The default live model is configured by `MODEL` and can be overridden on generation commands:
 
 ```bash
-MODEL=openai/gpt-4.1-mini
+MODEL=deepseek/deepseek-v4-flash
 ```
 
 ### Smoke Run

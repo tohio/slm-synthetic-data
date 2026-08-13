@@ -19,7 +19,7 @@ Run `make help` to print the command surface from the Makefile.
 | Variable | Default | Purpose |
 |---|---:|---|
 | `PYTHON` | `python` | Python executable. |
-| `MODEL` | `openai/gpt-4.1-mini` | Default OpenRouter model for live generation. |
+| `MODEL` | `deepseek/deepseek-v4-flash` | Validated default OpenRouter model for live generation. |
 | `MAX_TOKENS` | `4096` | Shared token default for commands that use it. |
 | `OPENROUTER_ROUTING_MODE` | `auto` | Routing policy: `auto`, `prefer`, or `strict`. |
 | `OPENROUTER_PROVIDER` | unset | Provider slug used by `prefer` or `strict` routing. |

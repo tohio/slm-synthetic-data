@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from configs import configure_synthetic
+from slm_synth.model_support import is_supported_model
 from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
@@ -10,6 +11,19 @@ from slm_synth.throughput_defaults import (
     MAX_OPENROUTER_BATCH_SIZE,
     MAX_OPENROUTER_CONCURRENCY,
 )
+
+
+def test_make_live_generation_paths_inherit_a_validated_default_model():
+    makefile = Path("Makefile").read_text()
+    default_model = next(
+        line.split("?=", 1)[1].strip()
+        for line in makefile.splitlines()
+        if line.startswith("MODEL ?=")
+    )
+
+    assert is_supported_model(default_model)
+    for name in ("PRETRAIN", "DISTILLATION_SFT", "DISTILLATION_DPO", "SFT", "DPO"):
+        assert f"{name}_MODEL ?= $(MODEL)" in makefile
 
 
 def test_grounded_pretrain_config_uses_shared_throughput_bounds():
