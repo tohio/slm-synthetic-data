@@ -136,6 +136,23 @@ def validate_response_quality(*, signal: str, row: Mapping[str, Any]) -> tuple[s
     return tuple(dict.fromkeys(reasons))
 
 
+def is_response_machine_verified(*, signal: str, row: Mapping[str, Any]) -> bool:
+    """Return whether a response is independently proven correct.
+
+    This is deliberately narrower than the response-quality gates. Passing a
+    heuristic quality check is not proof of correctness. At present, only an
+    exact integer answer to a parseable arithmetic expression is eligible.
+    """
+    normalized_signal = validate_signal(signal)
+    if normalized_signal != "arithmetic":
+        return False
+
+    prompt = _string_value(row, "prompt")
+    response = _string_value(row, "response").strip()
+    expected = _expected_arithmetic_result(prompt)
+    return expected is not None and response == str(expected)
+
+
 def aggregate_rejection_reasons(summaries: Iterable[Mapping[str, Any]]) -> dict[str, int]:
     """Aggregate rejection-reason counters from manifest metadata summaries."""
     counts: Counter[str] = Counter()

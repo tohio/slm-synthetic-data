@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,11 @@ from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 from slm_synth.accepted_target import require_publish_ready_manifest
 from slm_synth.distillation_sft.schema import validate_public_row
 from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text
-from slm_synth.distillation_sft.response_diversity import build_response_diversity_summary
+from slm_synth.distillation_sft.response_diversity import (
+    build_response_diversity_summary,
+    normalize_response_text,
+)
+from slm_synth.distillation_sft.response_quality import is_response_machine_verified
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
@@ -135,6 +140,74 @@ def require_publish_prompt_uniqueness(
     return summary
 
 
+def build_response_cluster_review_summary(files: list[Path]) -> dict[str, Any]:
+    """Classify repeated responses without using a model judge."""
+    diversity = build_response_diversity_summary(files)
+    verification_by_response: dict[str, list[bool]] = defaultdict(list)
+
+    for file_path in files:
+        signal = file_path.stem.split(".batch", 1)[0]
+        with file_path.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"invalid JSONL in {file_path} at line {line_number}: {exc}"
+                    ) from exc
+                row = validate_public_row(value)
+                normalized_response = normalize_response_text(row["response"])
+                verification_by_response[normalized_response].append(
+                    is_response_machine_verified(signal=signal, row=row)
+                )
+
+    classified_clusters: list[dict[str, Any]] = []
+    unresolved_clusters: list[dict[str, Any]] = []
+    for cluster in diversity["repeated_response_clusters"]:
+        checks = verification_by_response[cluster["normalized_response"]]
+        automatically_cleared = len(checks) == cluster["count"] and all(checks)
+        classified = {
+            **cluster,
+            "audit_status": "cleared" if automatically_cleared else "review_required",
+            "adjudication": "machine_verified" if automatically_cleared else None,
+        }
+        classified_clusters.append(classified)
+        if not automatically_cleared:
+            unresolved_clusters.append(classified)
+
+    return {
+        "repeated_cluster_count": len(classified_clusters),
+        "automatically_cleared_cluster_count": (
+            len(classified_clusters) - len(unresolved_clusters)
+        ),
+        "unresolved_cluster_count": len(unresolved_clusters),
+        "clusters": classified_clusters,
+        "unresolved_clusters": unresolved_clusters,
+    }
+
+
+def require_publish_resolved_response_clusters(files: list[Path]) -> dict[str, Any]:
+    """Block publication when repeated responses still require adjudication."""
+    summary = build_response_cluster_review_summary(files)
+    unresolved = summary["unresolved_clusters"]
+    if unresolved:
+        examples = []
+        for cluster in unresolved[:3]:
+            row_ids = [member["id"] for member in cluster["members"][:5]]
+            examples.append(
+                f"{cluster['response_fingerprint'][:12]} count={cluster['count']} "
+                f"rows={','.join(row_ids)}"
+            )
+        raise ValueError(
+            "distillation-SFT response cluster gate failed: "
+            f"{len(unresolved)} unresolved repeated-response cluster(s) require review; "
+            + "; ".join(examples)
+        )
+    return summary
+
+
 def get_hf_token() -> str:
     token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
     if not token:
@@ -242,10 +315,6 @@ def push_distillation_run(
     else:
         load_dotenv()
 
-    token = get_hf_token()
-    api = HfApi(token=token)
-    create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
-
     dataset_root = Path(dataset_dir)
     root = Path(run_dir) if run_dir is not None else None
     run_manifest: Path | None = None
@@ -267,35 +336,50 @@ def push_distillation_run(
         f"unique_responses={response_diversity['unique_response_count']} "
         f"unique_ratio={response_diversity['unique_response_ratio']:.3f}"
     )
+    cluster_review = require_publish_resolved_response_clusters(files)
+    print(
+        "[push_hf] distillation-SFT repeated-response clusters "
+        f"total={cluster_review['repeated_cluster_count']} "
+        f"automatically_cleared={cluster_review['automatically_cleared_cluster_count']} "
+        f"unresolved={cluster_review['unresolved_cluster_count']}"
+    )
     total_rows = 0
     uploaded_files: list[str] = []
-    operations = legacy_metadata_delete_operations(api, repo_id=repo_id)
+    upload_operations: list[Any] = []
 
     for file_path in files:
         row_count = count_and_validate_jsonl(file_path)
         total_rows += row_count
         path_in_repo = f"data/{file_path.relative_to(dataset_root).as_posix()}"
         print(f"[push_hf] staging {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")
-        operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
+        upload_operations.append(CommitOperationAdd(path_in_repo=path_in_repo, path_or_fileobj=str(file_path)))
         uploaded_files.append(path_in_repo)
 
     if root is not None:
         readme_path = root / "README.md"
         if not readme_path.is_file():
             raise FileNotFoundError(f"required HF dataset card source is missing: {readme_path}")
-        operations.append(CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=dataset_card_bytes(readme_path)))
+        upload_operations.append(
+            CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=dataset_card_bytes(readme_path))
+        )
         coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json", required=True)
         if coverage_op is not None:
-            operations.append(coverage_op)
+            upload_operations.append(coverage_op)
         if not skip_manifests:
             if run_manifest is None:
                 raise FileNotFoundError("distillation run manifest is required")
-            operations.append(
+            upload_operations.append(
                 CommitOperationAdd(
                     path_in_repo=f"artifacts/manifests/{run_manifest.name}",
                     path_or_fileobj=str(run_manifest),
                 )
             )
+
+    token = get_hf_token()
+    api = HfApi(token=token)
+    create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
+    operations = legacy_metadata_delete_operations(api, repo_id=repo_id)
+    operations.extend(upload_operations)
 
     print(f"[push_hf] committing {len(operations)} file operation(s) to {repo_id}")
     create_dataset_commit(

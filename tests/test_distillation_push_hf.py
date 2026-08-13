@@ -3,11 +3,13 @@ import json
 import pytest
 
 from slm_synth.distillation_sft.push_hf import (
+    build_response_cluster_review_summary,
     count_and_validate_jsonl,
     discover_jsonl_files,
     discover_run_manifest,
     push_distillation_run,
     require_publish_prompt_uniqueness,
+    require_publish_resolved_response_clusters,
 )
 
 
@@ -91,7 +93,7 @@ def test_push_distillation_run_uploads_only_public_surface_files(tmp_path, monke
     public_rows = []
     for index in range(4):
         row = _distillation_row(f"distill-{index}")
-        row["prompt"] = f"Unique arithmetic prompt {index}"
+        row["prompt"] = f"Answer with only the integer result: {index} + {4 - index}."
         public_rows.append(row)
     (dataset_dir / "arithmetic.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in public_rows),
@@ -203,3 +205,68 @@ def test_require_publish_prompt_uniqueness_accepts_diverse_prompts(tmp_path):
     assert summary["row_count"] == 10
     assert summary["unique_prompt_count"] == 10
     assert summary["duplicate_prompt_count"] == 0
+
+
+def test_response_cluster_review_requires_review_for_repeated_cloud_response(tmp_path):
+    dataset = tmp_path / "cloud.jsonl"
+    rows = []
+    for index in range(3):
+        row = _distillation_row(f"cloud-{index:06d}")
+        row["prompt"] = f"Explain distinct cloud concept {index}."
+        row["response"] = "Use autoscaling to adjust capacity as demand changes."
+        row["metadata"]["category"] = "general_instruction_following"
+        row["metadata"]["template_family"] = "cloud_explanation"
+        row["metadata"]["eval_family"] = None
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    summary = build_response_cluster_review_summary([dataset])
+
+    assert summary["unresolved_cluster_count"] == 1
+    assert summary["clusters"][0]["audit_status"] == "review_required"
+    assert summary["clusters"][0]["adjudication"] is None
+    with pytest.raises(ValueError, match="unresolved repeated-response cluster"):
+        require_publish_resolved_response_clusters([dataset])
+
+
+def test_response_cluster_review_clears_only_verified_arithmetic_cluster(tmp_path):
+    dataset = tmp_path / "arithmetic.jsonl"
+    rows = []
+    for index in range(3):
+        row = _distillation_row(f"arithmetic-{index:06d}")
+        row["prompt"] = f"Answer with only the integer result: {index} + {4 - index}."
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    summary = require_publish_resolved_response_clusters([dataset])
+
+    assert summary["automatically_cleared_cluster_count"] == 1
+    assert summary["unresolved_cluster_count"] == 0
+    assert summary["clusters"][0]["audit_status"] == "cleared"
+    assert summary["clusters"][0]["adjudication"] == "machine_verified"
+
+
+def test_push_blocks_unresolved_cluster_before_remote_calls(tmp_path, monkeypatch):
+    dataset_dir = tmp_path / "datasets"
+    dataset_dir.mkdir()
+    dataset = dataset_dir / "cloud.jsonl"
+    rows = []
+    for index in range(3):
+        row = _distillation_row(f"cloud-{index:06d}")
+        row["prompt"] = f"Explain distinct cloud concept {index}."
+        row["response"] = "Use autoscaling to adjust capacity as demand changes."
+        row["metadata"]["category"] = "general_instruction_following"
+        row["metadata"]["template_family"] = "cloud_explanation"
+        row["metadata"]["eval_family"] = None
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    def fail_remote_call(*args, **kwargs):
+        pytest.fail("remote setup must not run before the local cluster gate")
+
+    monkeypatch.setattr("slm_synth.distillation_sft.push_hf.get_hf_token", fail_remote_call)
+    monkeypatch.setattr("slm_synth.distillation_sft.push_hf.HfApi", fail_remote_call)
+    monkeypatch.setattr("slm_synth.distillation_sft.push_hf.create_repo", fail_remote_call)
+
+    with pytest.raises(ValueError, match="unresolved repeated-response cluster"):
+        push_distillation_run(dataset_dir=dataset_dir, repo_id="org/distill")

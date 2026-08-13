@@ -1,6 +1,7 @@
 from slm_synth.distillation_sft.response_quality import (
     aggregate_rejection_reasons,
     filter_public_rows_by_response_quality,
+    is_response_machine_verified,
     validate_response_quality,
 )
 
@@ -25,6 +26,21 @@ def test_response_quality_rejects_wrong_arithmetic_answer():
     )
 
     assert reasons == ("arithmetic_wrong_answer",)
+
+
+def test_machine_verification_is_limited_to_exact_parseable_arithmetic():
+    assert is_response_machine_verified(
+        signal="arithmetic",
+        row=_row("Answer with only the integer result: 203 - 12.", "191"),
+    )
+    assert not is_response_machine_verified(
+        signal="arithmetic",
+        row=_row("What is the result?", "191"),
+    )
+    assert not is_response_machine_verified(
+        signal="cloud",
+        row=_row("Explain autoscaling.", "Autoscaling adjusts capacity."),
+    )
 
 
 def test_response_quality_rejects_empty_response():

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,8 @@ def normalize_response_text(value: str) -> str:
 def build_response_diversity_summary(files: Iterable[str | Path]) -> dict[str, Any]:
     """Build aggregate and per-signal exact response-diversity statistics."""
     counts_by_signal: dict[str, Counter[str]] = {}
+    cluster_members: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    response_variants: dict[str, set[str]] = defaultdict(set)
 
     for raw_path in files:
         path = Path(raw_path)
@@ -33,7 +37,19 @@ def build_response_diversity_summary(files: Iterable[str | Path]) -> dict[str, A
                 except json.JSONDecodeError as exc:
                     raise ValueError(f"invalid JSONL in {path} at line {line_number}: {exc}") from exc
                 row = validate_public_row(value)
-                response_counts[normalize_response_text(row["response"])] += 1
+                normalized_response = normalize_response_text(row["response"])
+                response_counts[normalized_response] += 1
+                response_variants[normalized_response].add(row["response"])
+                cluster_members[normalized_response].append(
+                    {
+                        "id": row["id"],
+                        "prompt": row["prompt"],
+                        "signal": signal,
+                        "category": row["metadata"]["category"],
+                        "template_family": row["metadata"]["template_family"],
+                        "eval_family": row["metadata"]["eval_family"],
+                    }
+                )
 
     aggregate_counts: Counter[str] = Counter()
     signals: dict[str, dict[str, Any]] = {}
@@ -43,8 +59,42 @@ def build_response_diversity_summary(files: Iterable[str | Path]) -> dict[str, A
         signals[signal] = _summarize_counts(response_counts)
 
     summary = _summarize_counts(aggregate_counts)
+    summary["repeated_response_clusters"] = _build_repeated_response_clusters(
+        aggregate_counts,
+        cluster_members=cluster_members,
+        response_variants=response_variants,
+    )
     summary["signals"] = signals
     return summary
+
+
+def _build_repeated_response_clusters(
+    response_counts: Mapping[str, int],
+    *,
+    cluster_members: Mapping[str, list[dict[str, Any]]],
+    response_variants: Mapping[str, set[str]],
+) -> list[dict[str, Any]]:
+    clusters: list[dict[str, Any]] = []
+    for normalized_response, count in response_counts.items():
+        if count <= 1:
+            continue
+        members = sorted(
+            cluster_members[normalized_response],
+            key=lambda member: (member["signal"], member["id"]),
+        )
+        clusters.append(
+            {
+                "response_fingerprint": sha256(normalized_response.encode("utf-8")).hexdigest(),
+                "normalized_response": normalized_response,
+                "responses": sorted(response_variants[normalized_response]),
+                "count": count,
+                "members": members,
+            }
+        )
+    return sorted(
+        clusters,
+        key=lambda cluster: (-cluster["count"], cluster["response_fingerprint"]),
+    )
 
 
 def _summarize_counts(response_counts: Mapping[str, int]) -> dict[str, Any]:
