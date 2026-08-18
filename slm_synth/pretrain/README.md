@@ -18,6 +18,7 @@ pretrain/
 ├── manifest.py             # run manifest and coverage outputs
 ├── preflight_artifacts.py  # source artifact quality checks
 ├── report_artifacts.py     # artifact coverage/quality reports
+├── report_diversity.py     # bounded template/near-duplicate diversity audit
 ├── report_lengths.py       # per-record size estimation
 └── push_hf.py              # Hugging Face publishing
 ```
@@ -38,3 +39,9 @@ Pretraining outputs are consumed downstream as synthetic text records for contin
 ## Conventions
 
 Pretraining signals are grounded in deterministic local artifacts before provider calls. `grounded.py` renders artifacts into structured provider prompts, validates rendered records, and persists batch manifests for resume/reporting. Downstream public artifacts contain validated text records and separate manifests.
+
+`make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
+report uses deterministic bounded sampling to measure normalized template
+reuse, near-duplicate clusters, artifact-family concentration, and exact
+template overlap across signals. It is diagnostic and does not change or
+reject data.

@@ -329,6 +329,9 @@ For each run, inspect:
 - retry counts, adaptive batch failures, request tokens, and aggregate request seconds
 - public dataset directory hygiene
 - coverage reports or dataset cards before publishing
+- `manifests/diversity_report_deduped.json` for normalized template reuse,
+  near-duplicate clusters, artifact-family concentration, and cross-signal
+  exact-template overlap
 
 ## See Also
 

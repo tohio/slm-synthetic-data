@@ -56,6 +56,14 @@ make pretrain-inspect PRETRAIN_INSPECT_RUN=pretrain-target-001
 | `PRETRAIN_TARGET_CONCURRENCY` | `4` | Target request concurrency. |
 | `PRETRAIN_MODEL` | `$(MODEL)` | Pretraining model. |
 | `PRETRAIN_SIGNAL` | unset | Optional single-signal filter. |
+| `PRETRAIN_DIVERSITY_SAMPLE_SIZE` | `10000` | Deterministic diversity-audit sample limit per signal. |
+| `PRETRAIN_DIVERSITY_THRESHOLD` | `0.80` | Jaccard threshold for five-token near-duplicate clusters. |
+
+`make pretrain-report` also writes
+`manifests/diversity_report_<stage>.json`. The diversity report measures
+normalized template reuse, near-duplicate clusters, artifact-family
+concentration, and cross-signal exact-template overlap. It is diagnostic and
+does not change rows or block publication.
 
 ## SFT
 

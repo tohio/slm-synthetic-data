@@ -38,6 +38,8 @@ PRETRAIN_MODEL ?= $(MODEL)
 PRETRAIN_SIGNAL ?=
 PRETRAIN_SIGNAL_ARG := $(if $(PRETRAIN_SIGNAL),--signal $(PRETRAIN_SIGNAL),)
 PRETRAIN_STAGE ?= deduped
+PRETRAIN_DIVERSITY_SAMPLE_SIZE ?= 10000
+PRETRAIN_DIVERSITY_THRESHOLD ?= 0.80
 HF_REPO ?=
 HF_NAMESPACE ?= tohio
 HF_PRIVATE ?=
@@ -235,6 +237,8 @@ help:
 > @echo "  PRETRAIN_TOKENS=$(PRETRAIN_TOKENS)"
 > @echo "  PRETRAIN_TARGET_TOKENS=$(PRETRAIN_TARGET_TOKENS)"
 > @echo "  PRETRAIN_MAX_TOKENS=$(PRETRAIN_MAX_TOKENS)"
+> @echo "  PRETRAIN_DIVERSITY_SAMPLE_SIZE=$(PRETRAIN_DIVERSITY_SAMPLE_SIZE)"
+> @echo "  PRETRAIN_DIVERSITY_THRESHOLD=$(PRETRAIN_DIVERSITY_THRESHOLD)"
 > @echo "  DISTILLATION_SFT_TARGET_ROWS=$(DISTILLATION_SFT_TARGET_ROWS)"
 > @echo "  DISTILLATION_SFT_CONCURRENCY=$(DISTILLATION_SFT_CONCURRENCY)"
 > @echo "  DISTILLATION_SFT_TARGET_CONCURRENCY=$(DISTILLATION_SFT_TARGET_CONCURRENCY)"
@@ -295,6 +299,11 @@ pretrain-report:
 >   --generation-run $(PRETRAIN_REPORT_RUN)
 > $(PYTHON) -m slm_synth.pretrain.report_duplicates --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
 > $(PYTHON) -m slm_synth.pretrain.report_lengths --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
+> $(PYTHON) -m slm_synth.pretrain.report_diversity \
+>   --config $(CONFIG_FILE) \
+>   --stage $(PRETRAIN_STAGE) \
+>   --sample-size $(PRETRAIN_DIVERSITY_SAMPLE_SIZE) \
+>   --near-duplicate-threshold $(PRETRAIN_DIVERSITY_THRESHOLD)
 > @test -z "$(PRETRAIN_REPORT_RUN)" || $(PYTHON) -m slm_synth.cards build --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN)
 > @if [ -n "$(PRETRAIN_REPORT_RUN)" ]; then $(PYTHON) -m slm_synth.manifest_totals normalize --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN); fi
 
