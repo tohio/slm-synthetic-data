@@ -60,6 +60,24 @@ mix:
     assert manifest["signals"]["task_code"] == {"raw_rows": 1}
 
 
+def test_empty_duplicate_diagnostic_file_is_not_counted_as_a_signal(tmp_path):
+    output_dir = tmp_path / "runs" / "pretrain-smoke"
+    config_path = tmp_path / "synthetic.yaml"
+    config_path.write_text(
+        f'run_name: pretrain-smoke\noutput_dir: "{output_dir}"\ntarget_total_tokens: 1000\n',
+        encoding="utf-8",
+    )
+    _write_jsonl(output_dir / "raw" / "arithmetic.jsonl", [{"id": 1}])
+    duplicate_path = output_dir / "rejected" / "duplicates.jsonl"
+    duplicate_path.parent.mkdir(parents=True, exist_ok=True)
+    duplicate_path.write_text("", encoding="utf-8")
+
+    manifest = build_run_manifest(config_path=config_path)
+
+    assert set(manifest["signals"]) == {"arithmetic"}
+    assert manifest["stages"]["rejected"]["files"]["duplicates.jsonl"]["signal"] is None
+
+
 def test_build_pretrain_run_manifest_includes_grounded_telemetry(tmp_path):
     output_dir = tmp_path / "runs" / "pretrain-smoke"
     config_path = tmp_path / "synthetic.yaml"

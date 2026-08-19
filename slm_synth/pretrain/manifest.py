@@ -144,7 +144,12 @@ def _summarize_stage(stage_dir: Path) -> dict[str, Any]:
         else:
             signal_counts = {}
         rows = sum(signal_counts.values()) if signal_counts else _count_jsonl_rows(path)
-        signal = "consolidated" if signal_counts else SIGNAL_FROM_FILE.get(path.name, path.stem)
+        if signal_counts:
+            signal: str | None = "consolidated"
+        elif path.name == "duplicates.jsonl":
+            signal = None
+        else:
+            signal = SIGNAL_FROM_FILE.get(path.name, path.stem)
         files[path.name] = {
             "signal": signal,
             "path": str(path),
