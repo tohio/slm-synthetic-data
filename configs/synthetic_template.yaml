@@ -94,6 +94,8 @@ mix:
   factual_restraint:
     architecture: "grounded"
     share: 0.06557377049180328
+    # Finite catalog of materially different uncertainty, privacy, rumor, and high-stakes scenarios.
+    max_unique_candidates: 32
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__

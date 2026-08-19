@@ -92,6 +92,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             "task_code",
             "educational_qa_mcq_math",
             "educational_qa_mcq_general",
+            "factual_restraint",
         }
         and row["unique_structures"] != row["rounded_rows"]
         for row in reports

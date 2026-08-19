@@ -26,7 +26,7 @@ Pretraining uses grounded local artifacts that are rendered by the provider into
 | `task_code` | 39.3442623% | 24 finite algorithm families covering normalization, filtering, aggregation, sequence processing, grouping, merging, windowing, matrix operations, partitioning, indexing, nested lookup, and sparse arithmetic. | Validated single-function Python records with deterministic faithful tasks and teacher-generated implementation plans. |
 | `educational_qa_mcq_math` | 14.7540984% | 24 finite verified relationships covering expressions, equations, sharing, rates, proportions, geometry, statistics, measurement, percentages, sequences, complements, and composite quantities. | Locally authoritative math multiple-choice questions with teacher-generated explanations only. |
 | `educational_qa_mcq_general` | 24.5901639% | 24 finite reasoning families covering code behavior, language, reading, rules, policies, experiments, ordering, lookup, comparison, temporal and spatial tracking, procedures, exceptions, trends, and attribution. | Locally authoritative evidence-grounded multiple-choice questions with teacher-generated explanations only. |
-| `factual_restraint` | 6.5573770% | `future_uncertainty`, `ambiguous_entity`, `private_information`, `unannounced_information`, `rumor`, `medical`, `legal`, `financial` | Cautious-answer behavior for uncertainty, privacy, and high-stakes domains. |
+| `factual_restraint` | 6.5573770% | 32 finite scenarios covering distinct future uncertainty, ambiguous-reference, private-information, unannounced-information, rumor-verification, medical, legal, and financial cases. | Calibrated restraint without fabricated facts, unsafe disclosure, or unsupported high-stakes decisions. |
 
 Arithmetic has a declared capacity of 288 structurally distinct candidates.
 Token planning treats that as a ceiling rather than cycling through operand-only
@@ -49,6 +49,11 @@ with number-only variants.
 families. Each family appears once; changing names, objects, locations, or
 numbers does not create another candidate. Evidence, questions, choices, and
 answers remain local, while the teacher supplies only the explanation.
+
+`factual_restraint` has a declared capacity of 32 materially distinct
+scenarios. Each source question and behavior requirement is local; the teacher
+supplies only the user-facing answer. Changed names, dates, locations, amounts,
+or organization labels do not create additional candidates.
 
 Implementation source of truth:
 

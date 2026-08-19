@@ -28,7 +28,6 @@ from slm_synth.paths import load_yaml_config, resolve_output_dir
 from slm_synth.pretrain.artifacts.educational_qa_mcq_general import (
     EducationalQAMCQGeneralArtifactFactory,
 )
-from slm_synth.pretrain.artifacts.factual_restraint import FactualRestraintArtifactFactory
 from slm_synth.pretrain.artifacts.lexicon import (
     CITIES,
     COMPANY_NAMES,
@@ -77,7 +76,6 @@ def _flatten_values(value: Any) -> Iterable[str]:
 
 def _controlled_slot_values() -> tuple[str, ...]:
     general = EducationalQAMCQGeneralArtifactFactory
-    restraint = FactualRestraintArtifactFactory
     values: set[str] = {
         *CITIES,
         *COMPANY_NAMES,
@@ -96,10 +94,6 @@ def _controlled_slot_values() -> tuple[str, ...]:
         general.DEPARTMENTS,
         general.VARIABLES,
         general.CATEGORIES,
-        restraint.EVENT_TYPES,
-        restraint.PRIVATE_ROLES,
-        restraint.PRODUCT_TYPES,
-        restraint.RUMOR_ACTIONS,
     ):
         values.update(str(item) for item in source)
     for source in (general.ADJECTIVE_CONTEXT, general.VOCABULARY_SUBJECTS):

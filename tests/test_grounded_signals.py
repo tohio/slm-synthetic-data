@@ -1,4 +1,3 @@
-import hashlib
 import json
 from collections import Counter
 
@@ -152,15 +151,18 @@ def test_task_code_catalog_has_no_renamed_structural_variants():
         factory.build(factory.UNIQUE_CANDIDATE_CAPACITY)
 
 
-def test_factual_restraint_repetitive_families_have_surface_variation():
+def test_factual_restraint_catalog_has_distinct_scenarios_without_slot_variants():
     factory = FactualRestraintArtifactFactory()
+    rows = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
 
-    ambiguous = [factory.build(1 + 8 * index).payload["question"] for index in range(92)]
-    unannounced = [factory.build(3 + 8 * index).payload["question"] for index in range(92)]
+    assert factory.UNIQUE_CANDIDATE_CAPACITY == len(factory.FAMILIES) == 32
+    assert len({row.family for row in rows}) == len(rows)
+    assert len({artifact_fingerprint(row) for row in rows}) == len(rows)
+    assert len({artifact_structure_fingerprint(row) for row in rows}) == len(rows)
+    assert all(not validate_artifact(row) for row in rows)
 
-    assert len({question.split(" ", 1)[0] for question in ambiguous}) > 1
-    assert len({question.split(" ", 1)[0] for question in unannounced}) > 1
-    assert not any("Systems's" in question for question in unannounced)
+    with pytest.raises(ValueError, match="exceeds unique candidate capacity"):
+        factory.build(factory.UNIQUE_CANDIDATE_CAPACITY)
 
 
 def test_general_vocabulary_candidate_uses_an_adjective_compatible_subject():
@@ -194,22 +196,6 @@ def test_general_mcq_catalog_covers_material_reasoning_families_once():
     assert new_families.issubset(set(factory.FAMILIES))
     assert all(row.payload["choices"][row.payload["correct_index"]] == row.payload["answer"] for row in rows)
     assert all(len(set(row.payload["choices"])) == 4 for row in rows)
-
-def test_factual_restraint_scaled_artifacts_have_no_exact_duplicates():
-    factory = FactualRestraintArtifactFactory()
-    digests = set()
-
-    for index in range(213840):
-        payload = json.dumps(
-            factory.build(index).payload,
-            sort_keys=True,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-        digest = hashlib.sha256(payload.encode("utf-8")).digest()
-        assert digest not in digests, f"duplicate payload at index={index}"
-        digests.add(digest)
-
 
 def test_general_mcq_choice_shuffle_is_deterministic_and_balanced():
     factory = EducationalQAMCQGeneralArtifactFactory()
@@ -306,19 +292,19 @@ def test_run_signal_retries_transient_rendered_batch_failure_at_smaller_size(mon
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 32, "parallel_requests": 1},
-        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
+        "mix": {"arithmetic": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
     }
     llm = GroundedInvalidFirstBatchLLM()
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
 
-    generate.run_signal("factual_restraint", cfg, tmp_path)
+    generate.run_signal("arithmetic", cfg, tmp_path)
 
-    raw_rows = (tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()
+    raw_rows = (tmp_path / "raw" / "arithmetic.jsonl").read_text().splitlines()
     assert len(raw_rows) == 64
-    rejection = (tmp_path / "rejected" / "factual_restraint.jsonl").read_text()
+    rejection = (tmp_path / "rejected" / "arithmetic.jsonl").read_text()
     assert "adaptive_batch_size_reduced" in rejection
 
-    metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
+    metrics = GroundedBatchStore(tmp_path, "arithmetic").telemetry_summary()
     assert metrics["batches"] > 4
     assert metrics["dropped_batches"] == 0
     assert metrics["dropped_rows"] == 0
@@ -326,8 +312,8 @@ def test_run_signal_retries_transient_rendered_batch_failure_at_smaller_size(mon
     assert metrics["adaptive_batch_size_decreases"] == 1
     assert metrics["adaptive_batch_size_observed_minimum"] == 2
 
-    generate.run_signal("factual_restraint", cfg, tmp_path)
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
+    generate.run_signal("arithmetic", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "arithmetic.jsonl").read_text().splitlines()) == 64
 
 
 def test_run_signal_reduces_grounded_batch_size_after_rendered_failure(monkeypatch, tmp_path):
@@ -361,14 +347,14 @@ def test_run_signal_retries_exhausted_malformed_structured_response_for_every_gr
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 32, "parallel_requests": 1},
-        "mix": {signal: {"architecture": "grounded", "batch_size": 32, "samples": 64, **({"max_unique_candidates": 24} if signal in {"task_code", "educational_qa_mcq_math", "educational_qa_mcq_general"} else {})}},
+        "mix": {signal: {"architecture": "grounded", "batch_size": 32, "samples": 64, **({"max_unique_candidates": 24} if signal in {"task_code", "educational_qa_mcq_math", "educational_qa_mcq_general"} else {"max_unique_candidates": 32} if signal == "factual_restraint" else {})}},
     }
     llm = GroundedMalformedFirstBatchLLM()
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
 
     generate.run_signal(signal, cfg, tmp_path)
 
-    expected_rows = 24 if signal in {"task_code", "educational_qa_mcq_math", "educational_qa_mcq_general"} else 64
+    expected_rows = 24 if signal in {"task_code", "educational_qa_mcq_math", "educational_qa_mcq_general"} else 32 if signal == "factual_restraint" else 64
     assert len((tmp_path / "raw" / f"{signal}.jsonl").read_text().splitlines()) == expected_rows
     rejection = (tmp_path / "rejected" / f"{signal}.jsonl").read_text()
     assert "adaptive_batch_size_reduced" in rejection
@@ -447,7 +433,7 @@ def test_run_signal_materializes_raw_only_at_start_and_completion(monkeypatch, t
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 32, "parallel_requests": 1},
-        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 96}},
+        "mix": {"arithmetic": {"architecture": "grounded", "batch_size": 32, "samples": 96}},
     }
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
     original = GroundedBatchStore.materialize_raw
@@ -458,10 +444,10 @@ def test_run_signal_materializes_raw_only_at_start_and_completion(monkeypatch, t
         return original(self)
 
     monkeypatch.setattr(GroundedBatchStore, "materialize_raw", counted)
-    generate.run_signal("factual_restraint", cfg, tmp_path)
+    generate.run_signal("arithmetic", cfg, tmp_path)
 
     assert len(calls) == 2
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 96
+    assert len((tmp_path / "raw" / "arithmetic.jsonl").read_text().splitlines()) == 96
 
 
 def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tmp_path):
@@ -469,13 +455,13 @@ def test_run_signal_supports_bounded_concurrent_grounded_batches(monkeypatch, tm
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 32, "parallel_requests": 2},
-        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
+        "mix": {"arithmetic": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
     }
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
-    generate.run_signal("factual_restraint", cfg, tmp_path)
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
-    metrics = GroundedBatchStore(tmp_path, "factual_restraint").telemetry_summary()
-    batch_manifests = list((tmp_path / "manifests" / "grounded" / "factual_restraint" / "batches").glob("batch_*.json"))
+    generate.run_signal("arithmetic", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "arithmetic.jsonl").read_text().splitlines()) == 64
+    metrics = GroundedBatchStore(tmp_path, "arithmetic").telemetry_summary()
+    batch_manifests = list((tmp_path / "manifests" / "grounded" / "arithmetic" / "batches").glob("batch_*.json"))
     assert len(batch_manifests) == metrics["batches"]
     assert metrics["batches"] > 2
     assert metrics["adaptive_batch_size_observed_minimum"] == 4
@@ -487,11 +473,11 @@ def test_run_signal_supports_batch_size_64_for_qualification(monkeypatch, tmp_pa
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 64, "parallel_requests": 8},
-        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 64, "samples": 64}},
+        "mix": {"arithmetic": {"architecture": "grounded", "batch_size": 64, "samples": 64}},
     }
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
-    generate.run_signal("factual_restraint", cfg, tmp_path)
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
+    generate.run_signal("arithmetic", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "arithmetic.jsonl").read_text().splitlines()) == 64
 
 
 def test_run_signal_rejects_batch_size_above_qualification_limit(tmp_path):
@@ -510,11 +496,11 @@ def test_run_signal_supports_concurrency_1024_for_qualification(monkeypatch, tmp
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 32, "parallel_requests": 1024},
-        "mix": {"factual_restraint": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
+        "mix": {"arithmetic": {"architecture": "grounded", "batch_size": 32, "samples": 64}},
     }
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
-    generate.run_signal("factual_restraint", cfg, tmp_path)
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 64
+    generate.run_signal("arithmetic", cfg, tmp_path)
+    assert len((tmp_path / "raw" / "arithmetic.jsonl").read_text().splitlines()) == 64
 
 
 def test_run_signal_rejects_concurrency_above_qualification_limit(tmp_path):

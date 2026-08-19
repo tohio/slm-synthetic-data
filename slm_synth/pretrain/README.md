@@ -63,6 +63,12 @@ authoritative local data; the teacher supplies only the explanation. Slot
 substitutions such as changed names, objects, places, or counts do not increase
 the signal's candidate capacity.
 
+`factual_restraint` uses a finite 32-scenario catalog spanning uncertainty,
+ambiguity, privacy, unannounced information, rumors, and medical, legal, and
+financial decisions. Questions and behavior requirements remain local, while
+the teacher supplies only the natural answer. Entity, date, location, and
+amount substitutions do not increase candidate capacity.
+
 `make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
 report uses deterministic bounded sampling to measure normalized template
 reuse, near-duplicate clusters, artifact-family concentration, and exact
