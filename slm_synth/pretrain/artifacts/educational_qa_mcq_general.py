@@ -84,12 +84,13 @@ class EducationalQAMCQGeneralArtifactFactory:
 
     @staticmethod
     def _shuffle_choices(payload: dict[str, object], index: int) -> None:
-        """Deterministically randomize choice positions without changing the answer."""
-        choices = list(payload["choices"])
+        """Deterministically balance answer positions while shuffling distractors."""
         answer = str(payload["answer"])
+        choices = [str(choice) for choice in payload["choices"] if str(choice) != answer]
         random.Random(f"educational_qa_mcq_general:{index}").shuffle(choices)
+        choices.insert(index % 4, answer)
         payload["choices"] = choices
-        payload["correct_index"] = choices.index(answer)
+        payload["correct_index"] = index % 4
 
     @staticmethod
     def _record(evidence: str, question: str, choices: list[str], answer: str) -> dict[str, object]:

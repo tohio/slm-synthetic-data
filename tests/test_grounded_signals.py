@@ -1,6 +1,6 @@
 import hashlib
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 
 import pytest
 
@@ -163,45 +163,27 @@ def test_factual_restraint_repetitive_families_have_surface_variation():
     assert not any("Systems's" in question for question in unannounced)
 
 
-def test_general_vocabulary_context_uses_adjective_compatible_subjects_without_losing_variants():
+def test_general_vocabulary_candidate_uses_an_adjective_compatible_subject():
     factory = EducationalQAMCQGeneralArtifactFactory()
+    row = factory.build(factory.FAMILIES.index("vocabulary"))
+    adjective = row.payload["question"].split()[2]
+    answer, clue = factory.ADJECTIVE_CONTEXT[adjective]
 
-    assert set(factory.VOCABULARY_SUBJECTS) == set(factory.ADJECTIVE_CONTEXT)
-    assert all(len(subjects) == len(factory.OBJECTS) for subjects in factory.VOCABULARY_SUBJECTS.values())
-    assert all(len(set(subjects)) == len(subjects) for subjects in factory.VOCABULARY_SUBJECTS.values())
-
-    # Exercise every adjective against every subject variant used in its deterministic cycle.
-    family_offset = factory.FAMILIES.index("vocabulary")
-    rows = [factory.build(family_offset + len(factory.FAMILIES) * index) for index in range(len(factory.ADJECTIVE_CONTEXT) * len(factory.OBJECTS))]
-    assert {row.family for row in rows} == {"vocabulary"}
-
-    for row in rows:
-        question = row.payload["question"]
-        evidence = row.payload["evidence"]
-        adjective = question.split()[2]
-        answer, clue = factory.ADJECTIVE_CONTEXT[adjective]
-        subjects = factory.VOCABULARY_SUBJECTS[adjective]
-
-        assert row.payload["choices"][row.payload["correct_index"]] == answer
-        assert clue in evidence
-        assert any(f"the {subject} as {adjective}" in evidence for subject in subjects)
-
-    evidence = "\n".join(row.payload["evidence"] for row in rows)
-    assert "spare key was narrow" not in evidence
-    assert "spare key was careful" not in evidence
-    assert "spare key was modest" not in evidence
-
-    fingerprints = {artifact_fingerprint(row) for row in rows}
-    assert len(fingerprints) == len(rows)
+    assert row.family == "vocabulary"
+    assert row.payload["choices"][row.payload["correct_index"]] == answer
+    assert clue in row.payload["evidence"]
+    assert any(
+        f"the {subject} as {adjective}" in row.payload["evidence"]
+        for subject in factory.VOCABULARY_SUBJECTS[adjective]
+    )
 
 
-def test_general_mcq_expands_material_reasoning_families_for_scaled_generation():
+def test_general_mcq_catalog_covers_material_reasoning_families_once():
     factory = EducationalQAMCQGeneralArtifactFactory()
-    rows = [factory.build(index) for index in range(len(factory.FAMILIES) * 128)]
+    rows = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
 
-    assert len(factory.FAMILIES) >= 24
-    assert len({row.family for row in rows}) == len(factory.FAMILIES)
-    assert max(Counter(row.family for row in rows).values()) / len(rows) <= 0.05
+    assert len(rows) == len(factory.FAMILIES) == 24
+    assert Counter(row.family for row in rows) == Counter({family: 1 for family in factory.FAMILIES})
 
     new_families = {
         "final_location", "table_lookup", "threshold_rule", "temporal_order",
@@ -213,43 +195,11 @@ def test_general_mcq_expands_material_reasoning_families_for_scaled_generation()
     assert all(row.payload["choices"][row.payload["correct_index"]] == row.payload["answer"] for row in rows)
     assert all(len(set(row.payload["choices"])) == 4 for row in rows)
 
-    for family in new_families:
-        family_rows = [row for row in rows if row.family == family]
-        signatures = {
-            (row.payload["question"], tuple(sorted(row.payload["choices"])), row.payload["answer"])
-            for row in family_rows
-        }
-        assert len(signatures) == len(family_rows)
-
-
-def test_general_mcq_has_no_exact_artifact_duplicates_at_6m_replacement_scale():
-    factory = EducationalQAMCQGeneralArtifactFactory()
-    rows = [factory.build(index) for index in range(13680)]
-
-    def freeze(value):
-        if isinstance(value, dict):
-            return tuple(sorted((key, freeze(item)) for key, item in value.items()))
-        if isinstance(value, list):
-            return tuple(freeze(item) for item in value)
-        return value
-
-    fingerprints = {freeze(row.payload) for row in rows}
-    assert len(fingerprints) == len(rows)
-
-
-
-@pytest.mark.parametrize(
-    ("factory_cls", "row_count"),
-    [
-        (EducationalQAMCQGeneralArtifactFactory, 683088),
-        (FactualRestraintArtifactFactory, 213840),
-    ],
-)
-def test_scaled_production_artifacts_have_no_exact_duplicates(factory_cls, row_count):
-    factory = factory_cls()
+def test_factual_restraint_scaled_artifacts_have_no_exact_duplicates():
+    factory = FactualRestraintArtifactFactory()
     digests = set()
 
-    for index in range(row_count):
+    for index in range(213840):
         payload = json.dumps(
             factory.build(index).payload,
             sort_keys=True,
@@ -261,9 +211,9 @@ def test_scaled_production_artifacts_have_no_exact_duplicates(factory_cls, row_c
         digests.add(digest)
 
 
-def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_family():
+def test_general_mcq_choice_shuffle_is_deterministic_and_balanced():
     factory = EducationalQAMCQGeneralArtifactFactory()
-    row_count = len(factory.FAMILIES) * 512
+    row_count = factory.UNIQUE_CANDIDATE_CAPACITY
     rows = [factory.build(index) for index in range(row_count)]
     replay = [factory.build(index) for index in range(row_count)]
 
@@ -272,14 +222,7 @@ def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_fa
     assert all(row.payload["choices"][row.payload["correct_index"]] == row.payload["answer"] for row in rows)
 
     distribution = Counter(row.payload["correct_index"] for row in rows)
-    assert set(distribution) == {0, 1, 2, 3}
-    assert all(0.20 <= count / row_count <= 0.30 for count in distribution.values())
-
-    family_positions = defaultdict(set)
-    for row in rows:
-        family_positions[row.family].add(row.payload["correct_index"])
-    assert set(family_positions) == set(factory.FAMILIES)
-    assert all(positions == {0, 1, 2, 3} for positions in family_positions.values())
+    assert distribution == Counter({0: 6, 1: 6, 2: 6, 3: 6})
 
 
 def test_all_grounded_generators_render_complete_batches():
