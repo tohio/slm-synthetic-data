@@ -87,7 +87,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
     report_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"[preflight-artifacts] Saved report: {report_path}")
     repaired_signal_structure_reuse = any(
-        row["signal"] in {"arithmetic", "task_code"}
+        row["signal"] in {"arithmetic", "task_code", "educational_qa_mcq_math"}
         and row["unique_structures"] != row["rounded_rows"]
         for row in reports
     )

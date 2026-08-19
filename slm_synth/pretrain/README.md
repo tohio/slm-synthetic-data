@@ -51,6 +51,12 @@ from validated local code, while the teacher generates only a short faithful
 plan. Renamed functions, field substitutions, and threshold-only changes do
 not count as additional candidates.
 
+`educational_qa_mcq_math` uses a finite 24-relationship catalog. Questions,
+choices, answers, and verification expressions are authoritative local data;
+the teacher supplies only the explanation. Its capacity is a hard ceiling, and
+preflight rejects repeated source structures instead of accepting numeric
+variations as additional candidates.
+
 `make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
 report uses deterministic bounded sampling to measure normalized template
 reuse, near-duplicate clusters, artifact-family concentration, and exact

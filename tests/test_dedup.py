@@ -109,7 +109,7 @@ def test_public_audit_normalizes_python_identifiers():
         audit_public_records(rows)
 
 
-def test_two_step_math_artifacts_carry_required_item_terms_and_prompt_requires_them():
+def test_math_mcq_questions_remain_local_and_teacher_only_explains():
     from slm_synth.pretrain.artifacts import EducationalQAMCQMathArtifactFactory
     from slm_synth.pretrain.grounded import GroundedSignalGenerator
 
@@ -117,12 +117,14 @@ def test_two_step_math_artifacts_carry_required_item_terms_and_prompt_requires_t
         pass
 
     factory = EducationalQAMCQMathArtifactFactory()
-    artifacts = [factory.build(3 + 5 * index) for index in range(len(factory.SETTINGS))]
-    assert all(artifact.family == "two_step_quantity" for artifact in artifacts)
-    assert {artifact.payload["required_text_literals"][0] for artifact in artifacts} == set(factory.SETTINGS)
+    artifacts = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
+    assert len({artifact.payload["question"] for artifact in artifacts}) == len(artifacts)
 
     prompt = GroundedSignalGenerator(
         "educational_qa_mcq_math", NoopLLM(), batch_size=len(artifacts), factory=factory
     ).build_prompt(artifacts)
-    assert "preserve each supplied term in the question exactly" in prompt
-    assert "required_text_literals" in prompt
+    schema = GroundedSignalGenerator(
+        "educational_qa_mcq_math", NoopLLM(), batch_size=len(artifacts), factory=factory
+    ).response_schema(len(artifacts))
+    assert "Question, choices, and verified answer remain local" in prompt
+    assert schema["properties"]["records"]["items"]["required"] == ["artifact_id", "explanation"]

@@ -24,7 +24,7 @@ Pretraining uses grounded local artifacts that are rendered by the provider into
 |---|---:|---|---|
 | `arithmetic` | 14.7540984% | `direct_expression`, `missing_start_after_increase`, `missing_start_after_decrease`, `two_step_remaining`, `gain_then_spend`, `exact_group_count`, `equal_share_size`, `groups_with_loose_items`, `compare_group_totals`, `target_gap`, `three_source_total`, `constant_rate_total`, `two_rate_total`, `known_portion_equal_shares`, `net_change`, `rectangle_perimeter` | Verified integer arithmetic spread across distinct inverse, change, grouping, rate, comparison, sharing, and measurement relationships. Semantic contexts rotate before operand variants, and preflight rejects a planned arithmetic run if source structures repeat. |
 | `task_code` | 39.3442623% | 24 finite algorithm families covering normalization, filtering, aggregation, sequence processing, grouping, merging, windowing, matrix operations, partitioning, indexing, nested lookup, and sparse arithmetic. | Validated single-function Python records with deterministic faithful tasks and teacher-generated implementation plans. |
-| `educational_qa_mcq_math` | 14.7540984% | `integer_expression`, `missing_operand`, `exact_division`, `two_step_quantity`, `unique_numeric_comparison` | Verified math multiple-choice questions. |
+| `educational_qa_mcq_math` | 14.7540984% | 24 finite verified relationships covering expressions, equations, sharing, rates, proportions, geometry, statistics, measurement, percentages, sequences, complements, and composite quantities. | Locally authoritative math multiple-choice questions with teacher-generated explanations only. |
 | `educational_qa_mcq_general` | 24.5901639% | `python_behavior`, `grammar`, `vocabulary`, `reading`, `fictional_rule`, `policy`, `scientific_method`, `ordering`, `final_location`, `table_lookup`, `threshold_rule`, `temporal_order`, `direction_following`, `conditional_access`, `comparison_claim`, `category_rule`, `cause_inference`, `schedule_availability`, `inventory_shortage`, `source_attribution`, `procedure_step`, `exception_rule`, `trend_interpretation`, `revision_tracking` | Grounded educational multiple-choice questions from supplied evidence. |
 | `factual_restraint` | 6.5573770% | `future_uncertainty`, `ambiguous_entity`, `private_information`, `unannounced_information`, `rumor`, `medical`, `legal`, `financial` | Cautious-answer behavior for uncertainty, privacy, and high-stakes domains. |
 
@@ -38,6 +38,12 @@ appears once; field-name substitutions, threshold changes, and renamed copies
 are not treated as additional training data. The public task is deterministic
 from the validated local artifact, while the teacher supplies only its concise
 implementation plan.
+
+`educational_qa_mcq_math` has a declared capacity of 24 structurally distinct,
+locally verified questions. The provider cannot rewrite questions, choices, or
+answers; it supplies only a concise explanation of the verified calculation.
+Preflight rejects repeated source structures rather than padding the signal
+with number-only variants.
 
 Implementation source of truth:
 

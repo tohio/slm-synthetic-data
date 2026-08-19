@@ -382,8 +382,8 @@ class GroundedSignalGenerator:
             }
             required = ["artifact_id", "plan"]
         elif self.signal == "educational_qa_mcq_math":
-            fields = {**common, "question": {"type": "string"}, "explanation": {"type": "string"}}
-            required = ["artifact_id", "question", "explanation"]
+            fields = {**common, "explanation": {"type": "string"}}
+            required = ["artifact_id", "explanation"]
         elif self.signal == "educational_qa_mcq_general":
             fields = {**common, "explanation": {"type": "string"}}
             required = ["artifact_id", "explanation"]
@@ -436,10 +436,10 @@ class GroundedSignalGenerator:
                 "must not mention the held function name, and must not add behavior absent from the artifact."
             ),
             "educational_qa_mcq_math": (
-                "For each artifact, generate a self-contained natural math question and concise explanation. "
-                "Preserve all required numeric literals in the question. If required_text_literals are supplied, "
-                "preserve each supplied term in the question exactly; do not collapse a word-problem item into a "
-                "generic bare-number question. Choices and verified answer remain local."
+                "For each artifact, generate only a concise explanation of why the verified answer follows from "
+                "the authoritative local question and expression. State the numeric answer exactly, show the "
+                "relevant calculation, and do not discuss question generation or the supplied choices. "
+                "Question, choices, and verified answer remain local and must not be changed."
             ),
             "educational_qa_mcq_general": (
                 "For each artifact, generate only a concise explanation showing why the held answer follows from "
@@ -506,14 +506,9 @@ class GroundedSignalGenerator:
             result = validate_record("task_code", record)
 
         elif self.signal == "educational_qa_mcq_math":
-            question = str(row.get("question", "")).strip()
-
-            if Counter(self._numeric_literals(question)) != Counter(payload["required_numeric_literals"]):
-                raise ValueError(f"Rendered math MCQ question changed numeric facts for {artifact.artifact_id}")
-
             record = {
                 "type": "educational_qa_mcq_math",
-                "question": question,
+                "question": payload["question"],
                 "choices": payload["choices"],
                 "correct_index": payload["correct_index"],
                 "explanation": row.get("explanation"),

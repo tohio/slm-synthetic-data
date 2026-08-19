@@ -45,7 +45,7 @@ class GroundedMockLLM:
             elif signal == "task_code":
                 records.append({"artifact_id": item["artifact_id"], "plan": ["Process the inputs", "Return the result"]})
             elif signal == "educational_qa_mcq_math":
-                records.append({"artifact_id": item["artifact_id"], "question": "Find the value using " + " and ".join(p["required_numeric_literals"]) + ".", "explanation": f"The verified answer is {p['answer']}."})
+                records.append({"artifact_id": item["artifact_id"], "explanation": f"The verified calculation gives {p['answer']}."})
             elif signal == "educational_qa_mcq_general":
                 records.append({"artifact_id": item["artifact_id"], "explanation": "The evidence directly supports the held correct choice."})
             else:
@@ -284,7 +284,7 @@ def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_fa
 
 def test_all_grounded_generators_render_complete_batches():
     for signal in ("arithmetic", "task_code", "educational_qa_mcq_math", "educational_qa_mcq_general", "factual_restraint"):
-        batch_size = 24 if signal == "task_code" else 32
+        batch_size = 24 if signal in {"task_code", "educational_qa_mcq_math"} else 32
         artifacts, records, telemetry = GroundedSignalGenerator(signal, GroundedMockLLM(), batch_size=batch_size).generate_batch(0)
         assert len(artifacts) == len(records) == batch_size
         assert all(record["type"] == signal for record in records)
@@ -418,14 +418,14 @@ def test_run_signal_retries_exhausted_malformed_structured_response_for_every_gr
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 32, "parallel_requests": 1},
-        "mix": {signal: {"architecture": "grounded", "batch_size": 32, "samples": 64, **({"max_unique_candidates": 24} if signal == "task_code" else {})}},
+        "mix": {signal: {"architecture": "grounded", "batch_size": 32, "samples": 64, **({"max_unique_candidates": 24} if signal in {"task_code", "educational_qa_mcq_math"} else {})}},
     }
     llm = GroundedMalformedFirstBatchLLM()
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
 
     generate.run_signal(signal, cfg, tmp_path)
 
-    expected_rows = 24 if signal == "task_code" else 64
+    expected_rows = 24 if signal in {"task_code", "educational_qa_mcq_math"} else 64
     assert len((tmp_path / "raw" / f"{signal}.jsonl").read_text().splitlines()) == expected_rows
     rejection = (tmp_path / "rejected" / f"{signal}.jsonl").read_text()
     assert "adaptive_batch_size_reduced" in rejection
@@ -442,17 +442,17 @@ def test_run_signal_retries_exhausted_malformed_structured_response_for_every_gr
 
 def test_grounded_artifacts_have_no_placeholder_quality_failures():
     for factory in (EducationalQAMCQMathArtifactFactory, EducationalQAMCQGeneralArtifactFactory, FactualRestraintArtifactFactory):
-        rows = [factory().build(index) for index in range(512)]
+        capacity = getattr(factory, "UNIQUE_CANDIDATE_CAPACITY", 512)
+        rows = [factory().build(index) for index in range(min(512, capacity))]
         assert all(not validate_artifact(row) for row in rows)
         assert len({artifact_fingerprint(row) for row in rows}) == len(rows)
 
 
 def test_math_mcq_positive_quantity_families_have_nonnegative_plausible_choices():
     factory = EducationalQAMCQMathArtifactFactory()
-    for index in range(500):
+    for index in range(factory.UNIQUE_CANDIDATE_CAPACITY):
         artifact = factory.build(index)
-        if artifact.family in {"missing_operand", "exact_division", "two_step_quantity"}:
-            assert all(int(choice) >= 0 for choice in artifact.payload["choices"])
+        assert all(int(choice) >= 0 for choice in artifact.payload["choices"])
 
 
 def test_batch_store_persists_telemetry(tmp_path):
