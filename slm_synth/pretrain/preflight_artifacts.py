@@ -86,13 +86,14 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
     report_path = manifest_dir / "preflight_artifact_report.json"
     report_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"[preflight-artifacts] Saved report: {report_path}")
-    arithmetic_structure_reuse = any(
-        row["signal"] == "arithmetic" and row["unique_structures"] != row["rounded_rows"]
+    repaired_signal_structure_reuse = any(
+        row["signal"] in {"arithmetic", "task_code"}
+        and row["unique_structures"] != row["rounded_rows"]
         for row in reports
     )
-    if arithmetic_structure_reuse:
+    if repaired_signal_structure_reuse:
         raise SystemExit(
-            "Preflight failed: arithmetic candidate plan repeats structures before paid rendering."
+            "Preflight failed: a quality-capped candidate plan repeats structures before paid rendering."
         )
     if any(row["exact_duplicates"] or row["quality_issue_count"] for row in reports):
         raise SystemExit("Preflight failed: artifact duplicates or quality issues were found.")

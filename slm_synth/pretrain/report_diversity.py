@@ -38,7 +38,6 @@ from slm_synth.pretrain.artifacts.lexicon import (
     PROJECT_NAMES,
     VENUES,
 )
-from slm_synth.pretrain.artifacts.task_code import TaskCodeArtifactFactory
 from slm_synth.pretrain.record_quality import SIGNAL_FROM_FILE
 
 REPORT_SCHEMA_VERSION = 1
@@ -79,7 +78,6 @@ def _flatten_values(value: Any) -> Iterable[str]:
 def _controlled_slot_values() -> tuple[str, ...]:
     general = EducationalQAMCQGeneralArtifactFactory
     restraint = FactualRestraintArtifactFactory
-    code = TaskCodeArtifactFactory
     values: set[str] = {
         *CITIES,
         *COMPANY_NAMES,
@@ -102,10 +100,6 @@ def _controlled_slot_values() -> tuple[str, ...]:
         restraint.PRIVATE_ROLES,
         restraint.PRODUCT_TYPES,
         restraint.RUMOR_ACTIONS,
-        code.NOUNS,
-        code.TITLES,
-        code.METRICS,
-        code.VALUES,
     ):
         values.update(str(item) for item in source)
     for source in (general.ADJECTIVE_CONTEXT, general.VOCABULARY_SUBJECTS):

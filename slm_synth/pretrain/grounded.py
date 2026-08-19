@@ -378,10 +378,9 @@ class GroundedSignalGenerator:
         elif self.signal == "task_code":
             fields = {
                 **common,
-                "task": {"type": "string"},
                 "plan": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
             }
-            required = ["artifact_id", "task", "plan"]
+            required = ["artifact_id", "plan"]
         elif self.signal == "educational_qa_mcq_math":
             fields = {**common, "question": {"type": "string"}, "explanation": {"type": "string"}}
             required = ["artifact_id", "question", "explanation"]
@@ -432,9 +431,9 @@ class GroundedSignalGenerator:
                 "The verified answer remains local."
             ),
             "task_code": (
-                "For each valid Python code artifact, generate a faithful task and a short 2-to-4 step plan. "
-                "The task must start with 'Write a Python function that', state input/output behavior and non-mutation, "
-                "and must not contain code, the held function name, or behavior absent from the supplied code."
+                "For each valid Python code artifact, generate only a faithful 2-to-4 step implementation plan. "
+                "The public task is authoritative and remains local. The plan must cover the supplied task and code, "
+                "must not mention the held function name, and must not add behavior absent from the artifact."
             ),
             "educational_qa_mcq_math": (
                 "For each artifact, generate a self-contained natural math question and concise explanation. "
@@ -493,13 +492,17 @@ class GroundedSignalGenerator:
             result = validate_record("arithmetic", record, require_arithmetic_verification=True)
 
         elif self.signal == "task_code":
-            task = str(row.get("task", "")).strip()
+            task = str(payload.get("task", "")).strip()
             lower = task.lower()
+            plan = row.get("plan")
 
             if not lower.startswith("write a python function that") or "```" in task or "\ndef " in lower:
-                raise ValueError(f"Rendered task_code task is not a clean instruction for {artifact.artifact_id}")
+                raise ValueError(f"Grounded task_code task is not a clean instruction for {artifact.artifact_id}")
+            function_name = ast.parse(str(payload["code"])).body[0].name
+            if isinstance(plan, list) and function_name.casefold() in " ".join(map(str, plan)).casefold():
+                raise ValueError(f"Rendered task_code plan leaks the held function name for {artifact.artifact_id}")
 
-            record = {"type": "task_code", "task": task, "plan": row.get("plan"), "code": payload["code"]}
+            record = {"type": "task_code", "task": task, "plan": plan, "code": payload["code"]}
             result = validate_record("task_code", record)
 
         elif self.signal == "educational_qa_mcq_math":

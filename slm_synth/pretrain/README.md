@@ -46,6 +46,11 @@ their assigned reasoning family, semantic context, numeric facts, and verified
 local answer. Its 288-candidate quality capacity is a ceiling: larger token
 plans do not pad the signal with operand-only variants.
 
+`task_code` uses a finite 24-algorithm catalog. Public tasks are deterministic
+from validated local code, while the teacher generates only a short faithful
+plan. Renamed functions, field substitutions, and threshold-only changes do
+not count as additional candidates.
+
 `make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
 report uses deterministic bounded sampling to measure normalized template
 reuse, near-duplicate clusters, artifact-family concentration, and exact

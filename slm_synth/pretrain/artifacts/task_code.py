@@ -4,202 +4,148 @@ from slm_synth.pretrain.artifacts.base import GroundedArtifact
 
 
 class TaskCodeArtifactFactory:
-    """Create valid short Python functions for instruction-reversal rendering."""
+    """Create a finite catalog of distinct, valid Python algorithm records."""
 
-    FAMILIES = (
-        "normalized_counting",
-        "filter_sort_projection",
-        "grouped_totals",
-        "grouped_average_threshold",
-        "paired_comparison_counts",
-        "nested_transform",
-        "selection_by_total",
-        "dictionary_keywise_sum",
+    SPECS = (
+        (
+            "normalized_string_counts",
+            "Write a Python function that strips and lowercases each string, ignores empty results, returns occurrence counts, and does not mutate the input.",
+            "def count_normalized_strings(values):\n    counts = {}\n    for value in values:\n        cleaned = value.strip().lower()\n        if cleaned:\n            counts[cleaned] = counts.get(cleaned, 0) + 1\n    return counts",
+        ),
+        (
+            "filter_sort_projection",
+            "Write a Python function that keeps records meeting a minimum score, sorts the retained records by descending score, returns their labels, and does not mutate the input.",
+            "def select_ranked_labels(records, minimum):\n    kept = [row for row in records if row[\"score\"] >= minimum]\n    ordered = sorted(kept, key=lambda row: row[\"score\"], reverse=True)\n    return [row[\"label\"] for row in ordered]",
+        ),
+        (
+            "grouped_numeric_totals",
+            "Write a Python function that sums each record's amount by category, returns a new category-to-total dictionary, and does not mutate the records.",
+            "def totals_by_category(records):\n    totals = {}\n    for row in records:\n        category = row[\"category\"]\n        totals[category] = totals.get(category, 0) + row[\"amount\"]\n    return totals",
+        ),
+        (
+            "grouped_numeric_averages",
+            "Write a Python function that computes the arithmetic mean of record values for each group, returns a new dictionary, and does not mutate the records.",
+            "def averages_by_group(records):\n    totals = {}\n    counts = {}\n    for row in records:\n        group = row[\"group\"]\n        totals[group] = totals.get(group, 0) + row[\"value\"]\n        counts[group] = counts.get(group, 0) + 1\n    return {group: totals[group] / counts[group] for group in totals}",
+        ),
+        (
+            "paired_margin_classification",
+            "Write a Python function that compares paired numbers from two equal-length sequences, classifies each pair as left ahead, right ahead, or within a supplied margin, returns the three counts, and does not mutate either sequence.",
+            "def classify_pair_margins(left_values, right_values, margin):\n    counts = {\"left_ahead\": 0, \"right_ahead\": 0, \"within_margin\": 0}\n    for left, right in zip(left_values, right_values):\n        if left - right > margin:\n            counts[\"left_ahead\"] += 1\n        elif right - left > margin:\n            counts[\"right_ahead\"] += 1\n        else:\n            counts[\"within_margin\"] += 1\n    return counts",
+        ),
+        (
+            "nested_filter_transform",
+            "Write a Python function that processes every row in a nested integer list, keeps nonnegative values, doubles each retained value, preserves row boundaries and order, and does not mutate the input.",
+            "def double_nonnegative_rows(rows):\n    return [[value * 2 for value in row if value >= 0] for row in rows]",
+        ),
+        (
+            "select_by_nested_total",
+            "Write a Python function that returns the names of records whose list of values has a sum above a supplied threshold, preserves input order, and does not mutate the records.",
+            "def names_above_value_total(records, threshold):\n    return [row[\"name\"] for row in records if sum(row[\"values\"]) > threshold]",
+        ),
+        (
+            "dictionary_keywise_sum",
+            "Write a Python function that adds values from two dictionaries over their union of keys, treats missing values as zero, returns a new dictionary, and does not mutate either input.",
+            "def add_dictionary_values(first, second):\n    result = {}\n    for key in set(first) | set(second):\n        result[key] = first.get(key, 0) + second.get(key, 0)\n    return result",
+        ),
+        (
+            "stable_unique_values",
+            "Write a Python function that removes duplicate hashable values while preserving first-occurrence order, returns a new list, and does not mutate the input.",
+            "def unique_in_order(values):\n    seen = set()\n    result = []\n    for value in values:\n        if value not in seen:\n            seen.add(value)\n            result.append(value)\n    return result",
+        ),
+        (
+            "running_totals",
+            "Write a Python function that returns the cumulative sum after each number in a sequence and does not mutate the input.",
+            "def cumulative_sums(values):\n    result = []\n    total = 0\n    for value in values:\n        total += value\n        result.append(total)\n    return result",
+        ),
+        (
+            "fixed_size_chunks",
+            "Write a Python function that divides a sequence into consecutive lists of a positive maximum size, includes a shorter final chunk when needed, and does not mutate the input.",
+            "def chunk_values(values, size):\n    if size <= 0:\n        raise ValueError(\"size must be positive\")\n    return [list(values[index:index + size]) for index in range(0, len(values), size)]",
+        ),
+        (
+            "group_records_by_key",
+            "Write a Python function that groups records by their category field, preserves record order within each group, returns copied records in new lists, and does not mutate the input.",
+            "def group_records_by_category(records):\n    grouped = {}\n    for row in records:\n        grouped.setdefault(row[\"category\"], []).append(row.copy())\n    return grouped",
+        ),
+        (
+            "merge_sorted_sequences",
+            "Write a Python function that merges two ascending numeric sequences into one ascending list in linear time and does not mutate either input.",
+            "def merge_sorted_values(first, second):\n    merged = []\n    left = right = 0\n    while left < len(first) and right < len(second):\n        if first[left] <= second[right]:\n            merged.append(first[left])\n            left += 1\n        else:\n            merged.append(second[right])\n            right += 1\n    merged.extend(first[left:])\n    merged.extend(second[right:])\n    return merged",
+        ),
+        (
+            "sliding_window_sums",
+            "Write a Python function that returns the sum of every consecutive window of a positive size, returns an empty list when the window exceeds the sequence, and does not mutate the input.",
+            "def sliding_sums(values, width):\n    if width <= 0:\n        raise ValueError(\"width must be positive\")\n    if width > len(values):\n        return []\n    total = sum(values[:width])\n    result = [total]\n    for index in range(width, len(values)):\n        total += values[index] - values[index - width]\n        result.append(total)\n    return result",
+        ),
+        (
+            "maximum_record_per_group",
+            "Write a Python function that selects the highest-scoring record in each group, keeps the first record on ties, returns copied records in a new dictionary, and does not mutate the input.",
+            "def best_record_by_group(records):\n    best = {}\n    for row in records:\n        group = row[\"group\"]\n        if group not in best or row[\"score\"] > best[group][\"score\"]:\n            best[group] = row.copy()\n    return best",
+        ),
+        (
+            "matrix_transpose",
+            "Write a Python function that transposes a rectangular nested list, rejects rows of unequal length, returns new lists, and does not mutate the matrix.",
+            "def transpose_rectangular(matrix):\n    if not matrix:\n        return []\n    width = len(matrix[0])\n    if any(len(row) != width for row in matrix):\n        raise ValueError(\"matrix must be rectangular\")\n    return [[row[column] for row in matrix] for column in range(width)]",
+        ),
+        (
+            "predicate_partition",
+            "Write a Python function that partitions values into matching and nonmatching lists using a supplied predicate, preserves order, returns both lists, and does not mutate the input.",
+            "def partition_values(values, predicate):\n    matching = []\n    remaining = []\n    for value in values:\n        if predicate(value):\n            matching.append(value)\n        else:\n            remaining.append(value)\n    return matching, remaining",
+        ),
+        (
+            "unique_record_index",
+            "Write a Python function that indexes copied records by their id field, raises an error for a repeated id, returns a new dictionary, and does not mutate the records.",
+            "def index_records_by_id(records):\n    indexed = {}\n    for row in records:\n        identifier = row[\"id\"]\n        if identifier in indexed:\n            raise ValueError(\"duplicate id\")\n        indexed[identifier] = row.copy()\n    return indexed",
+        ),
+        (
+            "grouped_numeric_ranges",
+            "Write a Python function that returns the minimum and maximum value observed for each group and does not mutate the records.",
+            "def value_ranges_by_group(records):\n    ranges = {}\n    for row in records:\n        group = row[\"group\"]\n        value = row[\"value\"]\n        if group not in ranges:\n            ranges[group] = [value, value]\n        else:\n            ranges[group][0] = min(ranges[group][0], value)\n            ranges[group][1] = max(ranges[group][1], value)\n    return {group: tuple(bounds) for group, bounds in ranges.items()}",
+        ),
+        (
+            "balance_event_series",
+            "Write a Python function that applies signed transaction amounts to an opening balance, returns the balance after every transaction, and does not mutate the transactions.",
+            "def balances_after_transactions(opening, transactions):\n    balances = []\n    current = opening\n    for transaction in transactions:\n        current += transaction[\"amount\"]\n        balances.append(current)\n    return balances",
+        ),
+        (
+            "stable_frequency_mode",
+            "Write a Python function that returns the most frequent hashable value, resolves ties by first occurrence, returns None for empty input, and does not mutate the sequence.",
+            "def first_mode(values):\n    if not values:\n        return None\n    counts = {}\n    first_positions = {}\n    for index, value in enumerate(values):\n        counts[value] = counts.get(value, 0) + 1\n        first_positions.setdefault(value, index)\n    return min(counts, key=lambda value: (-counts[value], first_positions[value]))",
+        ),
+        (
+            "adjacent_differences",
+            "Write a Python function that returns each value minus its immediate predecessor, returns an empty list for fewer than two values, and does not mutate the input.",
+            "def adjacent_differences(values):\n    return [values[index] - values[index - 1] for index in range(1, len(values))]",
+        ),
+        (
+            "nested_mapping_lookup",
+            "Write a Python function that follows a sequence of keys through nested dictionaries, returns a supplied default when a key is absent or an intermediate value is not a dictionary, and does not mutate the mapping.",
+            "def nested_lookup(mapping, keys, default=None):\n    current = mapping\n    for key in keys:\n        if not isinstance(current, dict) or key not in current:\n            return default\n        current = current[key]\n    return current",
+        ),
+        (
+            "sparse_vector_dot_product",
+            "Write a Python function that computes the dot product of two sparse vectors represented as dictionaries and does not mutate either dictionary.",
+            "def sparse_dot_product(first, second):\n    if len(first) > len(second):\n        first, second = second, first\n    return sum(value * second.get(key, 0) for key, value in first.items())",
+        ),
     )
-    NOUNS = ("tag", "label", "status", "category", "topic", "region", "team", "group")
-    TITLES = ("title", "name", "identifier", "label")
-    METRICS = ("rating", "score", "priority", "quality", "rank", "weight")
-    VALUES = ("hours", "units", "points", "cost", "sales", "items")
 
-    @staticmethod
-    def _decode(value: int, radices: tuple[int, ...]) -> list[int]:
-        result: list[int] = []
-        for radix in radices:
-            result.append(value % radix)
-            value //= radix
-        return result
-
-    @staticmethod
-    def _function_name(base: str, variant: int) -> str:
-        """Keep the primary grounded name natural while retaining collision separation."""
-        return base if variant == 0 else f"{base}_{variant}"
+    FAMILIES = tuple(spec[0] for spec in SPECS)
+    UNIQUE_CANDIDATE_CAPACITY = len(SPECS)
 
     def build_batch(self, batch_id: int, batch_size: int) -> list[GroundedArtifact]:
         start = int(batch_id) * int(batch_size)
         return [self.build(start + offset) for offset in range(batch_size)]
 
     def build(self, index: int) -> GroundedArtifact:
-        family = self.FAMILIES[index % len(self.FAMILIES)]
-        payload = getattr(self, f"_build_{family}")(index // len(self.FAMILIES))
+        if not 0 <= index < self.UNIQUE_CANDIDATE_CAPACITY:
+            raise ValueError(
+                f"task_code index {index} exceeds unique candidate capacity "
+                f"{self.UNIQUE_CANDIDATE_CAPACITY}"
+            )
+        family, task, code = self.SPECS[index]
         return GroundedArtifact(
             signal="task_code",
             family=family,
             artifact_id=f"task_code_{family}_{index + 1:09d}",
-            payload=payload,
+            payload={"task": task, "code": code},
         )
-
-    def _build_normalized_counting(self, index: int) -> dict[str, object]:
-        n, mode_i, min_length_i, variant = self._decode(index, (len(self.NOUNS), 2, 16, 1000003))
-        noun = self.NOUNS[n]
-        plural = f"{noun}s"
-        normalizer = "lower" if mode_i == 0 else "upper"
-        min_length = min_length_i + 1
-        fn = self._function_name(f"count_clean_{plural}_{normalizer}_{min_length}", variant)
-        code = (
-            f"def {fn}({plural}):\n"
-            "    counts = {}\n"
-            f"    for {noun} in {plural}:\n"
-            f"        cleaned = {noun}.strip().{normalizer}()\n"
-            f"        if len(cleaned) >= {min_length}:\n"
-            "            counts[cleaned] = counts.get(cleaned, 0) + 1\n"
-            "    return counts"
-        )
-        return {
-            "code": code,
-            "behavior_contract": f"Take a list of {noun} strings, strip and convert each complete string to {normalizer}case, retain normalized strings with length at least {min_length}, return their counts, and do not mutate the input.",
-        }
-
-    def _build_filter_sort_projection(self, index: int) -> dict[str, object]:
-        out_i, metric_i, threshold_i, descending_i, variant = self._decode(index, (len(self.TITLES), len(self.METRICS), 71, 2, 1000003))
-        output = self.TITLES[out_i]
-        metric = self.METRICS[metric_i]
-        threshold = 20 + threshold_i
-        reverse = bool(descending_i)
-        compare = ">=" if reverse else "<="
-        direction = "descending" if reverse else "ascending"
-        fn = self._function_name(f"select_{output}s_by_{metric}_{threshold}_{direction}", variant)
-        code = (
-            f"def {fn}(records):\n"
-            f"    kept = [row for row in records if row[\"{metric}\"] {compare} {threshold}]\n"
-            f"    kept = sorted(kept, key=lambda row: row[\"{metric}\"], reverse={str(reverse)})\n"
-            f"    return [row[\"{output}\"] for row in kept]"
-        )
-        return {
-            "code": code,
-            "behavior_contract": f"Take a list of dictionaries, keep records with {metric} {compare} {threshold}, sort by {metric} in {direction} order, return their {output} values, and do not mutate inputs.",
-        }
-
-    def _build_grouped_totals(self, index: int) -> dict[str, object]:
-        noun_i, value_i, minimum_i, variant = self._decode(index, (len(self.NOUNS), len(self.VALUES), 101, 1000003))
-        key = self.NOUNS[noun_i]
-        value = self.VALUES[value_i]
-        minimum = minimum_i
-        fn = self._function_name(f"total_{value}_by_{key}_min_{minimum}", variant)
-        code = (
-            f"def {fn}(records):\n"
-            "    totals = {}\n"
-            "    for row in records:\n"
-            f"        if row[\"{value}\"] >= {minimum}:\n"
-            f"            group = row[\"{key}\"]\n"
-            f"            totals[group] = totals.get(group, 0) + row[\"{value}\"]\n"
-            "    return totals"
-        )
-        return {
-            "code": code,
-            "behavior_contract": f"Take a list of dictionaries with {key} and {value}, keep entries whose {value} is at least {minimum}, sum retained {value} by {key}, return a new dictionary, and do not mutate inputs.",
-        }
-
-    def _build_grouped_average_threshold(self, index: int) -> dict[str, object]:
-        noun_i, value_i, threshold_i, variant = self._decode(index, (len(self.NOUNS), len(self.VALUES), 901, 1000003))
-        key = self.NOUNS[noun_i]
-        value = self.VALUES[value_i]
-        threshold = 10 + threshold_i
-        fn = self._function_name(f"qualifying_{value}_averages_by_{key}", variant)
-        code = (
-            f"def {fn}(records):\n"
-            "    totals = {}\n"
-            "    counts = {}\n"
-            "    for row in records:\n"
-            f"        group = row[\"{key}\"]\n"
-            f"        totals[group] = totals.get(group, 0) + row[\"{value}\"]\n"
-            "        counts[group] = counts.get(group, 0) + 1\n"
-            f"    return {{g: totals[g] / counts[g] for g in totals if totals[g] / counts[g] >= {threshold}}}"
-        )
-        return {
-            "code": code,
-            "behavior_contract": f"Compute average {value} per {key} from a list of dictionaries, retain averages at least {threshold}, return a dictionary, and do not mutate inputs.",
-        }
-
-    def _build_paired_comparison_counts(self, index: int) -> dict[str, object]:
-        margin_i, variant = self._decode(index, (101, 1000003))
-        margin = margin_i
-        fn = self._function_name(f"compare_pairs_with_margin_{margin}", variant)
-        code = (
-            f"def {fn}(first, second):\n"
-            "    counts = {\"first_ahead\": 0, \"second_ahead\": 0, \"within_margin\": 0}\n"
-            "    for left, right in zip(first, second):\n"
-            f"        if left - right > {margin}:\n"
-            "            counts[\"first_ahead\"] += 1\n"
-            f"        elif right - left > {margin}:\n"
-            "            counts[\"second_ahead\"] += 1\n"
-            "        else:\n"
-            "            counts[\"within_margin\"] += 1\n"
-            "    return counts"
-        )
-        return {
-            "code": code,
-            "behavior_contract": f"Take two equal-length integer lists, compare paired values using a margin of {margin}, count pairs where first is ahead by more than the margin, second is ahead by more than the margin, or values are within the margin, and do not mutate inputs.",
-        }
-
-    def _build_nested_transform(self, index: int) -> dict[str, object]:
-        mode, factor, cutoff_i, variant = self._decode(index, (3, 19, 101, 100003))
-        amount = factor + 2
-        cutoff = cutoff_i
-        if mode == 0:
-            body = f"[[value * {amount} for value in row if value >= {cutoff}] for row in rows]"
-            contract = f"retain integers at least {cutoff} and multiply each retained integer by {amount}"
-        elif mode == 1:
-            body = f"[[value for value in row if value > {cutoff}] for row in rows]"
-            contract = f"keep only integers greater than {cutoff}"
-        else:
-            body = f"[[value + {amount} for value in row if value >= {cutoff}] for row in rows]"
-            contract = f"retain integers at least {cutoff} and add {amount} to each retained integer"
-        fn = self._function_name(f"transform_rows_{mode}_{amount}_{cutoff}", variant)
-        code = f"def {fn}(rows):\n    return {body}"
-        return {
-            "code": code,
-            "behavior_contract": f"Take a nested list of integers, {contract} within each row while preserving structure and order, return a new nested list, and do not mutate inputs.",
-        }
-
-    def _build_selection_by_total(self, index: int) -> dict[str, object]:
-        noun_i, threshold_i, variant = self._decode(index, (len(self.NOUNS), 1801, 1009))
-        key = self.NOUNS[noun_i]
-        threshold = 50 + threshold_i
-        fn = self._function_name(f"{key}s_over_total_{threshold}", variant)
-        code = (
-            f"def {fn}(records):\n"
-            f"    return [row[\"{key}\"] for row in records if sum(row[\"values\"]) > {threshold}]"
-        )
-        return {
-            "code": code,
-            "behavior_contract": f"Take a list of dictionaries with {key} and a list of integer values, return {key} values whose sums exceed {threshold} in original order, and do not mutate inputs.",
-        }
-
-    def _build_dictionary_keywise_sum(self, index: int) -> dict[str, object]:
-        noun_i, minimum_i, variant = self._decode(index, (len(self.NOUNS), 501, 1000003))
-        noun = self.NOUNS[noun_i]
-        minimum = minimum_i
-        fn = self._function_name(f"combine_{noun}_counts_min_{minimum}", variant)
-        code = (
-            f"def {fn}(first, second):\n"
-            "    result = {}\n"
-            "    for key in set(first) | set(second):\n"
-            "        total = first.get(key, 0) + second.get(key, 0)\n"
-            f"        if total >= {minimum}:\n"
-            "            result[key] = total\n"
-            "    return result"
-        )
-        return {
-            "code": code,
-            "behavior_contract": f"Take two dictionaries of {noun} counts, sum values over the union of keys using zero for missing keys, retain totals at least {minimum}, return a new dictionary, and do not mutate inputs.",
-        }
