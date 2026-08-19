@@ -7,7 +7,7 @@ from slm_synth.pretrain.artifacts.lexicon import CITIES, FIRST_NAMES, LAST_NAMES
 
 
 class EducationalQAMCQGeneralArtifactFactory:
-    """Create deterministic, natural evidence-grounded MCQs."""
+    """Create a finite catalog of structurally distinct evidence-grounded MCQs."""
 
     FAMILIES = (
         "python_behavior", "grammar", "vocabulary", "reading", "fictional_rule", "policy", "scientific_method", "ordering",
@@ -15,6 +15,7 @@ class EducationalQAMCQGeneralArtifactFactory:
         "comparison_claim", "category_rule", "cause_inference", "schedule_availability", "inventory_shortage", "source_attribution",
         "procedure_step", "exception_rule", "trend_interpretation", "revision_tracking",
     )
+    UNIQUE_CANDIDATE_CAPACITY = len(FAMILIES)
     PLACES = ("blue drawer", "green cabinet", "front desk", "storage shelf", "toolbox", "library cart", "archive bin", "side locker", "supply room", "service counter", "upper cabinet", "lower tray")
     OBJECTS = ("spare key", "signed forms", "visitor badge", "survey folder", "repair manual", "supply list", "delivery slip", "permit copy", "tool record", "inventory sheet", "registration card", "inspection note")
     ADVERBS = ("quietly", "carefully", "quickly", "patiently", "neatly", "calmly", "slowly", "briefly", "softly", "promptly")
@@ -71,8 +72,13 @@ class EducationalQAMCQGeneralArtifactFactory:
         return [self.build(start + offset) for offset in range(batch_size)]
 
     def build(self, index: int) -> GroundedArtifact:
-        family = self.FAMILIES[index % len(self.FAMILIES)]
-        payload = getattr(self, f"_build_{family}")(index // len(self.FAMILIES))
+        if not 0 <= index < self.UNIQUE_CANDIDATE_CAPACITY:
+            raise ValueError(
+                f"educational_qa_mcq_general index {index} exceeds unique candidate capacity "
+                f"{self.UNIQUE_CANDIDATE_CAPACITY}"
+            )
+        family = self.FAMILIES[index]
+        payload = getattr(self, f"_build_{family}")(index)
         self._shuffle_choices(payload, index)
         return GroundedArtifact("educational_qa_mcq_general", family, f"educational_qa_mcq_general_{family}_{index + 1:09d}", payload)
 

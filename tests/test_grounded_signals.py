@@ -284,7 +284,7 @@ def test_general_mcq_choice_shuffle_is_deterministic_balanced_and_not_tied_to_fa
 
 def test_all_grounded_generators_render_complete_batches():
     for signal in ("arithmetic", "task_code", "educational_qa_mcq_math", "educational_qa_mcq_general", "factual_restraint"):
-        batch_size = 24 if signal in {"task_code", "educational_qa_mcq_math"} else 32
+        batch_size = 24 if signal in {"task_code", "educational_qa_mcq_math", "educational_qa_mcq_general"} else 32
         artifacts, records, telemetry = GroundedSignalGenerator(signal, GroundedMockLLM(), batch_size=batch_size).generate_batch(0)
         assert len(artifacts) == len(records) == batch_size
         assert all(record["type"] == signal for record in records)
@@ -418,14 +418,14 @@ def test_run_signal_retries_exhausted_malformed_structured_response_for_every_gr
         "target_total_tokens": 5000,
         "backend": {"provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
         "generation": {"batch_size": 32, "parallel_requests": 1},
-        "mix": {signal: {"architecture": "grounded", "batch_size": 32, "samples": 64, **({"max_unique_candidates": 24} if signal in {"task_code", "educational_qa_mcq_math"} else {})}},
+        "mix": {signal: {"architecture": "grounded", "batch_size": 32, "samples": 64, **({"max_unique_candidates": 24} if signal in {"task_code", "educational_qa_mcq_math", "educational_qa_mcq_general"} else {})}},
     }
     llm = GroundedMalformedFirstBatchLLM()
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: llm)
 
     generate.run_signal(signal, cfg, tmp_path)
 
-    expected_rows = 24 if signal in {"task_code", "educational_qa_mcq_math"} else 64
+    expected_rows = 24 if signal in {"task_code", "educational_qa_mcq_math", "educational_qa_mcq_general"} else 64
     assert len((tmp_path / "raw" / f"{signal}.jsonl").read_text().splitlines()) == expected_rows
     rejection = (tmp_path / "rejected" / f"{signal}.jsonl").read_text()
     assert "adaptive_batch_size_reduced" in rejection
@@ -453,6 +453,29 @@ def test_math_mcq_positive_quantity_families_have_nonnegative_plausible_choices(
     for index in range(factory.UNIQUE_CANDIDATE_CAPACITY):
         artifact = factory.build(index)
         assert all(int(choice) >= 0 for choice in artifact.payload["choices"])
+
+
+def test_general_mcq_has_one_structurally_distinct_candidate_per_family():
+    factory = EducationalQAMCQGeneralArtifactFactory()
+    artifacts = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
+
+    assert factory.UNIQUE_CANDIDATE_CAPACITY == len(factory.FAMILIES) == 24
+    assert len({artifact.family for artifact in artifacts}) == len(artifacts)
+    assert len({artifact_structure_fingerprint(artifact) for artifact in artifacts}) == len(artifacts)
+
+    renderer = GroundedSignalGenerator(
+        "educational_qa_mcq_general",
+        GroundedMockLLM(),
+        batch_size=len(artifacts),
+        factory=factory,
+    )
+    assert renderer.response_schema()["properties"]["records"]["items"]["required"] == [
+        "artifact_id",
+        "explanation",
+    ]
+
+    with pytest.raises(ValueError, match="exceeds unique candidate capacity"):
+        factory.build(factory.UNIQUE_CANDIDATE_CAPACITY)
 
 
 def test_batch_store_persists_telemetry(tmp_path):

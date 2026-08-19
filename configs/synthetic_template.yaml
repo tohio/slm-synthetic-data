@@ -85,6 +85,8 @@ mix:
   educational_qa_mcq_general:
     architecture: "grounded"
     share: 0.24590163934426230
+    # One locally grounded candidate per distinct reasoning family; do not pad with slot substitutions.
+    max_unique_candidates: 24
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__

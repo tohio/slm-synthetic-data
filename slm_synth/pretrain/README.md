@@ -57,6 +57,12 @@ the teacher supplies only the explanation. Its capacity is a hard ceiling, and
 preflight rejects repeated source structures instead of accepting numeric
 variations as additional candidates.
 
+`educational_qa_mcq_general` uses one locally grounded candidate for each of 24
+distinct reasoning families. Evidence, questions, choices, and answers remain
+authoritative local data; the teacher supplies only the explanation. Slot
+substitutions such as changed names, objects, places, or counts do not increase
+the signal's candidate capacity.
+
 `make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
 report uses deterministic bounded sampling to measure normalized template
 reuse, near-duplicate clusters, artifact-family concentration, and exact
