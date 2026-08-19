@@ -317,7 +317,16 @@ Push after inspection:
 make pretrain-push HF_REPO=<namespace>/<repo>
 ```
 
-Grounded pretraining records are written under `data/runs/<run>/deduped/`.
+Validated signal records are globally deduplicated and rendered into one public
+file: `data/runs/<run>/deduped/pretrain.jsonl`. The public row contains `id`,
+`text`, and `metadata.signal`; per-signal validated files remain internal run
+artifacts and are not published as separate datasets.
+
+Exact and five-token-shingle near-duplicate checks run across the complete
+mixture, including across signal boundaries. Rejected duplicates are recorded
+under `rejected/duplicates.jsonl`. There is no backfill to restore a requested
+row count, and publishing stops before creating a Hugging Face commit if a
+duplicate or invalid public row remains.
 
 ## Validation Checklist
 
@@ -330,7 +339,7 @@ For each run, inspect:
 - coverage reports or dataset cards before publishing
 - `manifests/diversity_report_deduped.json` for normalized template reuse,
   near-duplicate clusters, artifact-family concentration, and cross-signal
-  exact-template overlap
+  exact-template overlap; this report is a required clean gate
 
 ## See Also
 

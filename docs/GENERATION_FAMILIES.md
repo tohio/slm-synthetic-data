@@ -18,7 +18,7 @@ For SFT and distillation SFT, accepted rows are outcomes: rejected or duplicate 
 
 ## Pretraining Signals and Artifact Families
 
-Pretraining uses grounded local artifacts that are rendered by the provider into public text records. Signal mix shares are configured in `configs/synthetic_template.yaml`.
+Pretraining uses grounded local artifacts that are rendered by the provider into text records. Signal mix shares are configured in `configs/synthetic_template.yaml`. Validated signals are globally exact/near deduplicated and consolidated into one public `pretrain.jsonl`; signal identity remains available as `metadata.signal` rather than separate published datasets.
 
 | Signal | Configured share | Artifact families | Purpose |
 |---|---:|---|---|

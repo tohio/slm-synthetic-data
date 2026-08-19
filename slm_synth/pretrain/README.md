@@ -14,13 +14,13 @@ pretrain/
 ├── generate.py             # live generation orchestration
 ├── grounded.py             # grounded batch rendering and persistence
 ├── validate.py             # raw-to-validated record validation
-├── dedup.py                # exact deduplication
+├── dedup.py                # global exact/near deduplication and consolidation
 ├── manifest.py             # run manifest and coverage outputs
 ├── preflight_artifacts.py  # source artifact quality checks
 ├── report_artifacts.py     # artifact coverage/quality reports
 ├── report_diversity.py     # bounded template/near-duplicate diversity audit
 ├── report_lengths.py       # per-record size estimation
-└── push_hf.py              # Hugging Face publishing
+└── push_hf.py              # quality-gated consolidated Hugging Face publishing
 ```
 
 ## Key Files
@@ -38,10 +38,11 @@ Pretraining outputs are consumed downstream as synthetic text records for contin
 
 ## Conventions
 
-Pretraining signals are grounded in deterministic local artifacts before provider calls. `grounded.py` renders artifacts into structured provider prompts, validates rendered records, and persists batch manifests for resume/reporting. Downstream public artifacts contain validated text records and separate manifests.
+Pretraining signals are grounded in deterministic local artifacts before provider calls. `grounded.py` renders artifacts into structured provider prompts, validates rendered records, and persists batch manifests for resume/reporting. Deduplication is global across every signal and writes one public `deduped/pretrain.jsonl` file with `id`, `text`, and `metadata.signal`. Exact or structural near-duplicates are rejected; accepted rows are not padded back to a quota.
 
 `make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
 report uses deterministic bounded sampling to measure normalized template
 reuse, near-duplicate clusters, artifact-family concentration, and exact
-template overlap across signals. It is diagnostic and does not change or
-reject data.
+template overlap across signals. For the deduped stage it is a blocking quality
+gate, and publishing independently audits the entire consolidated file before
+creating a remote commit.

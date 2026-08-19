@@ -137,12 +137,19 @@ def _summarize_stage(stage_dir: Path) -> dict[str, Any]:
     jsonl_files = sorted(stage_dir.glob("*.jsonl")) if stage_dir.exists() else []
 
     for path in jsonl_files:
-        rows = _count_jsonl_rows(path)
-        signal = SIGNAL_FROM_FILE.get(path.name, path.stem)
+        if path.name == "pretrain.jsonl":
+            signal_counts = _count_jsonl_rows_by_signal(path, metadata_field=True)
+        elif path.name == "duplicates.jsonl":
+            signal_counts = _count_jsonl_rows_by_signal(path, metadata_field=False)
+        else:
+            signal_counts = {}
+        rows = sum(signal_counts.values()) if signal_counts else _count_jsonl_rows(path)
+        signal = "consolidated" if signal_counts else SIGNAL_FROM_FILE.get(path.name, path.stem)
         files[path.name] = {
             "signal": signal,
             "path": str(path),
             "rows": rows,
+            **({"signals": signal_counts} if signal_counts else {}),
         }
         total_rows += rows
 
@@ -166,6 +173,12 @@ def _summarize_signals(stage_payloads: Mapping[str, Mapping[str, Any]]) -> dict[
                 continue
             signal = file_payload.get("signal")
             rows = file_payload.get("rows")
+            consolidated = file_payload.get("signals")
+            if isinstance(consolidated, Mapping):
+                for consolidated_signal, consolidated_rows in consolidated.items():
+                    if isinstance(consolidated_signal, str) and isinstance(consolidated_rows, int):
+                        signals.setdefault(consolidated_signal, {})[f"{stage}_rows"] = consolidated_rows
+                continue
             if isinstance(signal, str) and isinstance(rows, int):
                 signals.setdefault(signal, {})[f"{stage}_rows"] = rows
     return {signal: signals[signal] for signal in sorted(signals)}
@@ -289,6 +302,28 @@ def _count_jsonl_rows(path: Path) -> int:
             if line.strip():
                 count += 1
     return count
+
+
+def _count_jsonl_rows_by_signal(path: Path, *, metadata_field: bool) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            if metadata_field:
+                metadata = row.get("metadata")
+                signal = metadata.get("signal") if isinstance(metadata, dict) else None
+            else:
+                signal = row.get("signal")
+            if isinstance(signal, str) and signal:
+                counts[signal] = counts.get(signal, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def cli(argv: list[str] | None = None) -> int:

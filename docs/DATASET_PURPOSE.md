@@ -18,6 +18,22 @@ Provider, teacher, run, retry, cost, routing, and internal prompt-spec details b
 
 Pretraining records are targeted synthetic text signals for mixing into a broader raw or curated pretraining corpus. They are not SFT, DPO, or distillation rows.
 
+All signals are exported together in one `data/pretrain.jsonl` dataset file:
+
+```json
+{
+  "id": "pretrain_<content hash>",
+  "text": "string",
+  "metadata": {"signal": "string"}
+}
+```
+
+Validated structured rows and per-signal files are internal generation
+artifacts. Public acceptance applies exact and structural near-duplicate checks
+globally, including across signals. Rejected candidates do not trigger quota
+backfill, and publication is blocked if the consolidated file fails the same
+full-file uniqueness audit.
+
 | Signal | Purpose |
 |---|---|
 | `arithmetic` | Numeric reasoning coverage with verified integer arithmetic. |

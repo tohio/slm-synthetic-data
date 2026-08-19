@@ -1,15 +1,30 @@
 import json
 
-from slm_synth.pretrain.dedup import dedup_signal
+import pytest
+
+from slm_synth.pretrain.dedup import (
+    PUBLIC_FILENAME,
+    audit_public_records,
+    consolidate_and_deduplicate,
+)
+
+
+def _consolidate(tmp_path):
+    return consolidate_and_deduplicate(
+        validated_dir=tmp_path / "validated",
+        deduped_dir=tmp_path / "deduped",
+        rejected_dir=tmp_path / "rejected",
+        manifest_dir=tmp_path / "manifests",
+    )
 
 
 def test_exact_dedup_general_mcq(tmp_path):
     validated = tmp_path / "validated"
-    deduped = tmp_path / "deduped"
     validated.mkdir()
     record = {
         "type": "educational_qa_mcq_general",
         "question": "Which word is an adverb in 'Mina quickly packed the box'?",
+        "evidence": "Mina quickly packed the box.",
         "choices": ["Mina", "quickly", "packed", "box"],
         "correct_index": 1,
         "explanation": "Quickly describes the action.",
@@ -19,14 +34,17 @@ def test_exact_dedup_general_mcq(tmp_path):
         handle.write(json.dumps(record) + "\n")
         handle.write(json.dumps(record) + "\n")
 
-    kept, dropped = dedup_signal(validated, deduped, "educational_qa_mcq_general")
-    assert kept == 1
-    assert dropped == 1
+    report = _consolidate(tmp_path)
+    rows = [json.loads(line) for line in (tmp_path / "deduped" / PUBLIC_FILENAME).read_text().splitlines()]
+
+    assert report["accepted_rows"] == 1
+    assert report["exact_duplicate_rows"] == 1
+    assert rows[0]["metadata"] == {"signal": "educational_qa_mcq_general"}
+    assert set(rows[0]) == {"id", "text", "metadata"}
 
 
 def test_math_mcq_dedup_ignores_choice_permutations_for_same_question_and_answer(tmp_path):
     validated = tmp_path / "validated"
-    deduped = tmp_path / "deduped"
     validated.mkdir()
     rows = [
         {
@@ -49,9 +67,46 @@ def test_math_mcq_dedup_ignores_choice_permutations_for_same_question_and_answer
         for row in rows:
             handle.write(json.dumps(row) + "\n")
 
-    kept, dropped = dedup_signal(validated, deduped, "educational_qa_mcq_math")
-    assert kept == 1
-    assert dropped == 1
+    report = _consolidate(tmp_path)
+
+    assert report["accepted_rows"] == 1
+    assert report["near_duplicate_rows"] == 1
+
+
+def test_public_audit_rejects_cross_signal_exact_duplicates():
+    rows = [
+        {
+            "id": "one",
+            "text": "A long grounded explanation uses the same stable structure and facts here.",
+            "metadata": {"signal": "arithmetic"},
+        },
+        {
+            "id": "two",
+            "text": "A long grounded explanation uses the same stable structure and facts here.",
+            "metadata": {"signal": "task_code"},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="exact duplicate"):
+        audit_public_records(rows)
+
+
+def test_public_audit_normalizes_python_identifiers():
+    rows = [
+        {
+            "id": "one",
+            "text": "Task: Add values.\nPlan:\n1. Iterate.\nCode:\n```python\ndef sum_values(items):\n    return sum(items)\n```",
+            "metadata": {"signal": "task_code"},
+        },
+        {
+            "id": "two",
+            "text": "Task: Add values.\nPlan:\n1. Iterate.\nCode:\n```python\ndef total_numbers(values):\n    return sum(values)\n```",
+            "metadata": {"signal": "task_code"},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="near-duplicate"):
+        audit_public_records(rows)
 
 
 def test_two_step_math_artifacts_carry_required_item_terms_and_prompt_requires_them():

@@ -95,10 +95,12 @@ validation:
   schema: true
 
 dedup:
-  mode: "exact"
+  mode: "global_exact_and_near_duplicate"
   enable_exact: true
-  enable_fuzzy: false
-  fuzzy_enabled: false
+  enable_fuzzy: true
+  fuzzy_enabled: true
+  near_duplicate_threshold: 0.80
+  shingle_size: 5
 
 export:
   license: mit

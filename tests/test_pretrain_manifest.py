@@ -34,7 +34,10 @@ mix:
     _write_jsonl(output_dir / "raw" / "arithmetic.jsonl", [{"id": 1}, {"id": 2}])
     _write_jsonl(output_dir / "raw" / "task_code.jsonl", [{"id": 3}])
     _write_jsonl(output_dir / "validated" / "arithmetic.jsonl", [{"id": 1}])
-    _write_jsonl(output_dir / "deduped" / "arithmetic.jsonl", [{"id": 1}])
+    _write_jsonl(
+        output_dir / "deduped" / "pretrain.jsonl",
+        [{"id": "pretrain-1", "text": "one", "metadata": {"signal": "arithmetic"}}],
+    )
     _write_jsonl(output_dir / "rejected" / "arithmetic.jsonl", [{"id": 2}])
 
     manifest = build_run_manifest(config_path=config_path)
@@ -200,7 +203,10 @@ mix:
     )
     _write_jsonl(output_dir / "raw" / "arithmetic.jsonl", [{"id": 1}])
     _write_jsonl(output_dir / "validated" / "arithmetic.jsonl", [{"id": 1}])
-    _write_jsonl(output_dir / "deduped" / "arithmetic.jsonl", [{"id": 1}])
+    _write_jsonl(
+        output_dir / "deduped" / "pretrain.jsonl",
+        [{"id": "pretrain-1", "text": "one", "metadata": {"signal": "arithmetic"}}],
+    )
 
     from slm_synth.pretrain.manifest import cli
 

@@ -46,10 +46,12 @@ CARD_SPECS: dict[str, dict[str, str]] = {
         "schema": """{
   "id": "string",
   "text": "string",
-  "metadata": {}
+  "metadata": {
+    "signal": "string"
+  }
 }""",
         "intended_use": "Use this dataset for small-language-model pretraining or data-mixing experiments.",
-        "limitations": "This dataset is synthetic and should be filtered, mixed, and inspected before training. It is not a benchmark.",
+        "limitations": "This dataset is synthetic and should be inspected before training. It is not a benchmark.",
     },
     "sft": {
         "title": "SLM Synthetic SFT",
@@ -296,6 +298,12 @@ def _total_from_manifest(*, kind: str, manifest: Mapping[str, Any]) -> int | Non
 
 
 def _signals_from_manifest(manifest: Mapping[str, Any]) -> list[str]:
+    pretrain_signals = manifest.get("signals")
+    if isinstance(pretrain_signals, Mapping):
+        values = [key for key in pretrain_signals if isinstance(key, str) and key.strip()]
+        if values:
+            return sorted(set(values))
+
     datasets = manifest.get("datasets")
     if not isinstance(datasets, list):
         return []

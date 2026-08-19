@@ -14,7 +14,7 @@ OpenRouter-backed generation flows through `slm_synth/llm.py` for provider calls
 
 ## Features
 
-- Grounded synthetic pretraining signals.
+- Grounded synthetic pretraining signals consolidated into one globally duplicate-free dataset.
 - Generic SFT and DPO dataset generation.
 - Distillation SFT teacher prompt/response datasets.
 - Distillation DPO preference datasets for distilled-model alignment.

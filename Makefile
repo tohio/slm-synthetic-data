@@ -265,7 +265,7 @@ pretrain-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(PYTHON) -m slm_synth.pretrain.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_RUN)
 
 pretrain-generate:
@@ -282,7 +282,7 @@ pretrain-generate:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(PYTHON) -m slm_synth.pretrain.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_TARGET_RUN)
 
 pretrain-report:
@@ -295,7 +295,8 @@ pretrain-report:
 >   --config $(CONFIG_FILE) \
 >   --stage $(PRETRAIN_STAGE) \
 >   --sample-size $(PRETRAIN_DIVERSITY_SAMPLE_SIZE) \
->   --near-duplicate-threshold $(PRETRAIN_DIVERSITY_THRESHOLD)
+>   --near-duplicate-threshold $(PRETRAIN_DIVERSITY_THRESHOLD) \
+>   --require-clean
 > @test -z "$(PRETRAIN_REPORT_RUN)" || $(PYTHON) -m slm_synth.cards build --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN)
 > @if [ -n "$(PRETRAIN_REPORT_RUN)" ]; then $(PYTHON) -m slm_synth.manifest_totals normalize --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN); fi
 
@@ -303,10 +304,10 @@ pretrain-inspect:
 > @echo "== pretraining files =="
 > @find $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN) -type f 2>/dev/null | sort | tail -n 50
 > @echo "== pretraining sample rows =="
-> @find $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN) -path '*/deduped/*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
+> @test ! -f $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN)/deduped/pretrain.jsonl || (echo "--- consolidated pretrain.jsonl"; head -n 3 $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN)/deduped/pretrain.jsonl)
 
 pretrain-push:
-> $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(if $(HF_REPO),--repo-id $(HF_REPO),)
 
 distillation-sft-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.cli generate-seed-run \

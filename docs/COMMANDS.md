@@ -63,7 +63,9 @@ make pretrain-inspect PRETRAIN_INSPECT_RUN=pretrain-target-001
 `manifests/diversity_report_<stage>.json`. The diversity report measures
 normalized template reuse, near-duplicate clusters, artifact-family
 concentration, and cross-signal exact-template overlap. It is diagnostic and
-does not change rows or block publication.
+does not mutate rows. The deduped-stage report fails if repetition remains,
+and `pretrain-push` repeats a full-file exact/near-duplicate audit before any
+remote commit.
 
 ## SFT
 

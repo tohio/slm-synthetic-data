@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Measure structural repetition in generated pretraining records.
 
-The report is diagnostic: it does not reject rows or change generation.  It
-uses deterministic reservoir samples so the cost stays bounded for production
-corpora while still reporting full-file row and parse-error counts.
+The report uses deterministic reservoir samples so the cost stays bounded for
+production corpora while still reporting full-file row and parse-error counts.
+The deduped-stage command can make the audit publication-blocking.
 """
 
 from __future__ import annotations
@@ -61,6 +61,8 @@ _NUMBER_RE = re.compile(r"(?<![\w])[-+]?\d+(?:[.,:/-]\d+)*(?![\w])")
 _QUOTED_RE = re.compile(r"(?P<quote>[\"'`])[^\n\"'`]{1,120}(?P=quote)")
 _CAPITALIZED_ENTITY_RE = re.compile(r"\b(?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+){1,3}\b")
 _TOKEN_RE = re.compile(r"<[a-z_]+>|[a-z]+|[-+*/<>=]+|[{}()[\],.:;]")
+_PYTHON_FENCE_RE = re.compile(r"```python\s*\n(?P<code>.*?)\n```", re.DOTALL | re.IGNORECASE)
+_MCQ_ANSWER_RE = re.compile(r"(?im)^answer:\s*[a-d]\s*$")
 
 
 def _flatten_values(value: Any) -> Iterable[str]:
@@ -150,8 +152,35 @@ def normalize_code_template(code: str) -> str:
         return normalize_template_text(code)
 
 
+def normalize_public_template_text(text: str, signal: str | None = None) -> str:
+    """Normalize exported text, retaining code structure but not identifiers."""
+    if signal in {"educational_qa_mcq_math", "educational_qa_mcq_general"}:
+        text = _MCQ_ANSWER_RE.sub("Answer: <choice>", text)
+    if signal != "task_code":
+        return normalize_template_text(text)
+    match = _PYTHON_FENCE_RE.search(text)
+    if match is None:
+        return normalize_template_text(text)
+    prose = text[: match.start()] + text[match.end() :]
+    return " <code> ".join(
+        part
+        for part in (
+            normalize_template_text(prose),
+            normalize_code_template(match.group("code")),
+        )
+        if part
+    )
+
+
 def record_template_text(row: Mapping[str, Any]) -> str:
     """Return a field-order-stable structural representation of one public row."""
+    if isinstance(row.get("text"), str):
+        metadata = row.get("metadata")
+        signal = metadata.get("signal") if isinstance(metadata, Mapping) else None
+        return normalize_public_template_text(
+            str(row["text"]),
+            signal if isinstance(signal, str) else None,
+        )
     parts: list[str] = []
     for field in sorted(row):
         if field in _EXCLUDED_TEXT_FIELDS:
@@ -173,7 +202,7 @@ def template_fingerprint(row: Mapping[str, Any]) -> str:
     return hashlib.sha256(record_template_text(row).encode("utf-8")).hexdigest()
 
 
-def _shingles(text: str, size: int) -> frozenset[str]:
+def template_shingles(text: str, size: int) -> frozenset[str]:
     tokens = text.split()
     if not tokens:
         return frozenset()
@@ -206,7 +235,7 @@ class _DisjointSet:
             self.parent[right_root] = left_root
 
 
-def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
+def jaccard_similarity(left: frozenset[str], right: frozenset[str]) -> float:
     union = left | right
     return len(left & right) / len(union) if union else 1.0
 
@@ -238,6 +267,49 @@ def _reservoir_sample(path: Path, sample_size: int, seed: str) -> tuple[int, int
     return total, bad_json, rows
 
 
+def _record_signal(row: Mapping[str, Any], fallback: str) -> str:
+    metadata = row.get("metadata")
+    signal = metadata.get("signal") if isinstance(metadata, Mapping) else None
+    return signal if isinstance(signal, str) and signal else fallback
+
+
+def _reservoir_samples_by_signal(
+    path: Path,
+    *,
+    sample_size: int,
+    seed_prefix: str,
+    fallback_signal: str,
+) -> tuple[Counter[str], int, dict[str, list[dict[str, Any]]]]:
+    """Sample a consolidated file independently for every metadata signal."""
+    totals: Counter[str] = Counter()
+    samples: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    randomizers: dict[str, random.Random] = {}
+    bad_json = 0
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                bad_json += 1
+                continue
+            if not isinstance(row, dict):
+                bad_json += 1
+                continue
+            signal = _record_signal(row, fallback_signal)
+            totals[signal] += 1
+            rows = samples[signal]
+            if len(rows) < sample_size:
+                rows.append(row)
+                continue
+            rng = randomizers.setdefault(signal, random.Random(f"{seed_prefix}:{signal}"))
+            replacement = rng.randrange(totals[signal])
+            if replacement < sample_size:
+                rows[replacement] = row
+    return totals, bad_json, dict(samples)
+
+
 def _cluster_summary(
     *,
     rows: list[dict[str, Any]],
@@ -250,7 +322,7 @@ def _cluster_summary(
     template_counts = Counter(templates)
     exact_repeated_rows = sum(count for count in template_counts.values() if count > 1)
     unique_templates = sorted(template_counts)
-    shingle_sets = [_shingles(value, shingle_size) for value in unique_templates]
+    shingle_sets = [template_shingles(value, shingle_size) for value in unique_templates]
     lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
     disjoint = _DisjointSet(len(unique_templates))
     verified_pairs = 0
@@ -258,7 +330,7 @@ def _cluster_summary(
         signature = _minhash(shingles, num_perm)
         for candidate_key in lsh.query(signature):
             candidate = int(candidate_key)
-            if _jaccard(shingles, shingle_sets[candidate]) >= threshold:
+            if jaccard_similarity(shingles, shingle_sets[candidate]) >= threshold:
                 disjoint.union(index, candidate)
                 verified_pairs += 1
         lsh.insert(str(index), signature)
@@ -346,7 +418,7 @@ def _cross_signal_near_duplicate_summary(
         for signal in sorted(template_counts)
         for template, count in sorted(template_counts[signal].items())
     ]
-    shingle_sets = [_shingles(template, shingle_size) for _, template, _ in entries]
+    shingle_sets = [template_shingles(template, shingle_size) for _, template, _ in entries]
     lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
     signal_pairs: Counter[tuple[str, str]] = Counter()
     sampled_row_pairs = 0
@@ -359,7 +431,7 @@ def _cross_signal_near_duplicate_summary(
             other_signal, other_template, other_count = entries[candidate]
             if other_signal == signal:
                 continue
-            similarity = _jaccard(shingle_sets[index], shingle_sets[candidate])
+            similarity = jaccard_similarity(shingle_sets[index], shingle_sets[candidate])
             if similarity < threshold:
                 continue
             pair = tuple(sorted((signal, other_signal)))
@@ -397,40 +469,47 @@ def build_diversity_report(
     num_perm: int = DEFAULT_NUM_PERM,
     shingle_size: int = DEFAULT_SHINGLE_SIZE,
     top_clusters: int = DEFAULT_TOP_CLUSTERS,
+    publish_blocking: bool = False,
 ) -> dict[str, Any]:
     stage_dir = output_dir / stage
     if not stage_dir.is_dir():
         raise FileNotFoundError(f"pretraining stage directory does not exist: {stage_dir}")
 
     signals: dict[str, Any] = {}
+    file_count = 0
+    bad_json_total = 0
     global_templates: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     sampled_template_counts: dict[str, Counter[str]] = {}
     for path in sorted(stage_dir.glob("*.jsonl")):
-        signal = SIGNAL_FROM_FILE.get(path.name, path.stem)
-        total, bad_json, rows = _reservoir_sample(
+        file_count += 1
+        fallback_signal = SIGNAL_FROM_FILE.get(path.name, path.stem)
+        totals, bad_json, samples = _reservoir_samples_by_signal(
             path,
-            sample_size,
-            seed=f"pretrain-diversity:{stage}:{signal}:{sample_size}",
+            sample_size=sample_size,
+            seed_prefix=f"pretrain-diversity:{stage}:{sample_size}",
+            fallback_signal=fallback_signal,
         )
-        template_counts = Counter(record_template_text(row) for row in rows)
-        sampled_template_counts[signal] = template_counts
-        for template, count in template_counts.items():
-            fingerprint = hashlib.sha256(template.encode("utf-8")).hexdigest()
-            global_templates[fingerprint][signal] += count
-        signals[signal] = {
-            "path": str(path),
-            "row_count": total,
-            "bad_json": bad_json,
-            "sample_limit": sample_size,
-            "artifact_families": _artifact_family_summary(output_dir, signal),
-            **_cluster_summary(
-                rows=rows,
-                threshold=threshold,
-                num_perm=num_perm,
-                shingle_size=shingle_size,
-                top_clusters=top_clusters,
-            ),
-        }
+        bad_json_total += bad_json
+        for signal, rows in sorted(samples.items()):
+            template_counts = Counter(record_template_text(row) for row in rows)
+            sampled_template_counts[signal] = template_counts
+            for template, count in template_counts.items():
+                fingerprint = hashlib.sha256(template.encode("utf-8")).hexdigest()
+                global_templates[fingerprint][signal] += count
+            signals[signal] = {
+                "path": str(path),
+                "row_count": totals[signal],
+                "bad_json": bad_json,
+                "sample_limit": sample_size,
+                "artifact_families": _artifact_family_summary(output_dir, signal),
+                **_cluster_summary(
+                    rows=rows,
+                    threshold=threshold,
+                    num_perm=num_perm,
+                    shingle_size=shingle_size,
+                    top_clusters=top_clusters,
+                ),
+            }
 
     overlaps = [
         {
@@ -445,6 +524,8 @@ def build_diversity_report(
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "stage": stage,
+        "file_count": file_count,
+        "bad_json": bad_json_total,
         "method": {
             "sampling": "deterministic_reservoir_per_signal",
             "sample_size_per_signal": sample_size,
@@ -452,7 +533,7 @@ def build_diversity_report(
             "near_duplicate_metric": f"jaccard_{shingle_size}_token_shingles",
             "near_duplicate_threshold": threshold,
             "minhash_permutations": num_perm,
-            "publish_blocking": False,
+            "publish_blocking": publish_blocking,
         },
         "signals": signals,
         "cross_signal_exact_template_overlap": {
@@ -483,6 +564,7 @@ def main(
     num_perm: int,
     shingle_size: int,
     top_clusters: int,
+    require_clean: bool = False,
 ) -> None:
     if sample_size <= 0:
         raise ValueError("sample_size must be positive")
@@ -501,6 +583,7 @@ def main(
         num_perm=num_perm,
         shingle_size=shingle_size,
         top_clusters=top_clusters,
+        publish_blocking=require_clean,
     )
     output_path = write_diversity_report(
         report=report,
@@ -518,6 +601,23 @@ def main(
     near_overlap = report["cross_signal_near_duplicate_overlap"]
     print(f"[diversity] cross_signal_near_duplicate_pairs={near_overlap['verified_template_pairs']}")
     print(f"[diversity] Saved report: {output_path}")
+    if require_clean:
+        blockers = [
+            signal
+            for signal, summary in report["signals"].items()
+            if summary["exact_repeated_rows"] or summary["near_duplicate_rows"]
+        ]
+        if (
+            not report["file_count"]
+            or report["bad_json"]
+            or not report["signals"]
+            or blockers
+            or overlap["overlapping_template_count"]
+            or near_overlap["verified_template_pairs"]
+        ):
+            raise SystemExit(
+                "Pretraining diversity gate failed: exact or near-duplicate records remain"
+            )
 
 
 if __name__ == "__main__":
@@ -529,6 +629,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-perm", type=int, default=DEFAULT_NUM_PERM)
     parser.add_argument("--shingle-size", type=int, default=DEFAULT_SHINGLE_SIZE)
     parser.add_argument("--top-clusters", type=int, default=DEFAULT_TOP_CLUSTERS)
+    parser.add_argument("--require-clean", action="store_true")
     args = parser.parse_args()
     main(
         args.config,
@@ -538,4 +639,5 @@ if __name__ == "__main__":
         args.num_perm,
         args.shingle_size,
         args.top_clusters,
+        args.require_clean,
     )
