@@ -14,7 +14,11 @@ from slm_synth.pretrain.artifacts import (
 )
 from slm_synth.pretrain.grounded import GroundedBatchStore, GroundedSignalGenerator
 from slm_synth.llm import RetryableProviderExhaustedError, StructuredRenderedResponseError
-from slm_synth.pretrain.artifacts.quality import artifact_fingerprint, validate_artifact
+from slm_synth.pretrain.artifacts.quality import (
+    artifact_fingerprint,
+    artifact_structure_fingerprint,
+    validate_artifact,
+)
 
 
 class GroundedMockLLM:
@@ -29,17 +33,14 @@ class GroundedMockLLM:
             p = item["payload"]
             if signal == "arithmetic":
                 nums = p["required_numeric_literals"]
-                question = "Compute " + " + ".join(nums) + "."
                 if item["family"] == "direct_expression":
                     question = f"What is the value of {p['expression']}?"
-                elif item["family"] == "missing_operand":
-                    question = f"After {nums[0]} items are added, the total is {nums[1]}. How many were there first?"
-                elif item["family"] == "two_step_remaining_quantity":
-                    question = f"Start with {nums[0]} items, remove {nums[1]}, then remove {nums[2]}. How many remain?"
-                elif item["family"] == "exact_allocation":
-                    question = f"There are {nums[0]} items packed {nums[1]} per box. How many boxes are needed?"
-                elif item["family"] == "unique_numeric_comparison":
-                    question = "Which has the largest value: " + ", ".join(p["expressions"]) + "?"
+                else:
+                    facts = "; ".join(p["facts"])
+                    question = (
+                        f"According to the {p['source']} for the {p['domain']}, "
+                        f"the {p['item']} record states: {facts}. What quantity is requested?"
+                    )
                 records.append({"artifact_id": item["artifact_id"], "question": question, "steps": [f"The result is {p['answer']}."]})
             elif signal == "task_code":
                 records.append({"artifact_id": item["artifact_id"], "task": "Write a Python function that implements the supplied behavior and returns a new result without mutating inputs.", "plan": ["Process the inputs", "Return the result"]})
@@ -125,6 +126,10 @@ def test_artifact_factories_produce_distinct_batches(factory):
     rows = factory().build_batch(0, 32)
     assert len(rows) == 32
     assert len({row.artifact_id for row in rows}) == 32
+    if factory is ArithmeticArtifactFactory:
+        planned = [factory().build(index) for index in range(288)]
+        assert len({row.family for row in planned}) == len(factory.FAMILIES)
+        assert len({artifact_structure_fingerprint(row) for row in planned}) == len(planned)
 
 
 def test_task_code_artifacts_are_valid_single_functions():
@@ -309,6 +314,11 @@ def test_record_count_target_rounds_up_without_tokenizer():
     assert token_target == 5000
     assert target_rows == 84
     assert rounded_rows == 96
+
+    _, capped_rows, capped_rounded_rows = generate._rounded_batch_target_rows(
+        cfg, {"target_tokens": 5000, "avg_tokens_per_sample": 60, "max_unique_candidates": 64}, 32
+    )
+    assert capped_rows == capped_rounded_rows == 64
 
 
 def test_run_signal_resumes_from_completed_grounded_batches(monkeypatch, tmp_path):

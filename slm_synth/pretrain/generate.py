@@ -114,16 +114,27 @@ def _grounded_token_target(cfg: Dict[str, Any], mix_cfg: Dict[str, Any]) -> int:
     return max(1, int(round(int(cfg["target_total_tokens"]) * float(mix_cfg.get("share", 0.0)))))
 
 
-def _rounded_batch_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any], batch_size: int) -> tuple[int, int, int]:
+def _uncapped_grounded_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any]) -> int:
     generation_cfg = cfg.get("generation", {}) or {}
     explicit_rows = mix_cfg.get("samples")
-    token_target = _grounded_token_target(cfg, mix_cfg)
     if explicit_rows is not None:
-        target_rows = int(explicit_rows)
-    else:
-        avg_tokens = int(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 80)))
-        target_rows = max(1, (token_target + avg_tokens - 1) // avg_tokens)
+        return int(explicit_rows)
+    token_target = _grounded_token_target(cfg, mix_cfg)
+    avg_tokens = int(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 80)))
+    return max(1, (token_target + avg_tokens - 1) // avg_tokens)
+
+
+def _rounded_batch_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any], batch_size: int) -> tuple[int, int, int]:
+    token_target = _grounded_token_target(cfg, mix_cfg)
+    target_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
     rounded_rows = ((target_rows + batch_size - 1) // batch_size) * batch_size
+    capacity = mix_cfg.get("max_unique_candidates")
+    if capacity is not None:
+        capacity = int(capacity)
+        if capacity <= 0:
+            raise ValueError("max_unique_candidates must be positive")
+        target_rows = min(target_rows, capacity)
+        rounded_rows = min(rounded_rows, capacity)
     return token_target, target_rows, rounded_rows
 
 
@@ -194,6 +205,8 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         raise ValueError("Grounded generation min_batch_size must be between 1 and batch_size")
 
     token_target, target_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
+    uncapped_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
+    candidate_capacity = mix_cfg.get("max_unique_candidates")
     parallel_requests = int(
         mix_cfg.get(
             "parallel_requests",
@@ -225,6 +238,7 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         f"[generate] Starting grounded signal: {name} "
         f"(target_tokens_estimate={token_target}, target_rows={target_rows}, "
         f"rounded_rows={rounded_rows}, existing_rows={existing_rows}, "
+        f"uncapped_target_rows={uncapped_rows}, candidate_capacity={candidate_capacity or 'unbounded'}, "
         f"batch_size={batch_size}, min_batch_size={min_batch_size}, "
         f"parallel_requests={parallel_requests}, model={renderer.model})"
     )

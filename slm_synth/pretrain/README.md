@@ -40,6 +40,12 @@ Pretraining outputs are consumed downstream as synthetic text records for contin
 
 Pretraining signals are grounded in deterministic local artifacts before provider calls. `grounded.py` renders artifacts into structured provider prompts, validates rendered records, and persists batch manifests for resume/reporting. Deduplication is global across every signal and writes one public `deduped/pretrain.jsonl` file with `id`, `text`, and `metadata.signal`. Exact or structural near-duplicates are rejected; accepted rows are not padded back to a quota.
 
+Arithmetic preflight additionally requires every planned source artifact to
+have a distinct structure before rendering. Arithmetic questions preserve
+their assigned reasoning family, semantic context, numeric facts, and verified
+local answer. Its 288-candidate quality capacity is a ceiling: larger token
+plans do not pad the signal with operand-only variants.
+
 `make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
 report uses deterministic bounded sampling to measure normalized template
 reuse, near-duplicate clusters, artifact-family concentration, and exact

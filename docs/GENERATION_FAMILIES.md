@@ -22,11 +22,16 @@ Pretraining uses grounded local artifacts that are rendered by the provider into
 
 | Signal | Configured share | Artifact families | Purpose |
 |---|---:|---|---|
-| `arithmetic` | 14.7540984% | `direct_expression`, `missing_operand`, `two_step_remaining_quantity`, `exact_allocation`, `unique_numeric_comparison` | Verified integer arithmetic and numeric reasoning text. |
+| `arithmetic` | 14.7540984% | `direct_expression`, `missing_start_after_increase`, `missing_start_after_decrease`, `two_step_remaining`, `gain_then_spend`, `exact_group_count`, `equal_share_size`, `groups_with_loose_items`, `compare_group_totals`, `target_gap`, `three_source_total`, `constant_rate_total`, `two_rate_total`, `known_portion_equal_shares`, `net_change`, `rectangle_perimeter` | Verified integer arithmetic spread across distinct inverse, change, grouping, rate, comparison, sharing, and measurement relationships. Semantic contexts rotate before operand variants, and preflight rejects a planned arithmetic run if source structures repeat. |
 | `task_code` | 39.3442623% | `normalized_counting`, `filter_sort_projection`, `grouped_totals`, `grouped_average_threshold`, `paired_comparison_counts`, `nested_transform`, `selection_by_total`, `dictionary_keywise_sum` | Short Python task/code behavior records. |
 | `educational_qa_mcq_math` | 14.7540984% | `integer_expression`, `missing_operand`, `exact_division`, `two_step_quantity`, `unique_numeric_comparison` | Verified math multiple-choice questions. |
 | `educational_qa_mcq_general` | 24.5901639% | `python_behavior`, `grammar`, `vocabulary`, `reading`, `fictional_rule`, `policy`, `scientific_method`, `ordering`, `final_location`, `table_lookup`, `threshold_rule`, `temporal_order`, `direction_following`, `conditional_access`, `comparison_claim`, `category_rule`, `cause_inference`, `schedule_availability`, `inventory_shortage`, `source_attribution`, `procedure_step`, `exception_rule`, `trend_interpretation`, `revision_tracking` | Grounded educational multiple-choice questions from supplied evidence. |
 | `factual_restraint` | 6.5573770% | `future_uncertainty`, `ambiguous_entity`, `private_information`, `unannounced_information`, `rumor`, `medical`, `legal`, `financial` | Cautious-answer behavior for uncertainty, privacy, and high-stakes domains. |
+
+Arithmetic has a declared capacity of 288 structurally distinct candidates.
+Token planning treats that as a ceiling rather than cycling through operand-only
+variants. Larger total-token requests therefore do not silently manufacture
+additional arithmetic rows from the same structures.
 
 Implementation source of truth:
 

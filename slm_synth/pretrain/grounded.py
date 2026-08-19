@@ -426,7 +426,10 @@ class GroundedSignalGenerator:
             "arithmetic": (
                 "For each artifact, generate a natural learner-facing question and compact worked steps. "
                 "Use every required_numeric_literal in the question, introduce no extra numeric quantities, "
-                "and do not reveal the held answer in the question. The verified answer remains local."
+                "and do not reveal the held answer in the question. When required_text_literals are present, "
+                "preserve each phrase exactly and use the supplied domain, item, source, facts, and reasoning "
+                "family materially; do not reduce contextual artifacts to generic item-count templates. "
+                "The verified answer remains local."
             ),
             "task_code": (
                 "For each valid Python code artifact, generate a faithful task and a short 2-to-4 step plan. "
@@ -466,6 +469,16 @@ class GroundedSignalGenerator:
 
             if Counter(observed) != Counter(required):
                 raise ValueError(f"Rendered arithmetic question changed numeric facts for {artifact.artifact_id}")
+            missing_text = [
+                literal
+                for literal in payload.get("required_text_literals", [])
+                if str(literal).casefold() not in question.casefold()
+            ]
+            if missing_text:
+                raise ValueError(
+                    f"Rendered arithmetic question dropped semantic context for {artifact.artifact_id}: "
+                    + ", ".join(str(value) for value in missing_text)
+                )
             if payload["answer"] in observed and payload["answer"] not in required:
                 raise ValueError(f"Rendered arithmetic question leaks answer for {artifact.artifact_id}")
 

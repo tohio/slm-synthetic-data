@@ -58,6 +58,8 @@ mix:
   arithmetic:
     architecture: "grounded"
     share: 0.14754098360655737
+    # Finite high-quality source capacity; do not pad arithmetic with operand-only variants.
+    max_unique_candidates: 288
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__

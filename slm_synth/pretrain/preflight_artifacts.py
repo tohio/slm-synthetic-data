@@ -9,7 +9,7 @@ from pathlib import Path
 
 from slm_synth.pretrain.artifacts.quality import artifact_fingerprint, artifact_structure_fingerprint, validate_artifact
 from slm_synth.pretrain.grounded import FACTORY_MAP
-from slm_synth.pretrain.generate import _rounded_batch_target_rows
+from slm_synth.pretrain.generate import _rounded_batch_target_rows, _uncapped_grounded_target_rows
 from slm_synth.paths import load_yaml_config, resolve_output_dir
 
 
@@ -34,6 +34,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
                 continue
             batch_size = int(mix_cfg.get("batch_size", cfg.get("generation", {}).get("batch_size", 32)))
             token_target, requested_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
+            uncapped_requested_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
             factory = FACTORY_MAP[name]()
             families = Counter()
             exact_duplicates = 0
@@ -62,8 +63,11 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             report = {
                 "signal": name,
                 "target_tokens_estimate": token_target,
-                "requested_rows": requested_rows,
+                "requested_rows": uncapped_requested_rows,
+                "planned_rows": requested_rows,
                 "rounded_rows": rounded_rows,
+                "max_unique_candidates": mix_cfg.get("max_unique_candidates"),
+                "capacity_limited": requested_rows < uncapped_requested_rows,
                 "exact_duplicates": exact_duplicates,
                 "unique_structures": unique_structures,
                 "family_counts": dict(sorted(families.items())),
@@ -82,6 +86,14 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
     report_path = manifest_dir / "preflight_artifact_report.json"
     report_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"[preflight-artifacts] Saved report: {report_path}")
+    arithmetic_structure_reuse = any(
+        row["signal"] == "arithmetic" and row["unique_structures"] != row["rounded_rows"]
+        for row in reports
+    )
+    if arithmetic_structure_reuse:
+        raise SystemExit(
+            "Preflight failed: arithmetic candidate plan repeats structures before paid rendering."
+        )
     if any(row["exact_duplicates"] or row["quality_issue_count"] for row in reports):
         raise SystemExit("Preflight failed: artifact duplicates or quality issues were found.")
     return result
