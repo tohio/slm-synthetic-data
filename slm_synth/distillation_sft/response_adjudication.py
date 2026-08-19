@@ -23,6 +23,7 @@ def apply_response_cluster_adjudications(
     dataset_dir: str | Path,
     adjudications_path: str | Path,
     rejected_dir: str | Path,
+    run_manifest_path: str | Path,
 ) -> dict[str, Any]:
     """Apply complete member-level decisions and quarantine rejected rows.
 
@@ -67,17 +68,64 @@ def apply_response_cluster_adjudications(
             )
         kept_rows_by_file[file_path] = kept_rows
 
+    run_manifest_path = Path(run_manifest_path)
+    updated_run_manifest = _build_updated_run_manifest(
+        path=run_manifest_path,
+        kept_rows_by_file=kept_rows_by_file,
+        rejected_count=rejected_count,
+    )
+
     for file_path, rows in kept_rows_by_file.items():
         _write_jsonl_atomically(file_path, rows)
 
     rejected_path = Path(rejected_dir) / "repeated_response_adjudications.jsonl"
     _write_unvalidated_jsonl_atomically(rejected_path, rejected_records)
+    _write_json_atomically(run_manifest_path, updated_run_manifest)
     return {
         "reviewed_rows": len(required_members),
         "kept_rows": kept_count,
         "rejected_rows": rejected_count,
         "rejected_path": str(rejected_path),
     }
+
+
+def _build_updated_run_manifest(
+    *,
+    path: Path,
+    kept_rows_by_file: Mapping[Path, list[dict[str, Any]]],
+    rejected_count: int,
+) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("datasets"), list):
+        raise ValueError(f"distillation run manifest is invalid: {path}")
+    counts_by_signal = {
+        file_path.stem.split(".batch", 1)[0]: len(rows)
+        for file_path, rows in kept_rows_by_file.items()
+    }
+    manifest_signals = {item.get("signal") for item in payload["datasets"] if isinstance(item, dict)}
+    if manifest_signals != set(counts_by_signal):
+        raise ValueError("adjudicated dataset signals do not match the run manifest")
+
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError(f"distillation run manifest metadata is invalid: {path}")
+    prior_accepted = metadata.get("accepted_rows")
+    if not isinstance(prior_accepted, int) or prior_accepted < 0:
+        raise ValueError(f"distillation run manifest accepted_rows is invalid: {path}")
+    metadata.setdefault("generated_accepted_rows", prior_accepted)
+    metadata["curation_rejected_rows"] = metadata.get("curation_rejected_rows", 0) + rejected_count
+    metadata["accepted_rows"] = sum(counts_by_signal.values())
+    metadata["curated_rows_per_signal"] = dict(sorted(counts_by_signal.items()))
+    for item in payload["datasets"]:
+        item["row_count"] = counts_by_signal[item["signal"]]
+    payload["total_rows"] = metadata["accepted_rows"]
+    return payload
+
+
+def _write_json_atomically(path: Path, payload: Mapping[str, Any]) -> None:
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary_path.replace(path)
 
 
 def _load_rows(

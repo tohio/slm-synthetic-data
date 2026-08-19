@@ -62,14 +62,16 @@ def render_dataset_card(
         f"- Teacher provider: `{manifest['teacher_provider']}`",
         f"- Teacher model: `{manifest['teacher_model']}`",
     ]
-    if manifest.get("token_target") is not None:
-        generation_lines.append(f"- Token target: `{manifest['token_target']}`")
-    if metadata.get("target_rows") is not None:
-        generation_lines.append(f"- Target rows: `{metadata['target_rows']}`")
+    if metadata.get("candidate_rows") is not None:
+        generation_lines.append(f"- Candidate rows: `{metadata['candidate_rows']}`")
     if metadata.get("planned_prompt_rows") is not None:
         generation_lines.append(f"- Planned prompt rows: `{metadata['planned_prompt_rows']}`")
     if metadata.get("accepted_rows") is not None:
         generation_lines.append(f"- Accepted rows: `{metadata['accepted_rows']}`")
+    if metadata.get("curation_rejected_rows"):
+        generation_lines.append(
+            f"- Rows rejected during curation: `{metadata['curation_rejected_rows']}`"
+        )
     if metadata.get("rejected_rows") is not None:
         generation_lines.append(f"- Rejected rows: `{metadata['rejected_rows']}`")
     generation_lines.append(f"- Total rows: `{manifest['total_rows']}`")
@@ -146,7 +148,6 @@ def _validate_run_manifest(run_manifest: Mapping[str, Any]) -> dict[str, Any]:
         "generation_run",
         "teacher_model",
         "teacher_provider",
-        "token_target",
         "datasets",
         "total_rows",
     ):

@@ -235,7 +235,6 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
                 "custom.manifest.json",
                 "--concurrency",
                 "2",
-                "--resume",
             ]
         )
         == 0
@@ -245,7 +244,7 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
         {
             "families": ["basic_arithmetic_qa", "repeat_exact_n_times"],
             "count_per_family": 2,
-            "target_rows": None,
+            "candidate_counts_by_family": None,
             "batch_size": 1,
             "output_dir": str(tmp_path / "datasets"),
             "manifest_dir": str(tmp_path / "manifests"),
@@ -265,8 +264,6 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "adaptive_initial_batch_size": 4,
             "adaptive_batch_increase_successes": 4,
             "concurrency": 2,
-                "max_backfill_rounds": 2,
-                "resume": True,
                 "run_manifest_filename": "custom.manifest.json",
                 "holdout_registry": None,
         }
@@ -275,7 +272,7 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
     assert "generated 4 LLM-generated SFT row" in captured.out
 
 
-def test_sft_generate_llm_run_cli_accepts_target_rows(tmp_path, monkeypatch):
+def test_sft_generate_llm_run_cli_accepts_explicit_candidate_counts(tmp_path, monkeypatch):
     calls = []
 
     def fake_generate_llm_run(**kwargs):
@@ -299,8 +296,9 @@ def test_sft_generate_llm_run_cli_accepts_target_rows(tmp_path, monkeypatch):
                 "--families",
                 "basic_arithmetic_qa",
                 "repeat_exact_n_times",
-                "--target-rows",
-                "3",
+                "--candidate-counts",
+                "basic_arithmetic_qa=2",
+                "repeat_exact_n_times=1",
                 "--batch-size",
                 "1",
                 "--output-dir",
@@ -319,7 +317,10 @@ def test_sft_generate_llm_run_cli_accepts_target_rows(tmp_path, monkeypatch):
     )
 
     assert calls[0]["count_per_family"] is None
-    assert calls[0]["target_rows"] == 3
+    assert calls[0]["candidate_counts_by_family"] == {
+        "basic_arithmetic_qa": 2,
+        "repeat_exact_n_times": 1,
+    }
 
 
 def test_sft_report_coverage_cli_prints_json(tmp_path, capsys):

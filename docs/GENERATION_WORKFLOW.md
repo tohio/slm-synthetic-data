@@ -16,7 +16,9 @@ Use the same order for every active generation surface:
 
 Public dataset directories should contain final public files only. Batch shards, partial files, rejected rows, retry files, provider internals, and scratch files stay out of public upload discovery.
 
-For SFT, DPO, distillation SFT, and distillation DPO, row and pair targets mean accepted public artifacts. Quality-gate rejects do not count toward the target. Underfilled runs preserve accepted data, record `remaining_rows` or `remaining_pairs`, and are not publish-ready until completed by backfill, resume, or rerun.
+SFT and distillation SFT candidate plans limit generation work; accepted rows
+are the quality-filtered outcome. Rejected and duplicate candidates are not
+replaced to fill a quota. DPO pair planning remains separate.
 
 ## Generic SFT
 
@@ -27,19 +29,25 @@ make sft-smoke
 make sft-inspect SFT_INSPECT_RUN=sft-smoke-001
 ```
 
-Small target override:
+Small candidate run:
 
 ```bash
-SFT_TARGET_ROWS=100 SFT_TARGET_RUN=sft-small-001 make sft-generate
+SFT_FAMILIES="basic_arithmetic_qa ai_concept_explanation" \
+SFT_CANDIDATE_COUNTS="basic_arithmetic_qa=4 ai_concept_explanation=2" \
+SFT_GENERATION_RUN=sft-small-001 \
+make sft-generate
 
 make sft-inspect SFT_INSPECT_RUN=sft-small-001
 make sft-report SFT_REPORT_RUN=sft-small-001
 ```
 
-Production target:
+Another explicit candidate plan (choose counts only after reviewing family capacity and pilot quality):
 
 ```bash
-SFT_TARGET_ROWS=14000 SFT_TARGET_RUN=sft-prod-001 make sft-generate
+SFT_FAMILIES="basic_arithmetic_qa ai_concept_explanation" \
+SFT_CANDIDATE_COUNTS="basic_arithmetic_qa=8 ai_concept_explanation=4" \
+SFT_GENERATION_RUN=sft-prod-001 \
+make sft-generate
 
 make sft-inspect SFT_INSPECT_RUN=sft-prod-001
 make sft-report SFT_REPORT_RUN=sft-prod-001
@@ -55,33 +63,19 @@ make sft-push \
 
 Public rows are written under `data/sft/runs/<run>/datasets/`, with one final JSONL file per family. Batch shards remain under the sibling `batches/` directory.
 
-### SFT acceptance and backfill
+### SFT acceptance
 
-SFT accepts the first row for each normalized ID, prompt, and complete conversation. Duplicate rows and terminal local-validation failures do not count toward the target. Repeated assistant responses are reported but are not automatically rejected because distinct factual prompts can share an answer.
-
-Each generation round uses the next unused source indexes. If the run remains underfilled after its configured budget, generation writes the accepted public rows and a failed run manifest, then exits non-zero. `SFT_MAX_BACKFILL_ROUNDS` is the total lifetime budget for the run, including rounds already recorded before resume.
-
-To resume a finalized underfilled run, keep its run id and source plan, increase the total budget, and enable resume:
-
-```bash
-SFT_TARGET_ROWS=14000 \
-SFT_TARGET_RUN=sft-prod-001 \
-SFT_MAX_BACKFILL_ROUNDS=3 \
-SFT_RESUME=true \
-make sft-generate
-```
-
-Resume validates the existing public files, content fingerprints, family allocation, batch manifests, accepted-target accounting, and next source indexes before making a request. It makes no request when the existing run is already complete.
+SFT accepts the first row for each normalized ID, prompt, and complete conversation. Duplicate rows and terminal local-validation failures are rejected. Repeated assistant responses are reported but are not automatically rejected because distinct factual prompts can share an answer. Every selected family requires an explicit candidate count; generation never infers an equal allocation from a global row target.
 
 ### SFT reporting and publish blockers
 
-`make sft-report` loads `configs/eval_holdouts.yaml` by default and writes `coverage.json`. The report includes aggregate and per-family metadata coverage, normalized ID/prompt/conversation uniqueness, response repetition, holdout collisions, and attempted/accepted/rejected/duplicate/remaining counts.
+`make sft-report` loads `configs/eval_holdouts.yaml` by default and writes `coverage.json`. The report includes aggregate and per-family metadata coverage, normalized ID/prompt/conversation uniqueness, response repetition, holdout collisions, and candidate/attempted/accepted/rejected/duplicate counts.
 
 Publication is blocked when:
 
 - IDs, normalized prompts, or normalized conversations repeat.
 - Holdouts were not checked or a holdout collision exists.
-- Accepted-target accounting is missing, inconsistent, or underfilled.
+- Candidate and acceptance accounting is inconsistent.
 - `coverage.json` is missing or stale relative to public files.
 - The dataset card lacks the default or any required family configuration.
 
@@ -114,7 +108,7 @@ make dpo-smoke
 make dpo-inspect DPO_INSPECT_RUN=dpo-smoke-001
 ```
 
-Small target override:
+Small candidate run:
 
 ```bash
 DPO_TARGET_PAIRS=100 DPO_TARGET_RUN=dpo-small-001 make dpo-generate
@@ -201,19 +195,25 @@ make distillation-sft-smoke
 make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-smoke-001
 ```
 
-Small target override:
+Small candidate run:
 
 ```bash
-DISTILLATION_SFT_TARGET_ROWS=100 DISTILLATION_SFT_TARGET_RUN=distillation-sft-small-001 make distillation-sft-generate
+DISTILLATION_SFT_SIGNALS="cloud code" \
+DISTILLATION_SFT_CANDIDATE_COUNTS="cloud=2 code=2" \
+DISTILLATION_SFT_GENERATION_RUN=distillation-sft-small-001 \
+make distillation-sft-generate
 
 make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-small-001
 make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-small-001
 ```
 
-Production target:
+Another explicit candidate plan (choose counts only after reviewing signal capacity and pilot quality):
 
 ```bash
-DISTILLATION_SFT_TARGET_ROWS=30000 DISTILLATION_SFT_TARGET_RUN=distillation-sft-prod-001 make distillation-sft-generate
+DISTILLATION_SFT_SIGNALS="cloud code debugging" \
+DISTILLATION_SFT_CANDIDATE_COUNTS="cloud=4 code=4 debugging=4" \
+DISTILLATION_SFT_GENERATION_RUN=distillation-sft-prod-001 \
+make distillation-sft-generate
 
 make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-prod-001
 make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-prod-001
@@ -229,18 +229,17 @@ make distillation-sft-adjudicate \
   DISTILLATION_SFT_ADJUDICATIONS=adjudications/distillation-sft-prod-001.json
 ```
 
-Rejected rows remain under `rejected/`. Backfill only the quarantined deficit,
-then rebuild and inspect the report. The backfill command makes provider calls.
+Rejected rows remain under `rejected/`. They are not replaced to preserve a
+nominal row target. Adjudication updates the run manifest's curated counts;
+rebuild and inspect the report afterward.
 
 ```bash
-make distillation-sft-backfill DISTILLATION_SFT_BACKFILL_RUN=distillation-sft-prod-001
 make distillation-sft-report DISTILLATION_SFT_REPORT_RUN=distillation-sft-prod-001
 make distillation-sft-inspect DISTILLATION_SFT_INSPECT_RUN=distillation-sft-prod-001
 ```
 
 Push only after the rebuilt report is accepted. Publication fails for
-unresolved repeated-response clusters, underfilled datasets, or stale manifest
-counts.
+unresolved repeated-response clusters or stale manifest counts.
 
 ```bash
 make distillation-sft-push DISTILLATION_SFT_PUSH_RUN=distillation-sft-prod-001

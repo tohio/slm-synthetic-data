@@ -131,17 +131,21 @@ Production distillation DPO pairs use teacher-quality chosen responses and contr
 
 Same-family training examples are allowed when variables and templates differ from eval items. Exact eval prompts and matching structured holdout keys are rejected.
 
-## Planning Knobs
+## Generation Budgets
 
-| Surface | Target knob | Default |
-|---|---|---:|
-| Pretraining | `PRETRAIN_TARGET_TOKENS` | `1000000` |
-| SFT | `SFT_TARGET_ROWS` | `14000` |
-| DPO | `DPO_TARGET_PAIRS` | `14000` |
-| Distillation SFT | `DISTILLATION_SFT_TARGET_ROWS` | `30000` |
-| Distillation DPO | `DISTILLATION_DPO_TARGET_PAIRS` | `15000` |
+Generic SFT and distillation SFT use explicit candidate counts by family or
+signal. Candidate counts limit provider work; they are not accepted-row quotas.
+Quality rejections and duplicates reduce the published row count and are not
+backfilled merely to reach a requested size.
 
-SFT and DPO also keep `SFT_COUNT_PER_FAMILY` and `DPO_COUNT_PER_FAMILY` as explicit lower-level overrides. Production distillation planning uses accepted row/pair counts.
+The generated corpus reports candidate, attempted, accepted, rejected,
+duplicate, and token counts. Dataset selection, token budgets, mixtures,
+sequence lengths, epochs, and model-size-specific consumption belong to the
+downstream training repositories.
+
+DPO surfaces retain pair-count controls because one chosen/rejected comparison
+is the generation unit. Pair quality and uniqueness still take precedence over
+reaching a nominal count.
 
 ## See Also
 

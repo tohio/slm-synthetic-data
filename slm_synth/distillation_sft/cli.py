@@ -15,8 +15,6 @@ from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
 )
 from slm_synth.distillation_sft.batches import render_teacher_batch_prompt
-from slm_synth.distillation_sft.adjudication_backfill import backfill_adjudicated_run
-from slm_synth.distillation_sft.budget import DEFAULT_ESTIMATED_TOKENS_PER_ROW, build_token_budget_plan
 from slm_synth.distillation_sft.card import write_dataset_card
 from slm_synth.distillation_sft.prompts import validate_prompt_record
 from slm_synth.distillation_sft.generation import generate_and_materialize_signal_batch
@@ -115,7 +113,6 @@ def cmd_materialize_batch(args: argparse.Namespace) -> int:
         teacher_model=args.teacher_model,
         teacher_provider=args.teacher_provider,
         generation_run=args.generation_run,
-        token_target=args.token_target,
         dataset_filename=args.dataset_filename,
         manifest_filename=args.manifest_filename,
         metadata={"source_prompt_file": str(Path(args.prompts))},
@@ -139,7 +136,6 @@ def cmd_generate_batch(args: argparse.Namespace) -> int:
         teacher_model=args.teacher_model,
         generation_run=args.generation_run,
         max_tokens=args.max_tokens,
-        token_target=args.token_target,
         dataset_filename=args.dataset_filename,
         manifest_filename=args.manifest_filename,
         temperature=args.temperature,
@@ -160,17 +156,6 @@ def cmd_generate_batch(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_plan_token_target(args: argparse.Namespace) -> int:
-    signals = args.signals if args.signals else None
-    plan = build_token_budget_plan(
-        target=args.target,
-        signals=signals,
-        estimated_tokens_per_row=args.estimated_tokens_per_row,
-    )
-    print(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
 def cmd_generate_seed_run(args: argparse.Namespace) -> int:
     signals = args.signals if args.signals else None
     result = generate_seed_multi_signal_run(
@@ -181,7 +166,6 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         teacher_model=args.teacher_model,
         generation_run=args.generation_run,
         max_tokens=args.max_tokens,
-        token_target=args.token_target,
         start_index=args.start_index,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -196,7 +180,6 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
-        max_backfill_rounds=args.max_backfill_rounds,
         **_openrouter_routing_kwargs(args),
     )
     signals_text = ", ".join(result.signals)
@@ -211,17 +194,17 @@ def cmd_generate_seed_run(args: argparse.Namespace) -> int:
 
 def cmd_generate_production_run(args: argparse.Namespace) -> int:
     signals = args.signals if args.signals else None
+    candidate_counts = _parse_named_counts(args.candidate_counts, name="signal")
 
     result = generate_prompt_spec_multi_signal_run(
         signals=signals,
         count_per_signal=args.count_per_signal,
-        target_rows=args.target_rows,
+        counts_by_signal=candidate_counts,
         output_dir=args.output_dir,
         manifest_dir=args.manifest_dir,
         teacher_model=args.teacher_model,
         generation_run=args.generation_run,
         max_tokens=args.max_tokens,
-        token_target=args.token_target,
         start_index=args.start_index,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -236,7 +219,6 @@ def cmd_generate_production_run(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         run_manifest_filename=args.run_manifest_filename,
-        max_backfill_rounds=args.max_backfill_rounds,
         **_openrouter_routing_kwargs(args),
     )
     signals_text = ", ".join(result.signals)
@@ -276,6 +258,7 @@ def cmd_apply_response_cluster_adjudications(args: argparse.Namespace) -> int:
         dataset_dir=args.dataset_dir,
         adjudications_path=args.adjudications,
         rejected_dir=args.rejected_dir,
+        run_manifest_path=args.run_manifest,
     )
     print(
         "applied response-cluster adjudications: "
@@ -283,31 +266,6 @@ def cmd_apply_response_cluster_adjudications(args: argparse.Namespace) -> int:
         f"kept_rows={summary['kept_rows']} "
         f"rejected_rows={summary['rejected_rows']} "
         f"rejected_path={summary['rejected_path']}"
-    )
-    return 0
-
-
-def cmd_backfill_adjudicated_run(args: argparse.Namespace) -> int:
-    summary = backfill_adjudicated_run(
-        run_dir=args.run_dir,
-        max_tokens=args.max_tokens,
-        batch_size=args.batch_size,
-        concurrency=args.concurrency,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        request_timeout=args.request_timeout,
-        max_request_retries=args.max_request_retries,
-        max_retryable_request_attempts=args.max_retryable_request_attempts,
-        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
-        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
-        adaptive_initial_batch_size=args.adaptive_initial_batch_size,
-        adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
-        max_backfill_rounds=args.max_backfill_rounds,
-        **_openrouter_routing_kwargs(args),
-    )
-    print(
-        "completed adjudication backfill: "
-        f"added_rows={summary['added_rows']} rows={summary['rows']}"
     )
     return 0
 
@@ -350,7 +308,6 @@ def build_parser() -> argparse.ArgumentParser:
     materialize_parser.add_argument("--teacher-model", required=True)
     materialize_parser.add_argument("--generation-run", required=True)
     materialize_parser.add_argument("--teacher-provider", default="openrouter")
-    materialize_parser.add_argument("--token-target", default=None)
     materialize_parser.add_argument("--dataset-filename", default=None)
     materialize_parser.add_argument("--manifest-filename", default=None)
     materialize_parser.set_defaults(func=cmd_materialize_batch)
@@ -364,7 +321,6 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--teacher-model", required=True)
     generate_parser.add_argument("--generation-run", required=True)
     generate_parser.add_argument("--max-tokens", type=int, required=True)
-    generate_parser.add_argument("--token-target", default=None)
     generate_parser.add_argument("--dataset-filename", default=None)
     generate_parser.add_argument("--manifest-filename", default=None)
     generate_parser.add_argument("--temperature", type=float, default=0.2)
@@ -380,12 +336,6 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.set_defaults(func=cmd_generate_batch)
 
 
-    plan_parser = subparsers.add_parser("plan-token-target")
-    plan_parser.add_argument("--target", required=True)
-    plan_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
-    plan_parser.add_argument("--estimated-tokens-per-row", type=int, default=DEFAULT_ESTIMATED_TOKENS_PER_ROW)
-    plan_parser.set_defaults(func=cmd_plan_token_target)
-
     seed_run_parser = subparsers.add_parser("generate-seed-run")
     seed_run_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
     seed_run_parser.add_argument("--count-per-signal", type=int, default=None)
@@ -394,7 +344,6 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--teacher-model", required=True)
     seed_run_parser.add_argument("--generation-run", required=True)
     seed_run_parser.add_argument("--max-tokens", type=int, required=True)
-    seed_run_parser.add_argument("--token-target", default=None)
     seed_run_parser.add_argument("--start-index", type=int, default=1)
     seed_run_parser.add_argument("--temperature", type=float, default=0.2)
     seed_run_parser.add_argument("--top-p", type=float, default=0.95)
@@ -409,21 +358,25 @@ def build_parser() -> argparse.ArgumentParser:
     seed_run_parser.add_argument("--batch-size", type=int, default=None)
     seed_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     seed_run_parser.add_argument("--run-manifest-filename", default=None)
-    seed_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     seed_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     seed_run_parser.add_argument("--openrouter-provider", default=None)
     seed_run_parser.set_defaults(func=cmd_generate_seed_run)
 
     production_run_parser = subparsers.add_parser("generate-production-run")
     production_run_parser.add_argument("--signals", nargs="+", choices=signal_choices, default=None)
-    production_run_parser.add_argument("--count-per-signal", type=int, default=None)
-    production_run_parser.add_argument("--target-rows", type=int, default=None)
+    planning_group = production_run_parser.add_mutually_exclusive_group(required=True)
+    planning_group.add_argument("--count-per-signal", type=int, default=None)
+    planning_group.add_argument(
+        "--candidate-counts",
+        nargs="+",
+        metavar="SIGNAL=COUNT",
+        help="Explicit candidate count for every requested signal.",
+    )
     production_run_parser.add_argument("--output-dir", required=True)
     production_run_parser.add_argument("--manifest-dir", required=True)
     production_run_parser.add_argument("--teacher-model", required=True)
     production_run_parser.add_argument("--generation-run", required=True)
     production_run_parser.add_argument("--max-tokens", type=int, required=True)
-    production_run_parser.add_argument("--token-target", default=None)
     production_run_parser.add_argument("--start-index", type=int, default=1)
     production_run_parser.add_argument("--temperature", type=float, default=0.2)
     production_run_parser.add_argument("--top-p", type=float, default=0.95)
@@ -438,7 +391,6 @@ def build_parser() -> argparse.ArgumentParser:
     production_run_parser.add_argument("--batch-size", type=int, default=None)
     production_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
     production_run_parser.add_argument("--run-manifest-filename", default=None)
-    production_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
     production_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     production_run_parser.add_argument("--openrouter-provider", default=None)
     production_run_parser.set_defaults(func=cmd_generate_production_run)
@@ -460,30 +412,31 @@ def build_parser() -> argparse.ArgumentParser:
     adjudication_parser.add_argument("--dataset-dir", required=True)
     adjudication_parser.add_argument("--adjudications", required=True)
     adjudication_parser.add_argument("--rejected-dir", required=True)
+    adjudication_parser.add_argument("--run-manifest", required=True)
     adjudication_parser.set_defaults(func=cmd_apply_response_cluster_adjudications)
 
-    adjudication_backfill_parser = subparsers.add_parser("backfill-adjudicated-run")
-    adjudication_backfill_parser.add_argument("--run-dir", required=True)
-    adjudication_backfill_parser.add_argument("--max-tokens", type=int, required=True)
-    adjudication_backfill_parser.add_argument("--batch-size", type=int, required=True)
-    adjudication_backfill_parser.add_argument("--concurrency", type=int, required=True)
-    adjudication_backfill_parser.add_argument("--temperature", type=float, default=0.2)
-    adjudication_backfill_parser.add_argument("--top-p", type=float, default=0.95)
-    adjudication_backfill_parser.add_argument("--request-timeout", type=float, default=None)
-    adjudication_backfill_parser.add_argument("--max-request-retries", type=int, default=3)
-    adjudication_backfill_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
-    adjudication_backfill_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
-    adjudication_backfill_parser.add_argument("--adaptive-initial-in-flight", type=int, default=8)
-    adjudication_backfill_parser.add_argument("--adaptive-initial-batch-size", type=int, default=4)
-    adjudication_backfill_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=4)
-    adjudication_backfill_parser.add_argument("--max-backfill-rounds", type=int, default=2)
-    adjudication_backfill_parser.add_argument(
-        "--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None
-    )
-    adjudication_backfill_parser.add_argument("--openrouter-provider", default=None)
-    adjudication_backfill_parser.set_defaults(func=cmd_backfill_adjudicated_run)
-
     return parser
+
+
+def _parse_named_counts(values: list[str] | None, *, name: str) -> dict[str, int] | None:
+    if values is None:
+        return None
+    counts: dict[str, int] = {}
+    for value in values:
+        key, separator, raw_count = value.partition("=")
+        key = key.strip().lower()
+        if not separator or not key:
+            raise ValueError(f"invalid {name} candidate count '{value}'; expected {name}=COUNT")
+        if key in counts:
+            raise ValueError(f"duplicate candidate count for {name} '{key}'")
+        try:
+            count = int(raw_count)
+        except ValueError as exc:
+            raise ValueError(f"candidate count for {name} '{key}' must be an integer") from exc
+        if count < 1:
+            raise ValueError(f"candidate count for {name} '{key}' must be positive")
+        counts[key] = count
+    return counts
 
 
 def main(argv: list[str] | None = None) -> int:

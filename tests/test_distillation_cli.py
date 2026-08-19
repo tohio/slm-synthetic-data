@@ -91,8 +91,6 @@ def test_materialize_batch_cli_writes_public_dataset_and_manifest(tmp_path):
                 "openai/gpt-4.1-mini",
                 "--generation-run",
                 "smoke-001",
-                "--token-target",
-                "100K",
             ]
         )
         == 0
@@ -200,7 +198,6 @@ def test_generate_batch_cli_uses_live_generation_wrapper(tmp_path, monkeypatch, 
     assert calls[0]["teacher_model"] == "openai/gpt-4.1-mini"
     assert calls[0]["generation_run"] == "smoke-001"
     assert calls[0]["max_tokens"] == 512
-    assert calls[0]["token_target"] == "100K"
     assert calls[0]["prompt_records"][0]["id"] == "debugging-000001"
     captured = capsys.readouterr()
     assert "generated and materialized 1 debugging row" in captured.out
@@ -248,8 +245,6 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
                 "smoke-001",
                 "--max-tokens",
                 "512",
-                "--token-target",
-                "100K",
                 "--batch-size",
                 "2",
                 "--concurrency",
@@ -270,7 +265,6 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
     assert calls[0]["teacher_model"] == "openai/gpt-4.1-mini"
     assert calls[0]["generation_run"] == "smoke-001"
     assert calls[0]["max_tokens"] == 512
-    assert calls[0]["token_target"] == "100K"
     assert calls[0]["batch_size"] == 2
     assert calls[0]["concurrency"] == 3
     assert calls[0]["adaptive_maximum_in_flight"] == 3
@@ -283,31 +277,7 @@ def test_generate_seed_run_cli_uses_multi_signal_orchestrator(tmp_path, monkeypa
     assert "run manifest:" in captured.out
 
 
-def test_plan_token_target_cli_prints_json_plan(capsys):
-    assert (
-        main(
-            [
-                "plan-token-target",
-                "--target",
-                "100K",
-                "--signals",
-                "cloud",
-                "database",
-                "--estimated-tokens-per-row",
-                "25000",
-            ]
-        )
-        == 0
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["target_tokens"] == 100_000
-    assert payload["target_label"] == "100K"
-    assert payload["estimated_tokens_per_row"] == 25_000
-    assert payload["counts_by_signal"] == {"cloud": 2, "database": 2}
-
-
-def test_generate_production_run_cli_uses_target_rows(tmp_path, monkeypatch):
+def test_generate_production_run_cli_uses_candidate_counts(tmp_path, monkeypatch):
     output_dir = tmp_path / "datasets"
     manifest_dir = tmp_path / "manifests"
     calls = []
@@ -337,8 +307,9 @@ def test_generate_production_run_cli_uses_target_rows(tmp_path, monkeypatch):
                 "--signals",
                 "cloud",
                 "database",
-                "--target-rows",
-                "4",
+                "--candidate-counts",
+                "cloud=2",
+                "database=2",
                 "--output-dir",
                 str(output_dir),
                 "--manifest-dir",
@@ -355,8 +326,7 @@ def test_generate_production_run_cli_uses_target_rows(tmp_path, monkeypatch):
     )
 
     assert calls[0]["count_per_signal"] is None
-    assert calls[0]["target_rows"] == 4
-    assert calls[0]["token_target"] is None
+    assert calls[0]["counts_by_signal"] == {"cloud": 2, "database": 2}
 
 def test_build_dataset_card_cli_writes_markdown(tmp_path, capsys):
     run_manifest = tmp_path / "smoke-001.manifest.json"
@@ -368,7 +338,6 @@ def test_build_dataset_card_cli_writes_markdown(tmp_path, capsys):
                 "generation_run": "smoke-001",
                 "teacher_model": "openai/gpt-4.1-mini",
                 "teacher_provider": "openrouter",
-                "token_target": "100K",
                 "signals": ["cloud"],
                 "datasets": [
                     {
@@ -418,7 +387,6 @@ def test_report_coverage_cli_prints_json(tmp_path, capsys):
                 "generation_run": "smoke-001",
                 "teacher_model": "openai/gpt-4.1-mini",
                 "teacher_provider": "openrouter",
-                "token_target": "100K",
                 "datasets": [
                     {
                         "signal": "cloud",
@@ -451,7 +419,6 @@ def test_report_coverage_cli_writes_json(tmp_path, capsys):
                 "generation_run": "smoke-001",
                 "teacher_model": "openai/gpt-4.1-mini",
                 "teacher_provider": "openrouter",
-                "token_target": "100K",
                 "datasets": [
                     {
                         "signal": "cloud",
@@ -559,6 +526,17 @@ def test_apply_response_cluster_adjudications_cli(tmp_path, capsys):
         ),
         encoding="utf-8",
     )
+    run_manifest = tmp_path / "run.manifest.json"
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "datasets": [{"signal": "cloud", "dataset_path": str(dataset), "row_count": 2}],
+                "total_rows": 2,
+                "metadata": {"accepted_rows": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     assert main(
         [
@@ -569,6 +547,8 @@ def test_apply_response_cluster_adjudications_cli(tmp_path, capsys):
             str(adjudications),
             "--rejected-dir",
             str(rejected_dir),
+            "--run-manifest",
+            str(run_manifest),
         ]
     ) == 0
     assert "reviewed_rows=2" in capsys.readouterr().out
@@ -580,7 +560,7 @@ def test_distillation_sft_generate_make_target_uses_production_prompt_specs():
     report_block = makefile.split("distillation-sft-report:", 1)[1].split("distillation-sft-inspect:", 1)[0]
 
     assert "generate-production-run" in block
-    assert "--target-rows $(DISTILLATION_SFT_TARGET_ROWS)" in block
+    assert "--candidate-counts $(DISTILLATION_SFT_CANDIDATE_COUNTS)" in block
     assert "$(OPENROUTER_ROUTING_ARGS)" in block
     assert "--target-preset" not in block
     assert "generate-seed-run" not in block

@@ -230,7 +230,7 @@ DISTILLATION_PROMPT_SEEDS: dict[str, tuple[str, ...]] = {
         "Make this task concise: check all Make targets because some flags are wired in one path but not others.",
         "Rewrite this sentence for a technical README: Users can do the thing by running the command below.",
         "Summarize this update in one sentence: Routing now avoids a bad upstream provider while keeping fallback enabled.",
-        "Turn this note into an acceptance criterion: underfilled run should fail non zero after backfill budget.",
+        "Turn this note into an acceptance criterion: rejected records must never enter the published dataset.",
         "Rewrite this warning to be calmer and clearer: don't ever push internal scratch files to hugging face.",
         "Convert this rough plan into one clear instruction: first smoke then validation then small scale then production.",
     ),
@@ -276,7 +276,7 @@ def build_seed_prompt_records(*, signal: str, count: int, start_index: int = 1) 
 
     Built-in seeds are used only for their original global positions. Any request
     whose global record index exceeds the built-in seed inventory uses the
-    production prompt spec builder. This keeps retry/backfill records unique
+    production prompt spec builder. This keeps candidate records unique
     when they start at indexes such as 201.
     """
     normalized_signal = validate_signal(signal)

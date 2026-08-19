@@ -15,7 +15,7 @@ sft/
 ├── batches.py        # batch prompt and response contract
 ├── generation.py     # one-batch materialization/generation
 ├── acceptance.py     # normalized output uniqueness and acceptance
-├── runs.py           # multi-family generation, backfill, and resume
+├── runs.py           # multi-family candidate generation and acceptance
 ├── schema.py         # public row validation
 ├── manifest.py       # dataset and run manifests
 ├── report.py         # aggregate and per-family acceptance reporting
@@ -32,4 +32,4 @@ Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and `sft-
 
 Public SFT rows contain only `id`, `messages`, and public `metadata`. Teacher/provider/run/cost/retry details stay in manifests.
 
-Accepted targets count unique public rows after local validation. Backfill uses unused source indexes; finalized underfilled runs can be continued with `SFT_RESUME=true`. The default Make paths enforce the configured holdout registry during generation and reporting.
+Production runs require explicit candidate counts for every selected family. Candidate counts limit generation work; accepted rows are the quality-filtered outcome and are not backfilled to reach a quota. The default Make paths enforce the configured holdout registry during generation and reporting.

@@ -119,7 +119,6 @@ def generate_and_materialize_signal_batch(
     teacher_model: str,
     generation_run: str,
     max_tokens: int,
-    token_target: str | int | None = None,
     dataset_filename: str | None = None,
     manifest_filename: str | None = None,
     temperature: float = 0.2,
@@ -169,7 +168,6 @@ def generate_and_materialize_signal_batch(
         teacher_model=teacher_model,
         teacher_provider="openrouter",
         generation_run=generation_run,
-        token_target=token_target,
         dataset_filename=dataset_filename,
         manifest_filename=manifest_filename,
         metadata={

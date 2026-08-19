@@ -71,47 +71,42 @@ make sft-smoke
 make sft-inspect SFT_INSPECT_RUN=sft-smoke-001
 ```
 
-### Small Generation Run
+### Candidate Run
 
-Use a small target override before production:
+Supply an explicit candidate plan. Accepted rows are the quality-filtered outcome:
 
 ```bash
-SFT_TARGET_ROWS=100 SFT_TARGET_RUN=sft-small-001 make sft-generate
+SFT_FAMILIES="basic_arithmetic_qa ai_concept_explanation" \
+SFT_CANDIDATE_COUNTS="basic_arithmetic_qa=4 ai_concept_explanation=2" \
+SFT_GENERATION_RUN=sft-candidate-001 \
+make sft-generate
 ```
 
 Inspect the generated public rows and run manifest:
 
 ```bash
-make sft-inspect SFT_INSPECT_RUN=sft-small-001
-make sft-report SFT_REPORT_RUN=sft-small-001
+make sft-inspect SFT_INSPECT_RUN=sft-candidate-001
+make sft-report SFT_REPORT_RUN=sft-candidate-001
 ```
 
 Generated files are written under:
 
 ```text
-data/sft/runs/sft-small-001/
+data/sft/runs/sft-candidate-001/
   datasets/    public JSONL files
   manifests/   run and batch manifests
   batches/     internal batch shards
-```
-
-### Production Run
-
-After smoke and small-scale outputs pass inspection, run the full SFT target:
-
-```bash
-SFT_TARGET_ROWS=14000 SFT_TARGET_RUN=sft-prod-001 make sft-generate
 ```
 
 Push only after inspecting the public dataset files and manifests:
 
 ```bash
 make sft-push \
-  SFT_PUSH_RUN=sft-prod-001 \
+  SFT_PUSH_RUN=sft-candidate-001 \
   SFT_HF_REPO=tohio/slm-synthetic-sft
 ```
 
-This publishes one consolidated dataset with default all-family loading and optional per-family configurations. Duplicate content, holdout collisions, underfilled accounting, and stale acceptance reports block publication.
+This publishes one consolidated dataset with default all-family loading and optional per-family configurations. Duplicate content, holdout collisions, unresolved quality failures, and stale acceptance reports block publication. Token budgets and model-size-specific consumption belong to the downstream training repository.
 
 For end-to-end workflows across every generation surface, see `docs/GENERATION_WORKFLOW.md`. For supported families and signals, see `docs/GENERATION_FAMILIES.md`. For Make target details, see `docs/COMMANDS.md`.
 

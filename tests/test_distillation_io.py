@@ -118,7 +118,6 @@ def test_write_manifest_keeps_teacher_details_outside_public_rows(tmp_path):
         teacher_model="deepseek/deepseek-v4-flash",
         teacher_provider="openrouter",
         generation_run="run-001",
-        token_target="smoke-100k",
         metadata={"retry_count": 0},
     )
 
@@ -154,7 +153,6 @@ def test_write_run_manifest_summarizes_signal_outputs(tmp_path):
         generation_run="smoke-001",
         teacher_model="openai/gpt-4.1-mini",
         teacher_provider="openrouter",
-        token_target="100K",
         datasets=[
             {
                 "signal": "cloud",
@@ -176,7 +174,7 @@ def test_write_run_manifest_summarizes_signal_outputs(tmp_path):
     assert manifest["generation_run"] == "smoke-001"
     assert manifest["teacher_provider"] == "openrouter"
     assert manifest["teacher_model"] == "openai/gpt-4.1-mini"
-    assert manifest["token_target"] == "100K"
+    assert "token_target" not in manifest
     assert manifest["signals"] == ["cloud", "database"]
     assert manifest["total_rows"] == 5
     assert manifest["metadata"] == {"signal_count": 2}
@@ -191,7 +189,6 @@ def test_write_run_manifest_rejects_duplicate_signals(tmp_path):
             generation_run="smoke-001",
             teacher_model="openai/gpt-4.1-mini",
             teacher_provider="openrouter",
-            token_target="100K",
             datasets=[
                 {
                     "signal": "cloud",

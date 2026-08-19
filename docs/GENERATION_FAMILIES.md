@@ -6,15 +6,15 @@ Use this file when planning run targets, interpreting coverage reports, or choos
 
 ## Selection Rules
 
-| Surface | Selector | `all` behavior | Target distribution |
+| Surface | Selector | `all` behavior | Generation planning |
 |---|---|---|---|
 | Pretraining | `PRETRAIN_SIGNAL` | No value means all configured pretraining signals from `configs/synthetic_template.yaml`. | Token target is split by configured signal shares. |
-| SFT | `SFT_FAMILIES` | `all` means all supported SFT spec families, sorted by name. | Row target is split evenly across families; remainder goes to earlier sorted families. |
+| SFT | `SFT_FAMILIES` | `all` means all supported SFT spec families, sorted by name. | `SFT_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected family. |
 | DPO | `DPO_FAMILIES` | `all` means all supported DPO spec families, sorted by name. | Pair target is split evenly across families; remainder goes to earlier sorted families. |
-| Distillation SFT | `DISTILLATION_SFT_SIGNALS` | Empty or `all` means all supported distillation SFT signals, sorted by name. | Row target is split evenly across signals; remainder goes to earlier sorted signals. |
+| Distillation SFT | `DISTILLATION_SFT_SIGNALS` | Empty or `all` means all supported distillation SFT signals, sorted by name. | `DISTILLATION_SFT_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected signal. |
 | Distillation DPO | `DISTILLATION_DPO_FAMILIES` | `all` means all supported distillation DPO families, sorted by name. | Pair target is split evenly across families; remainder goes to earlier sorted families. |
 
-For SFT, DPO, distillation SFT, and distillation DPO, targets count accepted public rows or pairs. Rejected quality-gate outputs do not count toward the target.
+For SFT and distillation SFT, accepted rows are outcomes: rejected or duplicate candidates are not replaced to fill a quota. DPO pair planning remains separate.
 
 ## Pretraining Signals and Artifact Families
 

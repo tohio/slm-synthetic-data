@@ -47,23 +47,21 @@ HF_PRIVATE_ARG := $(if $(filter true yes 1,$(HF_PRIVATE)),--private,)
 
 # Distillation SFT
 DISTILLATION_SFT_RUN ?= distillation-sft-smoke-001
-DISTILLATION_SFT_TARGET_RUN ?= distillation-sft-target-001
+DISTILLATION_SFT_GENERATION_RUN ?= distillation-sft-candidate-001
 DISTILLATION_SFT_REPORT_RUN ?= $(DISTILLATION_SFT_RUN)
 DISTILLATION_SFT_INSPECT_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
 DISTILLATION_SFT_ADJUDICATION_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
-DISTILLATION_SFT_BACKFILL_RUN ?= $(DISTILLATION_SFT_ADJUDICATION_RUN)
 DISTILLATION_SFT_ADJUDICATIONS ?=
-DISTILLATION_SFT_TARGET_ROWS ?= 30000
-DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL ?= 200
+DISTILLATION_SFT_CANDIDATE_COUNTS ?=
+DISTILLATION_SFT_SMOKE_COUNT_PER_SIGNAL ?= 2
 DISTILLATION_SFT_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 DISTILLATION_SFT_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
-DISTILLATION_SFT_TARGET_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
+DISTILLATION_SFT_GENERATION_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
 DISTILLATION_SFT_SIGNALS ?=
 DISTILLATION_SFT_SIGNALS_ARG := $(if $(filter all,$(DISTILLATION_SFT_SIGNALS)),,$(if $(DISTILLATION_SFT_SIGNALS),--signals $(DISTILLATION_SFT_SIGNALS),))
 DISTILLATION_SFT_INITIAL_CONCURRENCY ?= 8
 DISTILLATION_SFT_INITIAL_BATCH_SIZE ?= 4
 DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES ?= 4
-DISTILLATION_SFT_MAX_BACKFILL_ROUNDS ?= 2
 DISTILLATION_SFT_RUN_ROOT ?= data/distillation/runs
 DISTILLATION_SFT_MODEL ?= $(MODEL)
 DISTILLATION_SFT_MAX_TOKENS ?= 4096
@@ -100,26 +98,22 @@ DISTILLATION_DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin
 
 # SFT
 SFT_RUN ?= sft-smoke-001
-SFT_TARGET_RUN ?= sft-target-001
+SFT_GENERATION_RUN ?= sft-candidate-001
 SFT_REPORT_RUN ?= $(SFT_RUN)
 SFT_INSPECT_RUN ?= $(SFT_REPORT_RUN)
 SFT_FAMILIES ?= all
 SFT_SMOKE_FAMILIES ?= basic_arithmetic_qa
-SFT_TARGET_ROWS ?= 14000
-SFT_COUNT_PER_FAMILY ?= 1000
+SFT_CANDIDATE_COUNTS ?=
 SFT_SMOKE_COUNT_PER_FAMILY ?= 2
 SFT_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 SFT_SMOKE_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 SFT_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
-SFT_TARGET_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
+SFT_GENERATION_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
 SFT_RUN_ROOT ?= data/sft/runs
 SFT_MODEL ?= $(MODEL)
 SFT_INITIAL_CONCURRENCY ?= 8
 SFT_INITIAL_BATCH_SIZE ?= 4
 SFT_BATCH_INCREASE_SUCCESSES ?= 4
-SFT_MAX_BACKFILL_ROUNDS ?= 2
-SFT_RESUME ?= false
-SFT_RESUME_ARG := $(if $(filter true yes 1,$(SFT_RESUME)),--resume,)
 SFT_MAX_TOKENS ?= 4096
 SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
@@ -168,7 +162,7 @@ HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_R
 .PHONY: help \
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
 	distillation-sft-smoke distillation-sft-generate \
-	distillation-sft-report distillation-sft-inspect distillation-sft-adjudicate distillation-sft-backfill distillation-sft-push \
+	distillation-sft-report distillation-sft-inspect distillation-sft-adjudicate distillation-sft-push \
 	distillation-dpo-smoke distillation-dpo-generate \
 	distillation-dpo-report distillation-dpo-inspect distillation-dpo-push \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
@@ -202,7 +196,6 @@ help:
 > @echo "  make pretrain-report     Rebuild pretraining reports and dataset card"
 > @echo "  make distillation-sft-report      Rebuild distillation SFT reports and dataset card"
 > @echo "  make distillation-sft-adjudicate  Apply reviewed repeated-response decisions"
-> @echo "  make distillation-sft-backfill    Replace rows rejected by adjudication"
 > @echo "  make distillation-dpo-report      Rebuild distillation DPO reports and dataset card"
 > @echo "  make sft-report          Rebuild SFT coverage and dataset card"
 > @echo "  make dpo-report          Rebuild DPO coverage and dataset card"
@@ -239,15 +232,14 @@ help:
 > @echo "  PRETRAIN_MAX_TOKENS=$(PRETRAIN_MAX_TOKENS)"
 > @echo "  PRETRAIN_DIVERSITY_SAMPLE_SIZE=$(PRETRAIN_DIVERSITY_SAMPLE_SIZE)"
 > @echo "  PRETRAIN_DIVERSITY_THRESHOLD=$(PRETRAIN_DIVERSITY_THRESHOLD)"
-> @echo "  DISTILLATION_SFT_TARGET_ROWS=$(DISTILLATION_SFT_TARGET_ROWS)"
+> @echo "  DISTILLATION_SFT_CANDIDATE_COUNTS=$(DISTILLATION_SFT_CANDIDATE_COUNTS)"
 > @echo "  DISTILLATION_SFT_CONCURRENCY=$(DISTILLATION_SFT_CONCURRENCY)"
-> @echo "  DISTILLATION_SFT_TARGET_CONCURRENCY=$(DISTILLATION_SFT_TARGET_CONCURRENCY)"
+> @echo "  DISTILLATION_SFT_GENERATION_CONCURRENCY=$(DISTILLATION_SFT_GENERATION_CONCURRENCY)"
 > @echo "  DISTILLATION_SFT_HF_REPO=$(DISTILLATION_SFT_HF_REPO)"
 > @echo "  DISTILLATION_DPO_TARGET_PAIRS=$(DISTILLATION_DPO_TARGET_PAIRS)"
 > @echo "  DISTILLATION_DPO_HF_NAMESPACE=$(DISTILLATION_DPO_HF_NAMESPACE)"
 > @echo "  DISTILLATION_DPO_HF_REPO=$(DISTILLATION_DPO_HF_REPO)"
-> @echo "  SFT_TARGET_ROWS=$(SFT_TARGET_ROWS)"
-> @echo "  SFT_COUNT_PER_FAMILY=$(SFT_COUNT_PER_FAMILY)"
+> @echo "  SFT_CANDIDATE_COUNTS=$(SFT_CANDIDATE_COUNTS)"
 > @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
 > @echo "  DPO_TARGET_PAIRS=$(DPO_TARGET_PAIRS)"
 > @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
@@ -330,27 +322,26 @@ distillation-sft-smoke:
 >   --concurrency $(DISTILLATION_SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DISTILLATION_SFT_MAX_BACKFILL_ROUNDS)
+>   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_RUN)
 
 distillation-sft-generate:
+> @test -n "$(strip $(DISTILLATION_SFT_CANDIDATE_COUNTS))" || (echo "DISTILLATION_SFT_CANDIDATE_COUNTS is required (signal=count ...)" >&2; exit 2)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.cli generate-production-run \
 >   $(DISTILLATION_SFT_SIGNALS_ARG) \
->   --target-rows $(DISTILLATION_SFT_TARGET_ROWS) \
->   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_TARGET_RUN)/datasets \
->   --manifest-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_TARGET_RUN)/manifests \
+>   --candidate-counts $(DISTILLATION_SFT_CANDIDATE_COUNTS) \
+>   --output-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_GENERATION_RUN)/datasets \
+>   --manifest-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_GENERATION_RUN)/manifests \
 >   --teacher-model $(DISTILLATION_SFT_MODEL) \
->   --generation-run $(DISTILLATION_SFT_TARGET_RUN) \
+>   --generation-run $(DISTILLATION_SFT_GENERATION_RUN) \
 >   --max-tokens $(DISTILLATION_SFT_MAX_TOKENS) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --batch-size $(DISTILLATION_SFT_BATCH_SIZE) \
->   --concurrency $(DISTILLATION_SFT_TARGET_CONCURRENCY) \
+>   --concurrency $(DISTILLATION_SFT_GENERATION_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DISTILLATION_SFT_MAX_BACKFILL_ROUNDS)
-> $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_TARGET_RUN)
+>   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES)
+> $(MAKE) distillation-sft-report DISTILLATION_SFT_REPORT_RUN=$(DISTILLATION_SFT_GENERATION_RUN)
 
 distillation-sft-report:
 > $(PYTHON) -m slm_synth.distillation_sft.cli report-coverage \
@@ -374,19 +365,8 @@ distillation-sft-adjudicate:
 > $(PYTHON) -m slm_synth.distillation_sft.cli apply-response-cluster-adjudications \
 >   --dataset-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/datasets \
 >   --adjudications $(DISTILLATION_SFT_ADJUDICATIONS) \
->   --rejected-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/rejected
-
-distillation-sft-backfill:
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.cli backfill-adjudicated-run \
->   --run-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_BACKFILL_RUN) \
->   --max-tokens $(DISTILLATION_SFT_MAX_TOKENS) \
->   $(OPENROUTER_ROUTING_ARGS) \
->   --batch-size $(DISTILLATION_SFT_BATCH_SIZE) \
->   --concurrency $(DISTILLATION_SFT_TARGET_CONCURRENCY) \
->   --adaptive-initial-in-flight $(DISTILLATION_SFT_INITIAL_CONCURRENCY) \
->   --adaptive-initial-batch-size $(DISTILLATION_SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DISTILLATION_SFT_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DISTILLATION_SFT_MAX_BACKFILL_ROUNDS)
+>   --rejected-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/rejected \
+>   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/manifests/$(DISTILLATION_SFT_ADJUDICATION_RUN).manifest.json
 
 distillation-sft-push:
 > test -n "$(DISTILLATION_SFT_HF_REPO)" || (echo "DISTILLATION_SFT_HF_REPO or HF_REPO is required" >&2; exit 2)
@@ -472,30 +452,27 @@ sft-smoke:
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS) \
->   $(SFT_RESUME_ARG) \
 >   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
+> @test -n "$(strip $(SFT_CANDIDATE_COUNTS))" || (echo "SFT_CANDIDATE_COUNTS is required (family=count ...)" >&2; exit 2)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_FAMILIES) \
->   --target-rows $(SFT_TARGET_ROWS) \
+>   --candidate-counts $(SFT_CANDIDATE_COUNTS) \
 >   --batch-size $(SFT_BATCH_SIZE) \
->   --output-dir $(SFT_RUN_ROOT)/$(SFT_TARGET_RUN)/datasets \
->   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_TARGET_RUN)/manifests \
+>   --output-dir $(SFT_RUN_ROOT)/$(SFT_GENERATION_RUN)/datasets \
+>   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_GENERATION_RUN)/manifests \
 >   --teacher-model $(SFT_MODEL) \
->   --generation-run $(SFT_TARGET_RUN) \
+>   --generation-run $(SFT_GENERATION_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
 >   $(OPENROUTER_ROUTING_ARGS) \
->   --concurrency $(SFT_TARGET_CONCURRENCY) \
+>   --concurrency $(SFT_GENERATION_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
 >   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS) \
->   $(SFT_RESUME_ARG) \
 >   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
-> $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_TARGET_RUN)
+> $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_GENERATION_RUN)
 
 sft-report:
 > $(PYTHON) -m slm_synth.sft.cli report-coverage \

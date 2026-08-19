@@ -11,7 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, create_repo
 
-from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
+from slm_synth.accepted_target import discover_run_manifest
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
@@ -156,12 +156,10 @@ def push_sft_run(
         raise ValueError("run_dir is required for SFT acceptance and publish-readiness checks")
     root = Path(run_dir)
     run_manifest = discover_run_manifest(root, dataset_type="sft")
-    require_publish_ready_manifest(run_manifest, artifact_name="SFT")
     manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
     manifest_metadata = manifest_value.get("metadata", {}) if isinstance(manifest_value, dict) else {}
-    accepted_target = manifest_metadata.get("accepted_target") if isinstance(manifest_metadata, dict) else None
-    if not isinstance(accepted_target, dict):
-        raise ValueError("SFT run manifest is missing accepted-target accounting")
+    if not isinstance(manifest_metadata, dict):
+        raise ValueError("SFT run manifest is missing metadata")
     files = discover_jsonl_files(dataset_root)
     manifest_families = manifest_value.get("families") if isinstance(manifest_value, dict) else None
     if not isinstance(manifest_families, list) or not all(
@@ -193,11 +191,10 @@ def push_sft_run(
         raise ValueError("SFT acceptance report is stale for the current dataset files; rebuild sft-report")
     acceptance = coverage["acceptance"]
     expected_counts = {
-        "attempted_rows": accepted_target.get("attempted"),
-        "accepted_rows": accepted_target.get("accepted"),
+        "attempted_rows": manifest_metadata.get("attempted_rows"),
+        "accepted_rows": manifest_metadata.get("accepted_rows"),
         "rejected_rows": manifest_metadata.get("rejected_rows", 0),
         "duplicate_rows": manifest_metadata.get("duplicate_rows", 0),
-        "remaining_rows": accepted_target.get("remaining"),
     }
     if any(acceptance.get(field) != value for field, value in expected_counts.items()):
         raise ValueError("SFT acceptance report does not match run-manifest accounting; rebuild sft-report")
@@ -219,6 +216,8 @@ def push_sft_run(
     for family in sorted(files_by_family):
         file_path = files_by_family[family][0]
         row_count = count_and_validate_jsonl(file_path)
+        if row_count == 0:
+            raise ValueError(f"SFT family dataset is empty: {family}")
         total_rows += row_count
         path_in_repo = f"data/{family}.jsonl"
         print(f"[push_hf] staging {file_path} -> {clean_repo_id}/{path_in_repo} rows={row_count}")

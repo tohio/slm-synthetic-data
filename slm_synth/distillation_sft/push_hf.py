@@ -240,7 +240,7 @@ def require_manifest_dataset_counts(manifest_path: str | Path, files: list[Path]
     if mismatches:
         raise ValueError(
             "distillation-SFT manifest counts do not match adjudicated datasets; "
-            "backfill and rebuild manifests before publishing: "
+            "rebuild manifests before publishing: "
             + "; ".join(mismatches)
         )
 
@@ -388,6 +388,8 @@ def push_distillation_run(
 
     for file_path in files:
         row_count = count_and_validate_jsonl(file_path)
+        if row_count == 0:
+            raise ValueError(f"distillation SFT dataset is empty: {file_path}")
         total_rows += row_count
         path_in_repo = f"data/{file_path.relative_to(dataset_root).as_posix()}"
         print(f"[push_hf] staging {file_path} -> {repo_id}/{path_in_repo} rows={row_count}")

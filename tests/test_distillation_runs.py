@@ -39,7 +39,6 @@ def test_materialize_teacher_batch_writes_public_dataset_and_manifest(tmp_path):
         manifest_dir=tmp_path / "manifests",
         teacher_model="openai/gpt-4.1-mini",
         generation_run="smoke-001",
-        token_target="100K",
         metadata={"batch_size": 1},
     )
 
@@ -72,7 +71,7 @@ def test_materialize_teacher_batch_writes_public_dataset_and_manifest(tmp_path):
     assert manifest["teacher_model"] == "openai/gpt-4.1-mini"
     assert manifest["teacher_provider"] == "openrouter"
     assert manifest["generation_run"] == "smoke-001"
-    assert manifest["token_target"] == "100K"
+    assert "token_target" not in manifest
     assert manifest["metadata"]["batch_size"] == 1
     assert manifest["metadata"]["prompt_count"] == 1
     assert manifest["metadata"]["planned_prompt_rows"] == 1

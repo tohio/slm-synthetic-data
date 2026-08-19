@@ -21,7 +21,6 @@ distillation_sft/
 ├── response_quality.py # lightweight response gates
 ├── response_diversity.py # aggregate/per-signal exact response diversity
 ├── response_adjudication.py # member-level keep/reject decisions and quarantine
-├── adjudication_backfill.py # staged replacement of adjudication deficits
 ├── orchestration.py    # multi-signal smoke and production runs
 ├── schema.py           # public row and teacher-output validation
 ├── io.py               # JSONL and manifest writers
@@ -56,40 +55,16 @@ Public rows have this contract:
 
 Teacher/provider/run/cost/retry details stay in manifests. Public rows always use `reasoning: null`.
 
-## Scaling
+## Candidate Planning
 
-The production inventory contains 50 template families across 10 signals. Every
-signal has at least four template families, and no template exceeds 30% of its
-signal allocation. Debugging and factual-restraint prompts use substantive task,
-code, claim, and safe-alternative combinations instead of varying only record
-counts, fictional identifiers, or application labels.
+Production runs require an explicit candidate count for every selected signal.
+Counts limit provider work and do not promise an accepted dataset size. Quality
+rejections and duplicates reduce the published row count without automatic
+replacement. Token accounting is descriptive here; downstream training
+repositories own token budgets and mixtures.
 
-| Accepted rows | Scaling posture |
-| ---: | --- |
-| 30,000 | Strong default target. Approximately 600–750 rows per template. |
-| 50,000 | Strong. Approximately 1,000–1,250 rows per template. |
-| 100,000 | Current design ceiling. Approximately 2,000–2,500 rows per template. |
-| Above 100,000 | Review template concentration and response diversity before generation. |
-| Above 150,000 | Add template families or external prompt sources first. |
-
-Regression checks require zero exact or normalized prompt duplicates at 30,000
-and 100,000 rows, at least four template families per signal, exactly 50 template
-families overall, and a maximum 30% template share within each signal. Coverage
-reports include aggregate and per-signal normalized exact-response diversity
-statistics plus complete repeated-response cluster membership. Repeated
-responses are automatically cleared only when every member is independently
-machine-verifiable. Other clusters require explicit member-level adjudication
-and block publication while unresolved. Rejected members are preserved under
-the run's internal `rejected/` directory and must be backfilled before the run
-can become publish-ready again.
-
-The approved default targets are 2,000 accepted smoke rows and 30,000 accepted
-production rows. The 100,000-row check remains a local source-capacity
-regression, not the production default.
-
-To scale beyond the current ceiling:
-
-1. Add task structures within the affected signals rather than only new parameter values.
-2. Keep new template families balanced within each signal.
-3. Re-run the uniqueness and template-concentration checks at the proposed target and backfill range.
-4. Run a paid smoke job and inspect teacher-response acceptance and quality before production.
+Coverage reports include prompt and response diversity plus complete repeated-
+response cluster membership. Repeated responses are automatically cleared only
+when every member is independently machine-verifiable. Other clusters require
+explicit member-level adjudication and block publication while unresolved.
+Rejected members remain under the run's internal `rejected/` directory.

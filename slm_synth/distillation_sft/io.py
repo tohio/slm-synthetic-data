@@ -61,13 +61,12 @@ def write_manifest(
     teacher_model: str,
     teacher_provider: str,
     generation_run: str,
-    token_target: str | int | None = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> Path:
     """Write a local-only manifest for run/provenance details.
 
     The manifest is intentionally separate from public training rows. It may
-    include provider, teacher model, run id, token target, cost/retry summaries,
+    include provider, teacher model, run id, cost/retry summaries,
     and other local metadata.
     """
     normalized_signal = validate_signal(signal)
@@ -89,7 +88,6 @@ def write_manifest(
         "teacher_model": teacher_model,
         "teacher_provider": "openrouter",
         "generation_run": generation_run,
-        "token_target": token_target,
         "metadata": dict(metadata or {}),
     }
 
@@ -105,7 +103,6 @@ def write_run_manifest(
     generation_run: str,
     teacher_model: str,
     teacher_provider: str,
-    token_target: str | int | None,
     datasets: Iterable[Mapping[str, Any]],
     metadata: Mapping[str, Any] | None = None,
 ) -> Path:
@@ -158,7 +155,6 @@ def write_run_manifest(
         "generation_run": generation_run,
         "teacher_model": teacher_model,
         "teacher_provider": "openrouter",
-        "token_target": token_target,
         "signals": [dataset["signal"] for dataset in normalized_datasets],
         "datasets": normalized_datasets,
         "total_rows": total_rows,

@@ -11,7 +11,6 @@ def _run_manifest():
         "generation_run": "smoke-001",
         "teacher_model": "openai/gpt-4.1-mini",
         "teacher_provider": "openrouter",
-        "token_target": "100K",
         "signals": ["cloud", "database"],
         "datasets": [
             {
@@ -30,7 +29,7 @@ def _run_manifest():
         "total_rows": 5,
         "metadata": {
             "signal_count": 2,
-            "target_rows": 5,
+            "candidate_rows": 5,
             "planned_prompt_rows": 5,
             "accepted_rows": 5,
             "rejected_rows": 0,
@@ -50,7 +49,7 @@ def test_render_dataset_card_includes_run_provenance_and_schema():
     assert "- Generation run: `smoke-001`" in text
     assert "- Teacher provider: `openrouter`" in text
     assert "- Teacher model: `openai/gpt-4.1-mini`" in text
-    assert "- Target rows: `5`" in text
+    assert "- Candidate rows: `5`" in text
     assert "- Planned prompt rows: `5`" in text
     assert "- Accepted rows: `5`" in text
     assert "- Rejected rows: `0`" in text

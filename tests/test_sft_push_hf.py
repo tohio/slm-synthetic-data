@@ -90,15 +90,11 @@ def test_push_sft_run_blocks_before_hf_when_acceptance_report_is_missing(tmp_pat
                 "metadata": {
                     "generation_status": "complete",
                     "publish_ready": True,
-                    "accepted_target": {
-                        "unit": "rows",
-                        "target": 1,
-                        "accepted": 1,
-                        "attempted": 1,
-                        "remaining": 0,
-                        "status": "complete",
-                        "publish_ready": True,
-                    },
+                    "candidate_rows": 1,
+                    "attempted_rows": 1,
+                    "accepted_rows": 1,
+                    "rejected_rows": 0,
+                    "duplicate_rows": 0,
                 },
             }
         ),
@@ -153,16 +149,7 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
                     "accepted_rows": 2,
                     "rejected_rows": 0,
                     "duplicate_rows": 0,
-                    "planned_rows": 2,
-                    "accepted_target": {
-                        "unit": "rows",
-                        "target": 2,
-                        "accepted": 2,
-                        "attempted": 2,
-                        "remaining": 0,
-                        "status": "complete",
-                        "publish_ready": True,
-                    },
+                    "candidate_rows": 2,
                 },
             }
         ),

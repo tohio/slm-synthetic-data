@@ -88,7 +88,7 @@ def test_build_sft_coverage_report_counts_metadata_across_files(tmp_path):
         "accepted_rows": 2,
         "rejected_rows": 0,
         "duplicate_rows": 0,
-        "remaining_rows": 0,
+        "candidate_rows": 2,
         "publish_ready": False,
         "publish_blockers": ["holdouts_not_checked"],
     }
@@ -152,7 +152,7 @@ def test_sft_report_blocks_normalized_prompt_and_conversation_duplicates(tmp_pat
     assert report["content_uniqueness"]["prompts"]["duplicate_count"] == 1
     assert report["content_uniqueness"]["conversations"]["duplicate_count"] == 1
     assert report["acceptance"]["duplicate_rows"] == 1
-    assert report["acceptance"]["remaining_rows"] == 1
+    assert report["acceptance"]["candidate_rows"] == 2
     assert report["acceptance"]["publish_ready"] is False
     assert "duplicate_prompts" in report["acceptance"]["publish_blockers"]
 
@@ -231,7 +231,7 @@ def test_sft_report_marks_missing_holdout_check_as_publish_blocker(tmp_path):
         require_publish_ready_report(report)
 
 
-def test_sft_report_detects_files_underfilled_against_complete_manifest(tmp_path):
+def test_sft_report_records_candidate_and_rejection_outcomes_from_manifest(tmp_path):
     dataset_path = tmp_path / "arithmetic.jsonl"
     write_jsonl(
         [
@@ -250,14 +250,11 @@ def test_sft_report_detects_files_underfilled_against_complete_manifest(tmp_path
             {
                 "metadata": {
                     "publish_ready": True,
-                    "planned_rows": 2,
+                    "candidate_rows": 2,
                     "rejection_reason_counts": {"batch_acceptance_error": 1},
-                    "accepted_target": {
-                        "target": 2,
-                        "accepted": 2,
-                        "attempted": 2,
-                        "remaining": 0,
-                    },
+                    "attempted_rows": 2,
+                    "accepted_rows": 1,
+                    "rejected_rows": 1,
                 }
             }
         ),
@@ -272,5 +269,6 @@ def test_sft_report_detects_files_underfilled_against_complete_manifest(tmp_path
 
     assert report["acceptance"]["accepted_rows"] == 1
     assert report["acceptance"]["rejection_reason_counts"] == {"batch_acceptance_error": 1}
-    assert report["acceptance"]["remaining_rows"] == 1
-    assert "accepted_target_underfilled" in report["acceptance"]["publish_blockers"]
+    assert report["acceptance"]["candidate_rows"] == 2
+    assert report["acceptance"]["rejected_rows"] == 1
+    assert report["acceptance"]["publish_ready"] is True

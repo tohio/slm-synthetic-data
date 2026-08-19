@@ -9,16 +9,15 @@ def _target_block(makefile: str, target: str, next_target: str) -> str:
     return makefile.split(f"\n{target}:", 1)[1].split(f"\n{next_target}:", 1)[0]
 
 
-def test_sft_generation_targets_enforce_holdouts_and_support_explicit_resume():
+def test_sft_generation_targets_enforce_holdouts_and_candidate_plans():
     makefile = _makefile()
     smoke = _target_block(makefile, "sft-smoke", "sft-generate")
     generate = _target_block(makefile, "sft-generate", "sft-report")
 
     for block in (smoke, generate):
-        assert "--max-backfill-rounds $(SFT_MAX_BACKFILL_ROUNDS)" in block
-        assert "$(SFT_RESUME_ARG)" in block
         assert "--holdout-registry $(SFT_HOLDOUT_REGISTRY)" in block
-    assert "SFT_RESUME_ARG := $(if $(filter true yes 1,$(SFT_RESUME)),--resume,)" in makefile
+    assert "--count-per-family $(SFT_SMOKE_COUNT_PER_FAMILY)" in smoke
+    assert "--candidate-counts $(SFT_CANDIDATE_COUNTS)" in generate
 
 
 def test_sft_report_uses_run_manifest_and_required_holdout_registry():
@@ -37,4 +36,4 @@ def test_sft_generation_rebuilds_acceptance_report_after_completion():
     generate = _target_block(makefile, "sft-generate", "sft-report")
 
     assert "$(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)" in smoke
-    assert "$(MAKE) sft-report SFT_REPORT_RUN=$(SFT_TARGET_RUN)" in generate
+    assert "$(MAKE) sft-report SFT_REPORT_RUN=$(SFT_GENERATION_RUN)" in generate

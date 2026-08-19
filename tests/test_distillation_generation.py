@@ -66,7 +66,6 @@ def test_generate_and_materialize_signal_batch_writes_public_dataset_and_manifes
         teacher_model="openai/gpt-4.1-mini",
         generation_run="smoke-001",
         max_tokens=512,
-        token_target="100K",
         backend=backend,
     )
 

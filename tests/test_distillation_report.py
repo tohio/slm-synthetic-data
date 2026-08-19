@@ -28,15 +28,14 @@ def _write_run_manifest(path, datasets):
                 "generation_run": "smoke-001",
                 "teacher_model": "openai/gpt-4.1-mini",
                 "teacher_provider": "openrouter",
-                "token_target": "100K",
                 "datasets": datasets,
                 "total_rows": sum(dataset["row_count"] for dataset in datasets),
                 "metadata": {
-                    "target_rows": 5,
+                    "candidate_rows": 5,
                     "planned_prompt_rows": 5,
                     "accepted_rows": 5,
                     "rejected_rows": 0,
-                    "rows_per_signal": {"cloud": 2, "database": 3},
+                    "candidate_rows_per_signal": {"cloud": 2, "database": 3},
                 },
             },
             default=str,
@@ -81,14 +80,13 @@ def test_build_distillation_coverage_report_from_run_manifest(tmp_path):
     assert report["generation_run"] == "smoke-001"
     assert report["teacher_provider"] == "openrouter"
     assert report["teacher_model"] == "openai/gpt-4.1-mini"
-    assert report["token_target"] == "100K"
-    assert report["target_rows"] == 5
+    assert report["candidate_rows"] == 5
     assert report["planned_prompt_rows"] == 5
     assert report["accepted_rows"] == 5
     assert report["rejected_rows"] == 0
     assert report["row_count"] == 5
     assert report["signals"] == {"cloud": 2, "database": 3}
-    assert report["rows_per_signal"] == {"cloud": 2, "database": 3}
+    assert report["candidate_rows_per_signal"] == {"cloud": 2, "database": 3}
     assert report["categories"] == {"general_instruction_following": 5}
     assert report["eval_families"] == {"null": 5}
     assert report["template_families"] == {
@@ -112,14 +110,13 @@ def test_write_distillation_coverage_report_writes_json(tmp_path):
         "generation_run": "smoke-001",
         "teacher_model": "openai/gpt-4.1-mini",
         "teacher_provider": "openrouter",
-        "token_target": "100K",
-        "target_rows": None,
+        "candidate_rows": None,
         "planned_prompt_rows": None,
         "accepted_rows": 0,
         "rejected_rows": None,
         "row_count": 0,
         "signals": {},
-        "rows_per_signal": {},
+        "candidate_rows_per_signal": {},
         "dataset_paths": {},
         "manifest_paths": {},
     }

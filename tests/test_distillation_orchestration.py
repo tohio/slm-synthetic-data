@@ -3,7 +3,6 @@ import re
 
 import pytest
 
-from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.distillation_sft.orchestration import (
     generate_prompt_spec_multi_signal_run,
     generate_seed_multi_signal_run,
@@ -171,20 +170,23 @@ def test_normalize_signal_counts_uses_fixed_count_per_signal():
     assert counts == {"cloud": 3, "database": 3}
 
 
-def test_normalize_signal_counts_splits_target_rows_deterministically():
-    counts = normalize_signal_counts(signals=["cloud", "database", "debugging"], target_rows=8)
+def test_normalize_signal_counts_uses_explicit_candidate_counts():
+    counts = normalize_signal_counts(
+        signals=["cloud", "database", "debugging"],
+        counts_by_signal={"cloud": 3, "database": 3, "debugging": 2},
+    )
 
     assert counts == {"cloud": 3, "database": 3, "debugging": 2}
 
 
 def test_normalize_signal_counts_rejects_conflicting_planning_strategies():
     with pytest.raises(ValueError, match="only one"):
-        normalize_signal_counts(signals=["cloud"], count_per_signal=1, target_rows=1)
+        normalize_signal_counts(signals=["cloud"], count_per_signal=1, counts_by_signal={"cloud": 1})
 
 
-def test_normalize_signal_counts_requires_target_rows_for_each_signal():
-    with pytest.raises(ValueError, match="at least the number of requested signals"):
-        normalize_signal_counts(signals=["cloud", "database"], target_rows=1)
+def test_normalize_signal_counts_requires_every_explicit_signal():
+    with pytest.raises(ValueError, match="exactly match"):
+        normalize_signal_counts(signals=["cloud", "database"], counts_by_signal={"cloud": 1})
 
 
 def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_signal(tmp_path):
@@ -203,7 +205,6 @@ def test_generate_seed_multi_signal_run_writes_one_dataset_and_manifest_per_sign
         teacher_model="openai/gpt-4.1-mini",
         generation_run="smoke-001",
         max_tokens=512,
-        token_target="100K",
         concurrency=2,
         backend_factory=backend_factory,
     )
@@ -294,7 +295,7 @@ def test_generate_seed_multi_signal_run_aggregates_llm_telemetry_across_signals(
 def test_generate_prompt_spec_multi_signal_run_uses_production_prompt_specs(tmp_path):
     result = generate_prompt_spec_multi_signal_run(
         signals=["arithmetic"],
-        target_rows=2,
+        counts_by_signal={"arithmetic": 2},
         output_dir=tmp_path / "datasets",
         manifest_dir=tmp_path / "manifests",
         teacher_model="openai/gpt-4.1-mini",
@@ -322,13 +323,13 @@ def test_generate_prompt_spec_multi_signal_run_uses_production_prompt_specs(tmp_
     assert signal_manifest["metadata"]["rejection_reasons"] == {}
     assert signal_manifest["metadata"]["response_quality"]["accepted_rows"] == 2
     assert run_manifest["metadata"]["prompt_source"] == "production_spec"
-    assert run_manifest["metadata"]["target_rows"] == 2
+    assert run_manifest["metadata"]["candidate_rows"] == 2
     assert run_manifest["metadata"]["planned_prompt_rows"] == 2
     assert run_manifest["metadata"]["accepted_rows"] == 2
     assert run_manifest["metadata"]["rejected_rows"] == 0
     assert run_manifest["metadata"]["rejection_reasons"] == {}
     assert run_manifest["metadata"]["response_quality"]["accepted_rows"] == 2
-    assert run_manifest["metadata"]["rows_per_signal"] == {"arithmetic": 2}
+    assert run_manifest["metadata"]["candidate_rows_per_signal"] == {"arithmetic": 2}
     assert run_manifest["metadata"]["signals"] == ["arithmetic"]
     assert run_manifest["metadata"]["prompt_preflight"]["prompt_count"] == 2
     assert run_manifest["metadata"]["prompt_preflight"]["require_unique_prompt_text"] is True
@@ -463,10 +464,10 @@ class OneRejectedCloudBackend(PromptIdBackend):
         return "Use autoscaling to add capacity during traffic spikes."
 
 
-def test_generate_prompt_spec_multi_signal_run_backfills_response_rejections(tmp_path):
+def test_generate_prompt_spec_multi_signal_run_preserves_response_rejections_as_outcomes(tmp_path):
     result = generate_prompt_spec_multi_signal_run(
         signals=["cloud"],
-        target_rows=2,
+        counts_by_signal={"cloud": 2},
         output_dir=tmp_path / "datasets",
         manifest_dir=tmp_path / "manifests",
         teacher_model="openai/gpt-4.1-mini",
@@ -475,56 +476,25 @@ def test_generate_prompt_spec_multi_signal_run_backfills_response_rejections(tmp
         backend_factory=lambda signal: OneRejectedCloudBackend(),
     )
 
-    assert result.row_count == 2
+    assert result.row_count == 1
     rows = [
         json.loads(line)
         for line in (tmp_path / "datasets" / "cloud.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert [row["id"] for row in rows] == ["cloud-000001", "cloud-000003"]
+    assert [row["id"] for row in rows] == ["cloud-000001"]
 
     signal_manifest = json.loads((tmp_path / "manifests" / "cloud.target-001.manifest.json").read_text())
     run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
-    assert signal_manifest["metadata"]["target_prompt_rows"] == 2
-    assert signal_manifest["metadata"]["planned_prompt_rows"] == 3
-    assert signal_manifest["metadata"]["accepted_rows"] == 2
+    assert signal_manifest["metadata"]["candidate_rows"] == 2
+    assert signal_manifest["metadata"]["planned_prompt_rows"] == 2
+    assert signal_manifest["metadata"]["accepted_rows"] == 1
     assert signal_manifest["metadata"]["rejected_rows"] == 1
-    assert signal_manifest["metadata"]["remaining_rows"] == 0
     assert signal_manifest["metadata"]["generation_status"] == "complete"
     assert signal_manifest["metadata"]["publish_ready"] is True
-    assert signal_manifest["metadata"]["backfill_rounds"] == 1
     assert signal_manifest["metadata"]["rejection_reasons"] == {"too_short_response": 1}
-    assert signal_manifest["metadata"]["response_quality"]["checked_rows"] == 3
-    assert run_manifest["metadata"]["accepted_rows"] == 2
+    assert signal_manifest["metadata"]["response_quality"]["checked_rows"] == 2
+    assert run_manifest["metadata"]["accepted_rows"] == 1
     assert run_manifest["metadata"]["rejected_rows"] == 1
-    assert run_manifest["metadata"]["remaining_rows"] == 0
     assert run_manifest["metadata"]["generation_status"] == "complete"
     assert run_manifest["metadata"]["publish_ready"] is True
     assert run_manifest["metadata"]["rejection_reasons"] == {"too_short_response": 1}
-
-
-def test_generate_prompt_spec_multi_signal_run_fails_underfill_when_backfill_budget_is_zero(tmp_path):
-    with pytest.raises(UnderfilledRunError, match="distillation-sft.*underfilled.*remaining=1"):
-        generate_prompt_spec_multi_signal_run(
-            signals=["cloud"],
-            target_rows=2,
-            output_dir=tmp_path / "datasets",
-            manifest_dir=tmp_path / "manifests",
-            teacher_model="openai/gpt-4.1-mini",
-            generation_run="target-001",
-            max_tokens=512,
-            max_backfill_rounds=0,
-            backend_factory=lambda signal: OneRejectedCloudBackend(),
-        )
-
-    signal_manifest = json.loads((tmp_path / "manifests" / "cloud.target-001.manifest.json").read_text())
-    run_manifest = json.loads((tmp_path / "manifests" / "target-001.manifest.json").read_text())
-    assert signal_manifest["metadata"]["remaining_rows"] == 1
-    assert signal_manifest["metadata"]["generation_status"] == "underfilled"
-    assert signal_manifest["metadata"]["publish_ready"] is False
-    assert signal_manifest["metadata"]["failure_status"] == "failed"
-    assert signal_manifest["metadata"]["run_failed"] is True
-    assert run_manifest["metadata"]["remaining_rows"] == 1
-    assert run_manifest["metadata"]["generation_status"] == "underfilled"
-    assert run_manifest["metadata"]["publish_ready"] is False
-    assert run_manifest["metadata"]["failure_status"] == "failed"
-    assert run_manifest["metadata"]["run_failed"] is True

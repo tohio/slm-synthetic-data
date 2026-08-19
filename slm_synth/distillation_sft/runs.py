@@ -68,7 +68,6 @@ def materialize_teacher_batch(
     teacher_model: str,
     generation_run: str,
     teacher_provider: str = "openrouter",
-    token_target: str | int | None = None,
     dataset_filename: str | None = None,
     manifest_filename: str | None = None,
     metadata: Mapping[str, Any] | None = None,
@@ -113,7 +112,6 @@ def materialize_teacher_batch(
         teacher_model=teacher_model,
         teacher_provider=teacher_provider,
         generation_run=generation_run,
-        token_target=token_target,
         metadata={
             **dict(metadata or {}),
             "prompt_count": len(records),

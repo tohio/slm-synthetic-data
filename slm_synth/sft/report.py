@@ -32,12 +32,7 @@ def build_coverage_report(
     content = build_sft_content_summary(rows)
     unique_rows, visible_acceptance = partition_unique_sft_rows(rows)
     manifest_metadata = _read_run_manifest_metadata(run_manifest)
-    accepted_target = manifest_metadata.get("accepted_target", {})
-    if not isinstance(accepted_target, dict):
-        accepted_target = {}
-
     attempted_rows = _non_negative_int(
-        accepted_target.get("attempted"),
         manifest_metadata.get("attempted_rows"),
         len(rows),
     )
@@ -47,28 +42,17 @@ def build_coverage_report(
     )
     rejected_rows = _non_negative_int(manifest_metadata.get("rejected_rows"), 0)
     accepted_rows = len(unique_rows)
-    target_rows = _non_negative_int(
-        accepted_target.get("target"),
-        manifest_metadata.get("planned_rows"),
-        attempted_rows,
-    )
-    remaining_rows = max(
-        _non_negative_int(
-            accepted_target.get("remaining"),
-            manifest_metadata.get("remaining_rows"),
-            0,
-        ),
-        target_rows - accepted_rows,
-    )
+    candidate_rows = _non_negative_int(manifest_metadata.get("candidate_rows"), attempted_rows)
 
     holdouts = _build_holdout_summary(rows, holdout_registry)
     blockers = _publish_blockers(
         content=content,
         holdouts=holdouts,
-        remaining_rows=remaining_rows,
         manifest_metadata=manifest_metadata,
         require_holdout_check=require_holdout_check,
     )
+    if not unique_rows:
+        blockers.append("empty_dataset")
 
     return {
         "dataset_type": "sft",
@@ -82,13 +66,13 @@ def build_coverage_report(
         "holdouts": holdouts,
         "acceptance": {
             "attempted_rows": attempted_rows,
+            "candidate_rows": candidate_rows,
             "accepted_rows": accepted_rows,
             "rejected_rows": rejected_rows,
             "rejection_reason_counts": _count_mapping(
                 manifest_metadata.get("rejection_reason_counts")
             ),
             "duplicate_rows": duplicate_rows,
-            "remaining_rows": remaining_rows,
             "publish_ready": not blockers,
             "publish_blockers": blockers,
         },
@@ -174,13 +158,16 @@ def _build_family_reports(
             family,
             max(attempted - len(unique_rows) - duplicates, 0),
         )
-        target = _family_count(manifest_metadata, "rows_per_family", family, attempted)
-        remaining = max(target - len(unique_rows), 0)
+        candidate_rows = _family_count(
+            manifest_metadata,
+            "candidate_rows_per_family",
+            family,
+            attempted,
+        )
         holdouts = _build_holdout_summary(family_rows, holdout_registry)
         blockers = _publish_blockers(
             content=content,
             holdouts=holdouts,
-            remaining_rows=remaining,
             manifest_metadata={},
             require_holdout_check=require_holdout_check,
         )
@@ -193,10 +180,10 @@ def _build_family_reports(
             "holdouts": holdouts,
             "acceptance": {
                 "attempted_rows": attempted,
+                "candidate_rows": candidate_rows,
                 "accepted_rows": len(unique_rows),
                 "rejected_rows": rejected,
                 "duplicate_rows": duplicates,
-                "remaining_rows": remaining,
                 "publish_ready": not blockers,
                 "publish_blockers": blockers,
             },
@@ -229,7 +216,6 @@ def _publish_blockers(
     *,
     content: dict[str, Any],
     holdouts: dict[str, Any],
-    remaining_rows: int,
     manifest_metadata: dict[str, Any],
     require_holdout_check: bool,
 ) -> list[str]:
@@ -245,8 +231,6 @@ def _publish_blockers(
         blockers.append("eval_holdout_collisions")
     if require_holdout_check and holdouts["status"] != "checked":
         blockers.append("holdouts_not_checked")
-    if remaining_rows:
-        blockers.append("accepted_target_underfilled")
     if manifest_metadata and manifest_metadata.get("publish_ready") is False:
         blockers.append("run_manifest_not_publish_ready")
     return blockers
