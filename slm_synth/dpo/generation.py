@@ -12,10 +12,18 @@ from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
 )
 from slm_synth.dpo.batches import (
+    DPO_CHOSEN_BATCH_RESPONSE_SCHEMA,
+    DPO_REJECTED_BATCH_RESPONSE_SCHEMA,
     DPO_BATCH_RESPONSE_SCHEMA,
+    merge_dpo_generation_stages,
+    render_dpo_chosen_prompt,
+    render_dpo_rejected_prompt,
     render_dpo_batch_prompt,
+    validate_dpo_chosen_stage,
     validate_dpo_batch_response,
 )
+from slm_synth.dpo.adjudication import adjudicate_dpo_rows
+from slm_synth.quality_adjudication import combine_telemetry
 from slm_synth.dpo.io import write_jsonl
 from slm_synth.dpo.manifest import write_manifest
 from slm_synth.dpo.specs import validate_dpo_spec
@@ -161,6 +169,8 @@ def generate_llm_batch(
     teacher_model: str,
     generation_run: str,
     max_tokens: int,
+    adjudicator_model: str | None = None,
+    adjudicator_max_tokens: int | None = None,
     teacher_provider: str = "openrouter",
     temperature: float = 0.2,
     top_p: float = 0.95,
@@ -175,6 +185,7 @@ def generate_llm_batch(
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
+    adjudicator_backend: StructuredTeacherBackend | None = None,
 ) -> DPOLLMBatchResult:
     """Generate one DPO batch with OpenRouter and write dataset + manifest."""
     provider = _validate_teacher_provider(teacher_provider)
@@ -198,11 +209,50 @@ def generate_llm_batch(
             openrouter_routing_mode=openrouter_routing_mode,
             openrouter_provider=openrouter_provider,
         )
-    teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
-        specs=validated_specs,
-        backend=active_backend,
-    )
     try:
+        chosen_response, chosen_telemetry = _generate_dpo_stage(
+            backend=active_backend,
+            prompt=render_dpo_chosen_prompt(validated_specs),
+            schema=DPO_CHOSEN_BATCH_RESPONSE_SCHEMA,
+            schema_name="dpo_chosen_batch",
+            error_prefix="DPO chosen renderer",
+        )
+        chosen_items = validate_dpo_chosen_stage(chosen_response, specs=validated_specs)
+        rejected_response, rejected_telemetry = _generate_dpo_stage(
+            backend=active_backend,
+            prompt=render_dpo_rejected_prompt(validated_specs, chosen_items),
+            schema=DPO_REJECTED_BATCH_RESPONSE_SCHEMA,
+            schema_name="dpo_rejected_batch",
+            error_prefix="DPO rejected renderer",
+        )
+        teacher_response = merge_dpo_generation_stages(
+            specs=validated_specs,
+            chosen_response=chosen_response,
+            rejected_response=rejected_response,
+        )
+        rows = _validate_candidate_rows(
+            specs=validated_specs,
+            teacher_response=teacher_response,
+            holdout_registry=holdout_registry,
+        )
+        active_adjudicator = adjudicator_backend or build_openrouter_backend(
+            model=adjudicator_model if adjudicator_model is not None else teacher_model,
+            max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            openrouter_routing_mode=openrouter_routing_mode,
+            openrouter_provider=openrouter_provider,
+        )
+        decisions, adjudication_telemetry = adjudicate_dpo_rows(
+            specs=validated_specs, rows=rows, backend=active_adjudicator
+        )
+        telemetry = combine_telemetry(chosen_telemetry, rejected_telemetry, adjudication_telemetry)
         return materialize_llm_batch(
             specs=validated_specs,
             teacher_response=teacher_response,
@@ -215,12 +265,28 @@ def generate_llm_batch(
                 "generation_mode": "live_llm_batch",
                 "spec_count": len(validated_specs),
                 "llm_telemetry": telemetry,
+                "llm_stage_telemetry": {
+                    "chosen_renderer": chosen_telemetry,
+                    "rejected_renderer": rejected_telemetry,
+                    "adjudicator": adjudication_telemetry,
+                },
+                "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
+                "quality_adjudication": decisions,
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
         )
     except DPOBatchAcceptanceError as exc:
-        raise DPOBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
+        raise DPOBatchAcceptanceError(str(exc), telemetry=locals().get("telemetry", {})) from exc
+    except (TypeError, ValueError) as exc:
+        available = locals().get("telemetry")
+        if not isinstance(available, Mapping):
+            available = combine_telemetry(
+                locals().get("chosen_telemetry", {}),
+                locals().get("rejected_telemetry", {}),
+                locals().get("adjudication_telemetry", {}),
+            )
+        raise DPOBatchAcceptanceError(str(exc), telemetry=available) from exc
 
 
 def generate_llm_batch_from_files(
@@ -231,6 +297,8 @@ def generate_llm_batch_from_files(
     teacher_model: str,
     generation_run: str,
     max_tokens: int,
+    adjudicator_model: str | None = None,
+    adjudicator_max_tokens: int | None = None,
     teacher_provider: str = "openrouter",
     temperature: float = 0.2,
     top_p: float = 0.95,
@@ -245,6 +313,7 @@ def generate_llm_batch_from_files(
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
+    adjudicator_backend: StructuredTeacherBackend | None = None,
 ) -> DPOLLMBatchResult:
     """Read DPO specs, call OpenRouter, then materialize the generated batch."""
     return generate_llm_batch(
@@ -255,6 +324,8 @@ def generate_llm_batch_from_files(
         teacher_provider=teacher_provider,
         generation_run=generation_run,
         max_tokens=max_tokens,
+        adjudicator_model=adjudicator_model,
+        adjudicator_max_tokens=adjudicator_max_tokens,
         temperature=temperature,
         top_p=top_p,
         request_timeout=request_timeout,
@@ -268,6 +339,7 @@ def generate_llm_batch_from_files(
         metadata=metadata,
         holdout_registry=holdout_registry,
         backend=backend,
+        adjudicator_backend=adjudicator_backend,
     )
 
 
@@ -296,17 +368,11 @@ def materialize_llm_batch(
         raise ValueError("DPO specs contain duplicate id(s)")
 
     try:
-        repaired_response = _repair_identical_rejected_answers(
-            teacher_response=teacher_response,
+        rows = _validate_candidate_rows(
             specs=validated_specs,
+            teacher_response=teacher_response,
+            holdout_registry=holdout_registry,
         )
-        rows = validate_dpo_batch_response(
-            repaired_response,
-            expected_ids=expected_ids,
-            expected_count=len(validated_specs),
-            expected_specs=validated_specs,
-        )
-        _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
     except (TypeError, ValueError) as exc:
         raise DPOBatchAcceptanceError(str(exc)) from exc
 
@@ -362,52 +428,32 @@ def materialize_llm_batch_from_files(
     )
 
 
-def _repair_identical_rejected_answers(
-    *,
-    teacher_response: Mapping[str, Any],
-    specs: Iterable[Mapping[str, Any]],
-) -> dict[str, Any]:
-    """Repair only copied rejected answers with explicit local rejected targets."""
-    items = teacher_response.get("items")
-    if not isinstance(items, list):
-        return dict(teacher_response)
-
-    spec_by_id = {str(spec["id"]): spec for spec in specs}
-    repaired_items: list[Any] = []
-    changed = False
-    for item in items:
-        if not isinstance(item, Mapping):
-            repaired_items.append(item)
-            continue
-        repaired_item = dict(item)
-        spec = spec_by_id.get(str(repaired_item.get("id")))
-        rejected_answer = _spec_rejected_answer(spec)
-        if rejected_answer and _messages_are_identical(repaired_item.get("chosen"), repaired_item.get("rejected")):
-            repaired_item["rejected"] = [{"role": "assistant", "content": rejected_answer}]
-            changed = True
-        repaired_items.append(repaired_item)
-
-    if not changed:
-        return dict(teacher_response)
-    repaired = dict(teacher_response)
-    repaired["items"] = repaired_items
-    return repaired
+def _generate_dpo_stage(
+    *, backend: StructuredTeacherBackend, prompt: str, schema: dict[str, Any],
+    schema_name: str, error_prefix: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    result = backend.generate_structured_object_with_metadata(
+        prompt=prompt, schema=schema, schema_name=schema_name
+    )
+    data = result.get("data")
+    if not isinstance(data, Mapping):
+        raise ValueError(f"{error_prefix} returned non-object data")
+    telemetry = result.get("telemetry")
+    return dict(data), dict(telemetry) if isinstance(telemetry, Mapping) else {}
 
 
-def _spec_rejected_answer(spec: Mapping[str, Any] | None) -> str | None:
-    if not isinstance(spec, Mapping):
-        return None
-    variables = spec.get("variables")
-    if not isinstance(variables, Mapping):
-        return None
-    rejected_answer = variables.get("rejected_answer")
-    if not isinstance(rejected_answer, str) or not rejected_answer.strip():
-        return None
-    return rejected_answer.strip()
-
-
-def _messages_are_identical(left: Any, right: Any) -> bool:
-    return isinstance(left, list) and isinstance(right, list) and left == right
+def _validate_candidate_rows(
+    *, specs: list[dict[str, Any]], teacher_response: Mapping[str, Any],
+    holdout_registry: HoldoutRegistry | None
+) -> list[dict[str, Any]]:
+    rows = validate_dpo_batch_response(
+        teacher_response,
+        expected_ids=[spec["id"] for spec in specs],
+        expected_count=len(specs),
+        expected_specs=specs,
+    )
+    _reject_holdout_matches(rows=rows, specs=specs, holdout_registry=holdout_registry)
+    return rows
 
 
 def _reject_holdout_matches(

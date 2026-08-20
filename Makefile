@@ -111,10 +111,12 @@ SFT_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
 SFT_GENERATION_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
 SFT_RUN_ROOT ?= data/sft/runs
 SFT_MODEL ?= $(MODEL)
+SFT_ADJUDICATOR_MODEL ?= $(SFT_MODEL)
 SFT_INITIAL_CONCURRENCY ?= 8
 SFT_INITIAL_BATCH_SIZE ?= 4
 SFT_BATCH_INCREASE_SUCCESSES ?= 4
 SFT_MAX_TOKENS ?= 4096
+SFT_ADJUDICATOR_MAX_TOKENS ?= $(SFT_MAX_TOKENS)
 SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-sft,))
@@ -137,6 +139,7 @@ DPO_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
 DPO_TARGET_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
 DPO_RUN_ROOT ?= data/dpo/runs
 DPO_MODEL ?= $(MODEL)
+DPO_ADJUDICATOR_MODEL ?= $(DPO_MODEL)
 DPO_INITIAL_CONCURRENCY ?= 8
 DPO_INITIAL_BATCH_SIZE ?= 4
 DPO_BATCH_INCREASE_SUCCESSES ?= 4
@@ -144,6 +147,7 @@ DPO_MAX_BACKFILL_ROUNDS ?= 2
 DPO_RESUME ?= false
 DPO_RESUME_ARG := $(if $(filter true yes 1,$(DPO_RESUME)),--resume,)
 DPO_MAX_TOKENS ?= 4096
+DPO_ADJUDICATOR_MAX_TOKENS ?= $(DPO_MAX_TOKENS)
 DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-dpo,))
@@ -456,6 +460,8 @@ sft-smoke:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
+>   --adjudicator-model $(SFT_ADJUDICATOR_MODEL) \
+>   --adjudicator-max-tokens $(SFT_ADJUDICATOR_MAX_TOKENS) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
@@ -475,6 +481,8 @@ sft-generate:
 >   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_GENERATION_RUN) \
 >   --max-tokens $(SFT_MAX_TOKENS) \
+>   --adjudicator-model $(SFT_ADJUDICATOR_MODEL) \
+>   --adjudicator-max-tokens $(SFT_ADJUDICATOR_MAX_TOKENS) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(SFT_GENERATION_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
@@ -515,6 +523,8 @@ dpo-smoke:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
+>   --adjudicator-model $(DPO_ADJUDICATOR_MODEL) \
+>   --adjudicator-max-tokens $(DPO_ADJUDICATOR_MAX_TOKENS) \
 >   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_CONCURRENCY) \
@@ -535,6 +545,8 @@ dpo-generate:
 >   --teacher-model $(DPO_MODEL) \
 >   --generation-run $(DPO_TARGET_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
+>   --adjudicator-model $(DPO_ADJUDICATOR_MODEL) \
+>   --adjudicator-max-tokens $(DPO_ADJUDICATOR_MAX_TOKENS) \
 >   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_TARGET_CONCURRENCY) \

@@ -13,6 +13,7 @@ sft/
 ├── spec_builders.py  # scalable family spec builders
 ├── specs.py          # teacher-visible spec validation
 ├── batches.py        # batch prompt and response contract
+├── adjudication.py   # independent semantic quality gate
 ├── generation.py     # one-batch materialization/generation
 ├── acceptance.py     # normalized output uniqueness and acceptance
 ├── runs.py           # multi-family candidate generation and acceptance
@@ -45,3 +46,13 @@ task families. `python -m slm_synth.alignment_preflight --kind sft` validates
 the complete 60-source catalog, semantic-source uniqueness, near-duplicates,
 template concentration, and axis coverage. Run orchestration calls this gate
 before constructing a paid teacher backend.
+
+Live candidates are rendered from the complete grounded brief, then checked
+locally for schema, metadata, interaction, tool, and output-mode compliance.
+An independent structured adjudication call scores correctness, grounding,
+instruction adherence, completeness, and coherence and verifies every source
+constraint. A candidate is written only when every score is at least 3/4 and
+every constraint passes. `SFT_ADJUDICATOR_MODEL` and
+`SFT_ADJUDICATOR_MAX_TOKENS` default to the renderer settings but can be
+overridden; both roles retain the same routing, retry, backoff, and adaptive
+request controls.

@@ -7,6 +7,7 @@ from slm_synth.dpo.generation import (
     materialize_llm_batch, materialize_llm_batch_from_files,
 )
 from slm_synth.dpo.spec_builders import build_specs
+from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPOBackend
 
 
 class Backend:
@@ -72,7 +73,8 @@ def test_generate_llm_batch_writes_teacher_generated_pairs(tmp_path):
     specs = build_specs(family="code_correctness", count=2)
     result = generate_llm_batch(
         specs=specs, output_path=tmp_path / "dpo.jsonl", manifest_path=tmp_path / "dpo.manifest.json",
-        teacher_model="teacher/model", generation_run="dpo-001", max_tokens=1024, backend=Backend(),
+        teacher_model="teacher/model", generation_run="dpo-001", max_tokens=1024,
+        backend=StagedDPOBackend(Backend()), adjudicator_backend=AcceptingAdjudicatorBackend(),
     )
     assert result.row_count == 2
     assert len((tmp_path / "dpo.jsonl").read_text().splitlines()) == 2

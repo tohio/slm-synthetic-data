@@ -20,6 +20,8 @@ from slm_synth.sft.batches import (
 from slm_synth.sft.io import write_jsonl
 from slm_synth.sft.manifest import write_manifest
 from slm_synth.sft.specs import validate_sft_spec
+from slm_synth.sft.adjudication import adjudicate_sft_rows
+from slm_synth.quality_adjudication import combine_telemetry
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 if TYPE_CHECKING:
@@ -162,6 +164,8 @@ def generate_llm_batch(
     teacher_model: str,
     generation_run: str,
     max_tokens: int,
+    adjudicator_model: str | None = None,
+    adjudicator_max_tokens: int | None = None,
     teacher_provider: str = "openrouter",
     temperature: float = 0.2,
     top_p: float = 0.95,
@@ -176,6 +180,7 @@ def generate_llm_batch(
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
+    adjudicator_backend: StructuredTeacherBackend | None = None,
 ) -> SFTLLMBatchResult:
     """Generate one SFT batch with OpenRouter and write dataset + manifest."""
     provider = _validate_teacher_provider(teacher_provider)
@@ -202,6 +207,29 @@ def generate_llm_batch(
         backend=active_backend,
     )
     try:
+        rows = _validate_candidate_rows(
+            specs=validated_specs,
+            teacher_response=teacher_response,
+            holdout_registry=holdout_registry,
+        )
+        active_adjudicator = adjudicator_backend or build_openrouter_backend(
+            model=adjudicator_model if adjudicator_model is not None else teacher_model,
+            max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            openrouter_routing_mode=openrouter_routing_mode,
+            openrouter_provider=openrouter_provider,
+        )
+        decisions, adjudication_telemetry = adjudicate_sft_rows(
+            specs=validated_specs, rows=rows, backend=active_adjudicator
+        )
+        combined_telemetry = combine_telemetry(telemetry, adjudication_telemetry)
         return materialize_llm_batch(
             specs=validated_specs,
             teacher_response=teacher_response,
@@ -213,12 +241,20 @@ def generate_llm_batch(
             metadata={
                 "generation_mode": "live_llm_batch",
                 "spec_count": len(validated_specs),
-                "llm_telemetry": telemetry,
+                "llm_telemetry": combined_telemetry,
+                "llm_stage_telemetry": {
+                    "renderer": telemetry,
+                    "adjudicator": adjudication_telemetry,
+                },
+                "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
+                "quality_adjudication": decisions,
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
         )
     except SFTBatchAcceptanceError as exc:
+        raise SFTBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
+    except (TypeError, ValueError) as exc:
         raise SFTBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
 
 
@@ -230,6 +266,8 @@ def generate_llm_batch_from_files(
     teacher_model: str,
     generation_run: str,
     max_tokens: int,
+    adjudicator_model: str | None = None,
+    adjudicator_max_tokens: int | None = None,
     teacher_provider: str = "openrouter",
     temperature: float = 0.2,
     top_p: float = 0.95,
@@ -244,6 +282,7 @@ def generate_llm_batch_from_files(
     metadata: Mapping[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
+    adjudicator_backend: StructuredTeacherBackend | None = None,
 ) -> SFTLLMBatchResult:
     """Read SFT specs, call OpenRouter, then materialize the generated batch."""
     return generate_llm_batch(
@@ -254,6 +293,8 @@ def generate_llm_batch_from_files(
         teacher_provider=teacher_provider,
         generation_run=generation_run,
         max_tokens=max_tokens,
+        adjudicator_model=adjudicator_model,
+        adjudicator_max_tokens=adjudicator_max_tokens,
         temperature=temperature,
         top_p=top_p,
         request_timeout=request_timeout,
@@ -267,6 +308,7 @@ def generate_llm_batch_from_files(
         metadata=metadata,
         holdout_registry=holdout_registry,
         backend=backend,
+        adjudicator_backend=adjudicator_backend,
     )
 
 
@@ -295,13 +337,11 @@ def materialize_llm_batch(
         raise ValueError("SFT specs contain duplicate id(s)")
 
     try:
-        rows = validate_sft_batch_response(
-            teacher_response,
-            expected_ids=expected_ids,
-            expected_count=len(validated_specs),
+        rows = _validate_candidate_rows(
+            specs=validated_specs,
+            teacher_response=teacher_response,
+            holdout_registry=holdout_registry,
         )
-        validate_sft_rows_against_specs(rows, validated_specs)
-        _reject_holdout_matches(rows=rows, specs=validated_specs, holdout_registry=holdout_registry)
     except (TypeError, ValueError) as exc:
         raise SFTBatchAcceptanceError(str(exc)) from exc
 
@@ -329,6 +369,19 @@ def materialize_llm_batch(
         teacher_model=model,
         teacher_provider=provider,
     )
+
+
+def _validate_candidate_rows(
+    *, specs: list[dict[str, Any]], teacher_response: Mapping[str, Any],
+    holdout_registry: HoldoutRegistry | None
+) -> list[dict[str, Any]]:
+    expected_ids = [spec["id"] for spec in specs]
+    rows = validate_sft_batch_response(
+        teacher_response, expected_ids=expected_ids, expected_count=len(specs)
+    )
+    validate_sft_rows_against_specs(rows, specs)
+    _reject_holdout_matches(rows=rows, specs=specs, holdout_registry=holdout_registry)
+    return rows
 
 
 def materialize_llm_batch_from_files(

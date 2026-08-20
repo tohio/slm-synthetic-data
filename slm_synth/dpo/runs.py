@@ -65,6 +65,8 @@ def generate_llm_run(
     teacher_model: str,
     generation_run: str,
     max_tokens: int,
+    adjudicator_model: str | None = None,
+    adjudicator_max_tokens: int | None = None,
     start_index: int = 1,
     teacher_provider: str = "openrouter",
     temperature: float = 0.2,
@@ -86,6 +88,7 @@ def generate_llm_run(
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
+    adjudicator_backend: StructuredTeacherBackend | None = None,
 ) -> DPOLLMRunResult:
     """Build specs and generate DPO datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
@@ -117,6 +120,8 @@ def generate_llm_run(
         start_index=start_index,
         teacher_model=teacher_model,
         teacher_provider=teacher_provider,
+        adjudicator_model=adjudicator_model if adjudicator_model is not None else teacher_model,
+        adjudicator_max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
     )
     if resume_state["complete"]:
         return DPOLLMRunResult(
@@ -162,6 +167,7 @@ def generate_llm_run(
     preflight_dpo_inventory()
 
     active_backend = backend
+    active_adjudicator_backend = adjudicator_backend
 
     def get_backend() -> StructuredTeacherBackend:
         nonlocal active_backend
@@ -182,6 +188,25 @@ def generate_llm_run(
             )
         return active_backend
 
+    def get_adjudicator_backend() -> StructuredTeacherBackend:
+        nonlocal active_adjudicator_backend
+        if active_adjudicator_backend is None:
+            active_adjudicator_backend = build_openrouter_backend(
+                model=adjudicator_model if adjudicator_model is not None else teacher_model,
+                max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                request_timeout=request_timeout,
+                max_request_retries=max_request_retries,
+                max_retryable_request_attempts=max_retryable_request_attempts,
+                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                adaptive_initial_in_flight=adaptive_initial_in_flight,
+                openrouter_routing_mode=openrouter_routing_mode,
+                openrouter_provider=openrouter_provider,
+            )
+        return active_adjudicator_backend
+
     def run_job(job: dict[str, Any]) -> Any:
         return generate_llm_batch(
             specs=job["specs"],
@@ -191,6 +216,8 @@ def generate_llm_run(
             teacher_provider=teacher_provider,
             generation_run=generation_run,
             max_tokens=max_tokens,
+            adjudicator_model=adjudicator_model,
+            adjudicator_max_tokens=adjudicator_max_tokens,
             temperature=temperature,
             top_p=top_p,
             request_timeout=request_timeout,
@@ -211,6 +238,7 @@ def generate_llm_run(
             },
             holdout_registry=holdout_registry,
             backend=get_backend(),
+            adjudicator_backend=get_adjudicator_backend(),
         )
 
     results: list[Any] = []
@@ -402,6 +430,8 @@ def generate_llm_run(
         metadata={
             "generation_mode": "live_llm_run",
             "planning_mode": count_plan.planning_mode,
+            "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
+            "adjudicator_max_tokens": adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
             "target_pairs": target_pairs,
             "planned_pairs": planned_pairs,
             "accepted_pairs": accepted_pairs,
@@ -646,6 +676,8 @@ def _load_resume_state(
     start_index: int,
     teacher_model: str,
     teacher_provider: str,
+    adjudicator_model: str,
+    adjudicator_max_tokens: int,
 ) -> dict[str, Any]:
     if not resume:
         return _empty_resume_state(families=families, start_index=start_index)
@@ -665,6 +697,11 @@ def _load_resume_state(
     metadata = manifest.get("metadata")
     if not isinstance(metadata, dict):
         raise ValueError("DPO resume manifest is missing metadata")
+    if (
+        metadata.get("adjudicator_model") != adjudicator_model
+        or metadata.get("adjudicator_max_tokens") != adjudicator_max_tokens
+    ):
+        raise ValueError("DPO resume adjudicator configuration does not match the existing run manifest")
     if metadata.get("pairs_per_family") != target_pairs_per_family or metadata.get("start_index") != start_index:
         raise ValueError("DPO resume source plan does not match the existing run manifest")
     next_source_indexes = metadata.get("next_start_index_per_family")

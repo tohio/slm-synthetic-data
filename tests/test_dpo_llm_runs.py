@@ -5,6 +5,14 @@ import pytest
 from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.dpo.runs import generate_llm_run, resolve_spec_families
 from slm_synth.dpo.spec_builders import DPO_SPEC_CAPACITIES
+from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPOBackend
+
+
+def generation_backends(backend):
+    return {
+        "backend": StagedDPOBackend(backend),
+        "adjudicator_backend": AcceptingAdjudicatorBackend(),
+    }
 
 
 def _fake_row_from_spec(spec):
@@ -113,7 +121,7 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
         max_tokens=1024,
         concurrency=2,
         max_backfill_rounds=0,
-        backend=backend,
+        **generation_backends(backend),
     )
 
     assert result.row_count == 3
@@ -135,8 +143,8 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["metadata"]["concurrency"] == 2
     assert manifest["metadata"]["adaptive_maximum_in_flight"] == 2
     assert manifest["metadata"]["adaptive_initial_in_flight"] == 8
-    assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 2
-    assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 24
+    assert manifest["metadata"]["llm_telemetry"]["batch_count"] == 6
+    assert manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 40
     assert manifest["metadata"]["attempted_pairs"] == 3
     assert manifest["metadata"]["accepted_pairs"] == 3
     assert manifest["metadata"]["duplicate_pairs"] == 0
@@ -146,7 +154,7 @@ def test_generate_dpo_llm_run_writes_batches_and_run_manifest(tmp_path):
     assert manifest["datasets"][0]["batch_count"] == 2
     assert len(manifest["datasets"][0]["batch_manifests"]) == 2
     batch_manifest = json.loads((tmp_path / "manifests" / "helpfulness_and_completeness.batch000001.dpo-live-run-001.manifest.json").read_text())
-    assert batch_manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 12
+    assert batch_manifest["metadata"]["llm_telemetry"]["usage"]["total_tokens"] == 20
 
 
 def test_generate_dpo_llm_run_supports_multiple_families(tmp_path):
@@ -161,7 +169,7 @@ def test_generate_dpo_llm_run_supports_multiple_families(tmp_path):
         teacher_model="openai/gpt-4.1-mini",
         generation_run="dpo-live-run-001",
         max_tokens=1024,
-        backend=backend,
+        **generation_backends(backend),
     )
 
     assert result.row_count == 2
@@ -183,7 +191,7 @@ def test_generate_dpo_llm_run_reduces_batch_size_after_failure(tmp_path):
         teacher_model="openai/gpt-4.1-mini",
         generation_run="dpo-live-run-001",
         max_tokens=1024,
-        backend=backend,
+        **generation_backends(backend),
     )
 
     assert result.row_count == 3
@@ -209,7 +217,7 @@ def test_generate_dpo_llm_run_rejects_bad_batch_size(tmp_path):
             teacher_model="openai/gpt-4.1-mini",
             generation_run="dpo-live-run-001",
             max_tokens=1024,
-            backend=FakeDPOBackend(),
+            **generation_backends(FakeDPOBackend()),
         )
 
 
@@ -225,7 +233,7 @@ def test_generate_dpo_llm_run_rejects_bad_concurrency(tmp_path):
             teacher_model="openai/gpt-4.1-mini",
             generation_run="dpo-live-run-001",
             max_tokens=1024,
-            backend=FakeDPOBackend(),
+            **generation_backends(FakeDPOBackend()),
         )
 
 
@@ -261,7 +269,7 @@ def test_generate_dpo_llm_run_accepts_target_pairs_and_records_planning(tmp_path
         teacher_model="openai/gpt-4.1-mini",
         generation_run="dpo-target-run-001",
         max_tokens=1024,
-        backend=backend,
+        **generation_backends(backend),
     )
 
     assert result.row_count == 3
@@ -291,7 +299,7 @@ def test_generate_dpo_llm_run_backfills_duplicates_with_new_source_indexes(tmp_p
         generation_run="dpo-backfill-run-001",
         max_tokens=1024,
         max_backfill_rounds=1,
-        backend=backend,
+        **generation_backends(backend),
     )
 
     assert result.row_count == 2
@@ -331,7 +339,7 @@ def test_generate_dpo_llm_run_exhausts_backfill_budget_without_counting_duplicat
             generation_run="dpo-backfill-exhausted-001",
             max_tokens=1024,
             max_backfill_rounds=1,
-            backend=DuplicatePromptDPOBackend(),
+            **generation_backends(DuplicatePromptDPOBackend()),
         )
 
     manifest = json.loads((tmp_path / "manifests" / "dpo-backfill-exhausted-001.manifest.json").read_text())
@@ -353,7 +361,7 @@ def test_generate_dpo_llm_run_backfills_terminal_validation_rejections(tmp_path)
         generation_run="dpo-rejection-backfill-001",
         max_tokens=1024,
         max_backfill_rounds=1,
-        backend=RejectSecondDPOBackend(),
+        **generation_backends(RejectSecondDPOBackend()),
     )
 
     assert result.row_count == 2
@@ -372,7 +380,7 @@ def test_generate_dpo_llm_run_resumes_without_repeating_prior_indexes(tmp_path):
             families=["helpfulness_and_completeness"], count_per_family=2, batch_size=2,
             output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
             teacher_model="openai/gpt-4.1-mini", generation_run="dpo-resume-run-001",
-            max_tokens=1024, max_backfill_rounds=0, backend=OneRoundBackfillDPOBackend(),
+            max_tokens=1024, max_backfill_rounds=0, **generation_backends(OneRoundBackfillDPOBackend()),
         )
 
     resume_backend = OneRoundBackfillDPOBackend()
@@ -380,7 +388,7 @@ def test_generate_dpo_llm_run_resumes_without_repeating_prior_indexes(tmp_path):
         families=["helpfulness_and_completeness"], count_per_family=2, batch_size=2,
         output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
         teacher_model="openai/gpt-4.1-mini", generation_run="dpo-resume-run-001",
-        max_tokens=1024, max_backfill_rounds=1, resume=True, backend=resume_backend,
+        max_tokens=1024, max_backfill_rounds=1, resume=True, **generation_backends(resume_backend),
     )
 
     assert result.row_count == 2
@@ -396,7 +404,7 @@ def test_generate_dpo_llm_run_complete_resume_does_not_construct_backend(tmp_pat
         families=["helpfulness_and_completeness"], count_per_family=2, batch_size=2,
         output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
         teacher_model="openai/gpt-4.1-mini", generation_run="dpo-complete-resume-001",
-        max_tokens=1024, backend=FakeDPOBackend(),
+        max_tokens=1024, **generation_backends(FakeDPOBackend()),
     )
     monkeypatch.setattr(
         "slm_synth.dpo.runs.build_openrouter_backend",
@@ -420,7 +428,7 @@ def test_generate_dpo_llm_run_resume_rejects_modified_accepted_data(tmp_path):
             families=["helpfulness_and_completeness"], count_per_family=2, batch_size=2,
             output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
             teacher_model="openai/gpt-4.1-mini", generation_run="dpo-tampered-run-001",
-            max_tokens=1024, max_backfill_rounds=0, backend=DuplicatePromptDPOBackend(),
+            max_tokens=1024, max_backfill_rounds=0, **generation_backends(DuplicatePromptDPOBackend()),
         )
     dataset_path = tmp_path / "datasets" / "helpfulness_and_completeness.jsonl"
     row = json.loads(dataset_path.read_text())
@@ -433,7 +441,7 @@ def test_generate_dpo_llm_run_resume_rejects_modified_accepted_data(tmp_path):
             families=["helpfulness_and_completeness"], count_per_family=2, batch_size=2,
             output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
             teacher_model="openai/gpt-4.1-mini", generation_run="dpo-tampered-run-001",
-            max_tokens=1024, max_backfill_rounds=1, resume=True, backend=backend,
+            max_tokens=1024, max_backfill_rounds=1, resume=True, **generation_backends(backend),
         )
     assert backend.calls == []
 
@@ -450,7 +458,7 @@ def test_generate_dpo_llm_run_rejects_multiple_planning_strategies(tmp_path):
             teacher_model="openai/gpt-4.1-mini",
             generation_run="dpo-live-run-001",
             max_tokens=1024,
-            backend=FakeDPOBackend(),
+            **generation_backends(FakeDPOBackend()),
         )
 
 
@@ -495,7 +503,7 @@ def test_generate_dpo_llm_run_fails_when_public_pairs_underfill_after_budget(tmp
             generation_run="dpo-underfilled-001",
             max_tokens=1024,
             max_backfill_rounds=0,
-            backend=FakeDPOBackend(),
+            **generation_backends(FakeDPOBackend()),
         )
 
     manifest = json.loads((tmp_path / "manifests" / "dpo-underfilled-001.manifest.json").read_text())

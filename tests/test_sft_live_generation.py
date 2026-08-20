@@ -3,6 +3,7 @@ import json
 import pytest
 
 from slm_synth.sft.generation import generate_llm_batch, generate_teacher_batch_response
+from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend
 
 
 class FakeBackend:
@@ -86,6 +87,7 @@ def test_generate_llm_batch_writes_dataset_and_manifest(tmp_path):
         generation_run="sft-live-smoke-001",
         max_tokens=1024,
         backend=backend,
+        adjudicator_backend=AcceptingAdjudicatorBackend(),
     )
 
     assert result.row_count == 1
@@ -111,4 +113,5 @@ def test_generate_llm_batch_rejects_non_openrouter_provider(tmp_path):
             generation_run="sft-live-smoke-001",
             max_tokens=1024,
             backend=backend,
+            adjudicator_backend=AcceptingAdjudicatorBackend(),
         )

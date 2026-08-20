@@ -64,6 +64,8 @@ def generate_llm_run(
     teacher_model: str,
     generation_run: str,
     max_tokens: int,
+    adjudicator_model: str | None = None,
+    adjudicator_max_tokens: int | None = None,
     start_index: int = 1,
     teacher_provider: str = "openrouter",
     temperature: float = 0.2,
@@ -83,6 +85,7 @@ def generate_llm_run(
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
+    adjudicator_backend: StructuredTeacherBackend | None = None,
 ) -> SFTLLMRunResult:
     """Build specs and generate SFT datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
@@ -134,6 +137,7 @@ def generate_llm_run(
     preflight_sft_inventory()
 
     active_backend = backend
+    active_adjudicator_backend = adjudicator_backend
 
     def get_backend() -> StructuredTeacherBackend:
         nonlocal active_backend
@@ -154,6 +158,25 @@ def generate_llm_run(
             )
         return active_backend
 
+    def get_adjudicator_backend() -> StructuredTeacherBackend:
+        nonlocal active_adjudicator_backend
+        if active_adjudicator_backend is None:
+            active_adjudicator_backend = build_openrouter_backend(
+                model=adjudicator_model if adjudicator_model is not None else teacher_model,
+                max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                request_timeout=request_timeout,
+                max_request_retries=max_request_retries,
+                max_retryable_request_attempts=max_retryable_request_attempts,
+                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                adaptive_initial_in_flight=adaptive_initial_in_flight,
+                openrouter_routing_mode=openrouter_routing_mode,
+                openrouter_provider=openrouter_provider,
+            )
+        return active_adjudicator_backend
+
     def run_job(job: dict[str, Any]) -> Any:
         return generate_llm_batch(
             specs=job["specs"],
@@ -163,6 +186,8 @@ def generate_llm_run(
             teacher_provider=teacher_provider,
             generation_run=generation_run,
             max_tokens=max_tokens,
+            adjudicator_model=adjudicator_model,
+            adjudicator_max_tokens=adjudicator_max_tokens,
             temperature=temperature,
             top_p=top_p,
             request_timeout=request_timeout,
@@ -181,6 +206,7 @@ def generate_llm_run(
             },
             holdout_registry=holdout_registry,
             backend=get_backend(),
+            adjudicator_backend=get_adjudicator_backend(),
         )
 
     results: list[Any] = []
@@ -339,6 +365,8 @@ def generate_llm_run(
         teacher_provider=teacher_provider,
         metadata={
             "generation_mode": "live_llm_run",
+            "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
+            "adjudicator_max_tokens": adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
             "planning_mode": count_plan.planning_mode,
             "candidate_rows": candidate_rows,
             "attempted_rows": attempted_rows,

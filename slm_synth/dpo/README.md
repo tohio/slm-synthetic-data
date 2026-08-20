@@ -13,6 +13,7 @@ dpo/
 ├── spec_builders.py  # capacity-bounded source specifications
 ├── specs.py          # teacher-visible specification validation
 ├── batches.py        # batch prompts and response validation
+├── adjudication.py   # preference-quality and separation gate
 ├── generation.py     # teacher-backed batch generation
 ├── acceptance.py     # normalized uniqueness and pair-quality reporting
 ├── runs.py           # multi-family generation, backfill, and resume
@@ -26,7 +27,15 @@ dpo/
 
 ## Generation
 
-DPO is organized by ten preference dimensions. Each pair also carries the shared task, interaction, output, and context axes used by generic SFT. The chosen and rejected responses are generated semantically by the configured teacher; no eval-shaped family or deterministic answer-pair path remains.
+DPO is organized by ten preference dimensions. Each pair also carries the shared task, interaction, output, and context axes used by generic SFT.
+
+Live generation is staged. The renderer first creates the shared prompt and a
+high-quality chosen branch. A second call receives that candidate and
+introduces exactly one plausible weakness matching `preference_dimension` and
+`failure_mode`. An independent adjudicator then checks chosen quality, rejected
+plausibility, weakness match, preference separation, collateral preservation,
+and every source constraint. No local correct-number/wrong-number fabrication
+or copied-branch repair remains.
 
 Public rows preserve one explicit `prompt`, `chosen`, and `rejected`. Optional
 tool definitions occur once at row level and are shared by both branches.
@@ -43,6 +52,10 @@ provider backend. Requested source ranges, including the configured replacement
 budget, are also validated. Model selection remains configurable through
 `DPO_MODEL`; OpenRouter routing remains configurable through the shared routing
 variables.
+`DPO_ADJUDICATOR_MODEL` and `DPO_ADJUDICATOR_MAX_TOKENS` default to the renderer
+settings and can be overridden. All three calls use the existing configurable
+OpenRouter routing, retry, backoff, and adaptive request controls; manifests
+retain aggregate and per-stage telemetry.
 
 ## Acceptance and Resume
 

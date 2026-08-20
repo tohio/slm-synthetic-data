@@ -9,6 +9,7 @@ from typing import Any
 from slm_synth.chat_schema import CHAT_MESSAGE_JSON_SCHEMA, TOOLS_JSON_SCHEMA
 from slm_synth.sft.schema import validate_sft_row
 from slm_synth.sft.specs import teacher_visible_sft_spec
+from slm_synth.render_contract import validate_rendered_output_mode
 
 SFT_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
@@ -103,6 +104,9 @@ def validate_sft_rows_against_specs(rows: Iterable[Mapping[str, Any]], specs: It
             raise ValueError(f"SFT row {row['id']} has no matching spec")
         if dict(row["metadata"]) != dict(spec["metadata"]):
             raise ValueError(f"SFT row {row['id']} metadata does not match spec metadata")
+        validate_rendered_output_mode(
+            row["messages"], output_mode=spec["metadata"]["output_mode"], row_id=row["id"]
+        )
 
 
 def _validate_response_ids(row_ids: list[str], expected_ids: Iterable[str] | None) -> None:

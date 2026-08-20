@@ -4,6 +4,7 @@ import pytest
 
 from slm_synth.sft.generation import SFTBatchAcceptanceError, generate_llm_batch, materialize_llm_batch_from_files
 from slm_synth.sft.spec_builders import build_specs
+from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend
 
 
 class Backend:
@@ -24,6 +25,7 @@ def test_generate_sft_llm_batch_writes_rows(tmp_path):
     result = generate_llm_batch(
         specs=specs, output_path=tmp_path / "sft.jsonl", manifest_path=tmp_path / "manifest.json",
         teacher_model="teacher/model", generation_run="sft-001", max_tokens=1024, backend=Backend(),
+        adjudicator_backend=AcceptingAdjudicatorBackend(),
     )
     assert result.row_count == 2
 
@@ -54,4 +56,5 @@ def test_sft_batch_rejects_metadata_drift(tmp_path):
             specs=[spec], output_path=tmp_path / "sft.jsonl", manifest_path=tmp_path / "manifest.json",
             teacher_model="teacher/model", generation_run="sft-001", max_tokens=1024,
             backend=type("DriftBackend", (), {"generate_structured_object_with_metadata": lambda self, **kwargs: {"data": response, "telemetry": {}}})(),
+            adjudicator_backend=AcceptingAdjudicatorBackend(),
         )

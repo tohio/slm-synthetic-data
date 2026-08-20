@@ -4,6 +4,7 @@ import pytest
 
 from slm_synth.sft.runs import generate_llm_run, resolve_spec_families
 from slm_synth.sft.spec_builders import unique_capacity
+from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend
 
 
 class FakeSFTBackend:
@@ -58,6 +59,7 @@ def generate(tmp_path, backend, **planning):
         generation_run=planning.pop("generation_run", "sft-run-001"),
         max_tokens=1024,
         backend=backend,
+        adjudicator_backend=AcceptingAdjudicatorBackend(),
         **planning,
     )
 

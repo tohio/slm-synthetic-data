@@ -84,6 +84,8 @@ def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
         teacher_provider=args.teacher_provider,
         generation_run=args.generation_run,
         max_tokens=args.max_tokens,
+        adjudicator_model=args.adjudicator_model,
+        adjudicator_max_tokens=args.adjudicator_max_tokens,
         temperature=args.temperature,
         top_p=args.top_p,
         request_timeout=args.request_timeout,
@@ -116,6 +118,8 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         teacher_provider=args.teacher_provider,
         generation_run=args.generation_run,
         max_tokens=args.max_tokens,
+        adjudicator_model=args.adjudicator_model,
+        adjudicator_max_tokens=args.adjudicator_max_tokens,
         start_index=args.start_index,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -175,6 +179,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--generation-run", required=True)
     generate_parser.add_argument("--holdout-registry", default=None)
     generate_parser.add_argument("--max-tokens", required=True, type=int)
+    generate_parser.add_argument("--adjudicator-model", default=None)
+    generate_parser.add_argument("--adjudicator-max-tokens", type=int, default=None)
     generate_parser.add_argument("--temperature", type=float, default=0.2)
     generate_parser.add_argument("--top-p", type=float, default=0.95)
     generate_parser.add_argument("--request-timeout", type=float, default=None)
@@ -210,6 +216,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--teacher-provider", default="openrouter")
     generate_run_parser.add_argument("--generation-run", required=True)
     generate_run_parser.add_argument("--max-tokens", required=True, type=int)
+    generate_run_parser.add_argument("--adjudicator-model", default=None)
+    generate_run_parser.add_argument("--adjudicator-max-tokens", type=int, default=None)
     generate_run_parser.add_argument("--start-index", type=int, default=1)
     generate_run_parser.add_argument("--temperature", type=float, default=0.2)
     generate_run_parser.add_argument("--top-p", type=float, default=0.95)

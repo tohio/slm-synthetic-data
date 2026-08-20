@@ -117,6 +117,8 @@ replaced to fill a quota.
 | `SFT_GENERATION_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests. |
 | `SFT_RUN_ROOT` | `data/sft/runs` | Run output root. |
 | `SFT_MODEL` | `$(MODEL)` | Teacher model. |
+| `SFT_ADJUDICATOR_MODEL` | `$(SFT_MODEL)` | Independent semantic adjudicator model. |
+| `SFT_ADJUDICATOR_MAX_TOKENS` | `$(SFT_MAX_TOKENS)` | Maximum adjudication completion tokens. |
 | `SFT_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
 | `SFT_HF_REPO` | `<HF_NAMESPACE>/slm-synthetic-sft` | One consolidated generic SFT dataset repository. |
 
@@ -158,6 +160,8 @@ The run id, target, selected families, start index, teacher model, and provider 
 | `DPO_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests. |
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root. |
 | `DPO_MODEL` | `$(MODEL)` | Teacher model. |
+| `DPO_ADJUDICATOR_MODEL` | `$(DPO_MODEL)` | Independent preference adjudicator model. |
+| `DPO_ADJUDICATOR_MAX_TOKENS` | `$(DPO_MAX_TOKENS)` | Maximum adjudication completion tokens. |
 | `DPO_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget. |
 | `DPO_RESUME` | `false` | Resume a finalized underfilled run using its next unused source indexes. |
 | `DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |

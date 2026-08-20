@@ -55,6 +55,37 @@ def validate_dpo_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return validated
 
 
+def validate_dpo_chosen_candidate(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the shared prefix and chosen branch before rejection generation."""
+    required = {"id", "prompt", "chosen", "metadata"}
+    optional = {"tools"}
+    if not isinstance(row, Mapping) or not required <= set(row) or set(row) - required - optional:
+        raise ValueError("DPO chosen candidate fields do not match the contract")
+    tools = validate_tools(row["tools"]) if "tools" in row else None
+    prompt = validate_conversation(
+        row["prompt"], tools=tools, field_name="DPO prompt",
+        require_final_assistant=False, require_final_user=True,
+    )
+    chosen = _validate_branch(row["chosen"], prompt=prompt, tools=tools, field_name="chosen")
+    metadata = validate_alignment_metadata(row["metadata"], preference=True)
+    user_turns = sum(message["role"] == "user" for message in prompt)
+    if ("multi_turn" in metadata["interaction_modes"]) != (user_turns > 1):
+        raise ValueError("interaction_modes single_turn/multi_turn must match the shared prompt")
+    if ("system_conditioned" in metadata["interaction_modes"]) != (prompt[0]["role"] == "system"):
+        raise ValueError("system_conditioned must match the shared prompt system message")
+    if ("tool_mediated" in metadata["interaction_modes"]) != conversation_has_tool_activity(chosen):
+        raise ValueError("tool_mediated must match structured tool activity in the chosen branch")
+    result: dict[str, Any] = {
+        "id": _require_non_empty_string(row["id"], "id"),
+        "prompt": prompt,
+        "chosen": chosen,
+        "metadata": metadata,
+    }
+    if tools is not None:
+        result["tools"] = tools
+    return result
+
+
 def _validate_branch(
     value: Any,
     *,
