@@ -71,7 +71,7 @@ mix:
     architecture: "grounded"
     share: 0.39344262295081966
     # Finite catalog of genuinely different algorithms; do not pad with renamed variants.
-    max_unique_candidates: 176
+    max_unique_candidates: 200
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
