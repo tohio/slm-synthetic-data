@@ -167,8 +167,21 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
             template_family="direct_qa", failure_mode="wrong_numeric_answer",
         )
     ], dataset_path)
+    batch_manifest_path = tmp_path / "batch.manifest.json"
+    batch_manifest_path.write_text(json.dumps({"metadata": {
+        "deterministic_output_validation": {
+            "one": {
+                "status": "passed",
+                "declared_constraint_count": 0,
+                "chosen": {"status": "passed", "declared_constraint_count": 0, "checks": []},
+                "rejected": {"status": "passed", "declared_constraint_count": 0, "checks": []},
+            }
+        }
+    }}), encoding="utf-8")
     manifest_path = tmp_path / "run.manifest.json"
-    manifest_path.write_text(json.dumps({"metadata": {
+    manifest_path.write_text(json.dumps({
+        "datasets": [{"batch_manifests": [str(batch_manifest_path)]}],
+        "metadata": {
         "publish_ready": True,
         "candidate_pairs": 2,
         "attempted_pairs": 2,
@@ -189,3 +202,27 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
     assert report["acceptance"]["estimated_tokens"] > 0
     assert report["acceptance"]["publish_ready"] is True
     require_publish_ready_report(report)
+
+
+def test_dpo_report_blocks_missing_deterministic_output_evidence(tmp_path):
+    dataset_path = tmp_path / "pair.jsonl"
+    write_jsonl([
+        _dpo_row(
+            row_id="one", category="unused", eval_family="factual_accuracy",
+            template_family="direct_qa", failure_mode="wrong_numeric_answer",
+        )
+    ], dataset_path)
+    manifest_path = tmp_path / "run.manifest.json"
+    manifest_path.write_text(
+        json.dumps({"datasets": [], "metadata": {"publish_ready": True}}),
+        encoding="utf-8",
+    )
+
+    report = build_coverage_report(
+        [dataset_path], holdout_registry=HoldoutRegistry([]), run_manifest=manifest_path,
+    )
+
+    assert report["deterministic_output_validation"]["missing_row_ids"] == ["one"]
+    assert "deterministic_output_validation_missing" in report["acceptance"][
+        "publish_blockers"
+    ]

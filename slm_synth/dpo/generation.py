@@ -23,6 +23,10 @@ from slm_synth.dpo.batches import (
 )
 from slm_synth.dpo.adjudication import adjudicate_dpo_rows
 from slm_synth.quality_adjudication import combine_telemetry
+from slm_synth.output_constraints import (
+    OutputConstraintError,
+    evaluate_dpo_output_constraints,
+)
 from slm_synth.dpo.io import write_jsonl
 from slm_synth.dpo.manifest import write_manifest
 from slm_synth.dpo.specs import validate_dpo_spec
@@ -231,6 +235,15 @@ def generate_llm_batch(
             ),
         ) from exc
 
+    try:
+        evaluate_dpo_output_constraints(specs=validated_specs, rows=rows)
+    except OutputConstraintError as exc:
+        raise DPOBatchAcceptanceError(
+            str(exc),
+            failure_type="deterministic_constraint_error",
+            telemetry=combine_telemetry(chosen_telemetry, rejected_telemetry),
+        ) from exc
+
     active_adjudicator = adjudicator_backend or build_openrouter_backend(
         model=adjudicator_model if adjudicator_model is not None else teacher_model,
         max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
@@ -327,6 +340,12 @@ def materialize_llm_batch(
         )
     except (TypeError, ValueError) as exc:
         raise DPOBatchAcceptanceError(str(exc)) from exc
+    try:
+        deterministic_validation = evaluate_dpo_output_constraints(
+            specs=validated_specs, rows=rows
+        )
+    except OutputConstraintError as exc:
+        raise DPOBatchAcceptanceError(str(exc)) from exc
 
     dataset_path = Path(output_path)
     row_count = write_jsonl(rows, dataset_path)
@@ -341,6 +360,7 @@ def materialize_llm_batch(
             "teacher_provider": provider,
             "spec_count": len(validated_specs),
             **dict(metadata or {}),
+            "deterministic_output_validation": deterministic_validation,
         },
     )
 

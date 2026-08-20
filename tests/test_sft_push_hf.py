@@ -168,7 +168,10 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
                 "metadata": {
                     "quality_adjudication": {
                         "sft-1": {"accepted": True, "scores": scores, "constraint_results": []}
-                    }
+                    },
+                    "deterministic_output_validation": {
+                        "sft-1": {"status": "passed", "declared_constraint_count": 0, "checks": []}
+                    },
                 }
             }
         ),
@@ -180,7 +183,10 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
                 "metadata": {
                     "quality_adjudication": {
                         "sft-2": {"accepted": True, "scores": scores, "constraint_results": []}
-                    }
+                    },
+                    "deterministic_output_validation": {
+                        "sft-2": {"status": "passed", "declared_constraint_count": 0, "checks": []}
+                    },
                 }
             }
         ),

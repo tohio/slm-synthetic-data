@@ -56,6 +56,12 @@ settings and can be overridden. All three calls use the existing configurable
 OpenRouter routing, retry, backoff, and adaptive request controls; manifests
 retain aggregate and per-stage telemetry.
 
+Finite briefs may declare internal machine-checkable output constraints. The
+chosen branch must pass them before semantic adjudication. The rejected branch
+is measured and recorded but may intentionally violate the requested
+preference dimension and failure mode. Missing or failed chosen-branch evidence
+blocks publication.
+
 ## Candidate Planning and Acceptance
 
 Every selected preference dimension requires an explicit candidate count. Public output keeps the first pair for each normalized ID, prompt, and `(prompt, chosen, rejected)` triple. Duplicate or locally rejected candidates are not replaced merely to reach a nominal pair count.

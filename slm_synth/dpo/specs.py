@@ -6,10 +6,13 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from slm_synth.output_constraints import validate_output_constraints
 from slm_synth.taxonomy import validate_alignment_metadata
 
 DPO_SPEC_REQUIRED_FIELDS = frozenset({"id", "instruction", "metadata"})
-DPO_SPEC_OPTIONAL_FIELDS = frozenset({"variables", "constraints", "holdout_key"})
+DPO_SPEC_OPTIONAL_FIELDS = frozenset(
+    {"variables", "constraints", "output_constraints", "holdout_key"}
+)
 DPO_SPEC_FIELDS = DPO_SPEC_REQUIRED_FIELDS | DPO_SPEC_OPTIONAL_FIELDS
 
 
@@ -36,6 +39,10 @@ def validate_dpo_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         validated["variables"] = _validate_mapping(spec["variables"], "variables")
     if "constraints" in spec:
         validated["constraints"] = _validate_string_list(spec["constraints"], "constraints")
+    if "output_constraints" in spec:
+        validated["output_constraints"] = validate_output_constraints(
+            spec["output_constraints"]
+        )
     if "holdout_key" in spec:
         validated["holdout_key"] = _validate_mapping(spec["holdout_key"], "holdout_key")
     return validated
@@ -53,6 +60,8 @@ def teacher_visible_dpo_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         visible["variables"] = validated["variables"]
     if "constraints" in validated:
         visible["constraints"] = validated["constraints"]
+    if "output_constraints" in validated:
+        visible["output_constraints"] = validated["output_constraints"]
     return visible
 
 

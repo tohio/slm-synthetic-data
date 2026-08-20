@@ -7,6 +7,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from slm_synth.alignment_evidence import (
+    build_deterministic_output_validation_summary,
+    deterministic_validation_blockers,
+    filter_validation_summary,
+)
 from slm_synth.alignment_tokens import estimate_sft_tokens
 from slm_synth.sft.acceptance import build_sft_content_summary, partition_unique_sft_rows
 from slm_synth.sft.publication_quality import build_publication_quality_summary
@@ -63,16 +68,24 @@ def build_coverage_report(
         if require_semantic_adjudication is None
         else require_semantic_adjudication
     )
+    deterministic_validation = build_deterministic_output_validation_summary(
+        row_ids={row["id"] for row in rows},
+        manifest=manifest,
+        run_manifest_path=Path(run_manifest) if run_manifest is not None else None,
+    )
+    deterministic_required = run_manifest is not None
     validation = _build_validation_summary(validation_errors)
     blockers = _publish_blockers(
         content=content,
         publication_quality=publication_quality,
         validation=validation,
         semantic_adjudication=semantic_adjudication,
+        deterministic_validation=deterministic_validation,
         holdouts=holdouts,
         manifest_metadata=manifest_metadata,
         require_holdout_check=require_holdout_check,
         require_semantic_adjudication=semantic_required,
+        require_deterministic_validation=deterministic_required,
     )
     if not unique_rows:
         blockers.append("empty_dataset")
@@ -92,6 +105,7 @@ def build_coverage_report(
         **publication_quality,
         "validation": validation,
         "semantic_adjudication": semantic_adjudication,
+        "deterministic_output_validation": deterministic_validation,
         "holdouts": holdouts,
         "acceptance": {
             "attempted_rows": attempted_rows,
@@ -114,6 +128,8 @@ def build_coverage_report(
             require_holdout_check=require_holdout_check,
             semantic_adjudication=semantic_adjudication,
             require_semantic_adjudication=semantic_required,
+            deterministic_validation=deterministic_validation,
+            require_deterministic_validation=deterministic_required,
         ),
     }
 
@@ -181,6 +197,8 @@ def _build_family_reports(
     require_holdout_check: bool,
     semantic_adjudication: dict[str, Any],
     require_semantic_adjudication: bool,
+    deterministic_validation: dict[str, Any],
+    require_deterministic_validation: bool,
 ) -> dict[str, Any]:
     reports: dict[str, Any] = {}
     configured = manifest_metadata.get("candidate_rows_per_family", {})
@@ -217,10 +235,14 @@ def _build_family_reports(
             semantic_adjudication=_filter_semantic_adjudication(
                 semantic_adjudication, {row["id"] for row in family_rows}
             ),
+            deterministic_validation=filter_validation_summary(
+                deterministic_validation, {row["id"] for row in family_rows}
+            ),
             holdouts=holdouts,
             manifest_metadata={},
             require_holdout_check=require_holdout_check,
             require_semantic_adjudication=require_semantic_adjudication,
+            require_deterministic_validation=require_deterministic_validation,
         )
         if not unique_rows:
             blockers.append("empty_family")
@@ -278,10 +300,12 @@ def _publish_blockers(
     publication_quality: dict[str, Any],
     validation: dict[str, Any],
     semantic_adjudication: dict[str, Any],
+    deterministic_validation: dict[str, Any],
     holdouts: dict[str, Any],
     manifest_metadata: dict[str, Any],
     require_holdout_check: bool,
     require_semantic_adjudication: bool,
+    require_deterministic_validation: bool,
 ) -> list[str]:
     blockers: list[str] = []
     for key, blocker in (
@@ -312,6 +336,11 @@ def _publish_blockers(
         or semantic_adjudication["evidence_errors"]
     ):
         blockers.append("semantic_adjudication_missing")
+    blockers.extend(
+        deterministic_validation_blockers(
+            deterministic_validation, required=require_deterministic_validation
+        )
+    )
     if holdouts["status"] == "checked" and holdouts["collision_count"]:
         blockers.append("holdout_collisions")
     if require_holdout_check and holdouts["status"] != "checked":

@@ -56,6 +56,9 @@ before constructing a paid teacher backend.
 
 Live candidates are rendered from the complete grounded brief, then checked
 locally for schema, metadata, interaction, tool, and output-mode compliance.
+Finite briefs may also declare internal machine-checkable word, line, item,
+term, heading, and JSON-key constraints. These run before semantic
+adjudication and are recorded per accepted row in batch manifests.
 An independent structured adjudication call scores correctness, grounding,
 instruction adherence, completeness, and coherence and verifies every source
 constraint. A candidate is written only when every score is at least 3/4 and
@@ -69,6 +72,6 @@ alone. It blocks exact or near-duplicate prompts and conversations, repeated
 assistant-response clusters, templates exceeding 40% of accepted rows,
 malformed role or tool sequences, and holdout collisions. When a run manifest
 is supplied, every public row ID must also map to a passing semantic decision
-in a referenced batch manifest; missing, malformed, or failed evidence blocks
-publication. The Hugging Face push repeats all file-derived checks against the
+and deterministic output decision in a referenced batch manifest; missing,
+malformed, or failed evidence blocks publication. The Hugging Face push repeats all file-derived checks against the
 live JSONL files so a stale clean report cannot bypass them.

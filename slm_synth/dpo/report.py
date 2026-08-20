@@ -7,6 +7,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from slm_synth.alignment_evidence import (
+    build_deterministic_output_validation_summary,
+    deterministic_validation_blockers,
+    filter_validation_summary,
+)
 from slm_synth.alignment_tokens import estimate_dpo_tokens
 from slm_synth.dpo.acceptance import build_dpo_content_summary, partition_unique_dpo_rows
 from slm_synth.dpo.io import read_jsonl
@@ -31,7 +36,8 @@ def build_coverage_report(
 
     content = build_dpo_content_summary(rows)
     unique_rows, visible = partition_unique_dpo_rows(rows)
-    metadata = _read_run_manifest_metadata(run_manifest)
+    manifest = _read_run_manifest(run_manifest)
+    metadata = manifest.get("metadata", {}) if manifest else {}
     attempted = _non_negative_int(metadata.get("attempted_pairs"), len(rows))
     candidate_pairs = _non_negative_int(metadata.get("candidate_pairs"), attempted)
     accepted = len(unique_rows)
@@ -39,11 +45,18 @@ def build_coverage_report(
     rejected = _non_negative_int(metadata.get("rejected_pairs"), 0)
     estimated_tokens = sum(estimate_dpo_tokens(row) for row in unique_rows)
     holdouts = _build_holdout_summary(rows, holdout_registry)
+    deterministic_validation = build_deterministic_output_validation_summary(
+        row_ids={row["id"] for row in rows},
+        manifest=manifest,
+        run_manifest_path=Path(run_manifest) if run_manifest is not None else None,
+    )
     blockers = _publish_blockers(
         content=content,
         holdouts=holdouts,
+        deterministic_validation=deterministic_validation,
         manifest_metadata=metadata,
         require_holdout_check=require_holdout_check,
+        require_deterministic_validation=run_manifest is not None,
     )
     if not unique_rows:
         blockers.append("empty_dataset")
@@ -60,6 +73,7 @@ def build_coverage_report(
         "difficulty_counts": _count_metadata(rows, "difficulty", stringify_keys=True),
         "failure_modes": _count_metadata(rows, "failure_mode"),
         "content_quality": content,
+        "deterministic_output_validation": deterministic_validation,
         "holdouts": holdouts,
         "acceptance": {
             "attempted_pairs": attempted,
@@ -79,6 +93,8 @@ def build_coverage_report(
             manifest_metadata=metadata,
             holdout_registry=holdout_registry,
             require_holdout_check=require_holdout_check,
+            deterministic_validation=deterministic_validation,
+            require_deterministic_validation=run_manifest is not None,
         ),
     }
 
@@ -106,6 +122,8 @@ def _build_dimension_reports(
     manifest_metadata: dict[str, Any],
     holdout_registry: HoldoutRegistry | None,
     require_holdout_check: bool,
+    deterministic_validation: dict[str, Any],
+    require_deterministic_validation: bool,
 ) -> dict[str, Any]:
     reports: dict[str, Any] = {}
     configured = manifest_metadata.get("candidate_pairs_per_dimension", {})
@@ -142,8 +160,12 @@ def _build_dimension_reports(
         blockers = _publish_blockers(
             content=content,
             holdouts=holdouts,
+            deterministic_validation=filter_validation_summary(
+                deterministic_validation, {row["id"] for row in dimension_rows}
+            ),
             manifest_metadata={},
             require_holdout_check=require_holdout_check,
+            require_deterministic_validation=require_deterministic_validation,
         )
         if not unique_rows:
             blockers.append("empty_preference_dimension")
@@ -190,7 +212,8 @@ def _build_holdout_summary(rows: list[dict[str, Any]], registry: HoldoutRegistry
 
 def _publish_blockers(
     *, content: dict[str, Any], holdouts: dict[str, Any],
-    manifest_metadata: dict[str, Any], require_holdout_check: bool,
+    deterministic_validation: dict[str, Any], manifest_metadata: dict[str, Any],
+    require_holdout_check: bool, require_deterministic_validation: bool,
 ) -> list[str]:
     blockers: list[str] = []
     for key, blocker in (("ids", "duplicate_ids"), ("prompts", "duplicate_prompts"), ("triples", "duplicate_triples")):
@@ -200,6 +223,11 @@ def _publish_blockers(
         blockers.append("eval_holdout_collisions")
     if require_holdout_check and holdouts["status"] != "checked":
         blockers.append("holdouts_not_checked")
+    blockers.extend(
+        deterministic_validation_blockers(
+            deterministic_validation, required=require_deterministic_validation
+        )
+    )
     if manifest_metadata and manifest_metadata.get("publish_ready") is False:
         blockers.append("run_manifest_not_publish_ready")
     return blockers
@@ -250,14 +278,14 @@ def _count_list_metadata(rows: list[dict[str, Any]], field: str) -> dict[str, in
     return {key: counter[key] for key in sorted(counter)}
 
 
-def _read_run_manifest_metadata(path: str | Path | None) -> dict[str, Any]:
+def _read_run_manifest(path: str | Path | None) -> dict[str, Any]:
     if path is None:
         return {}
     manifest_path = Path(path)
     value = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or not isinstance(value.get("metadata", {}), dict):
         raise ValueError(f"DPO run manifest must contain metadata: {manifest_path}")
-    return value.get("metadata", {})
+    return value
 
 
 def _non_negative_int(*values: Any) -> int:

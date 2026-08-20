@@ -45,6 +45,20 @@ def test_sft_constraints_distinguish_self_contained_invention_from_supplied_cont
     assert all("do not add facts absent" not in item for item in creative["constraints"])
 
 
+def test_sft_specs_declare_machine_checkable_exact_constraints():
+    creative = build_specs(family="creative_writing", count=2)[0]
+    assert creative["output_constraints"] == {"min_words": 500, "max_words": 700}
+    assert teacher_visible_sft_spec(creative)["output_constraints"] == {
+        "min_words": 500,
+        "max_words": 700,
+    }
+
+
+def test_self_contained_programming_brief_has_accurate_context_mode():
+    spec = build_specs(family="programming", count=1)[0]
+    assert spec["metadata"]["context_mode"] == "self_contained"
+
+
 def test_sft_specs_are_finite_and_materially_distinct():
     for family in SFT_SPEC_FAMILIES:
         specs = build_specs(family=family, count=unique_capacity(family))

@@ -273,7 +273,14 @@ def test_sft_report_records_candidate_and_rejection_outcomes_from_manifest(tmp_p
                             },
                             "constraint_results": [],
                         }
-                    }
+                    },
+                    "deterministic_output_validation": {
+                        "first": {
+                            "status": "passed",
+                            "declared_constraint_count": 0,
+                            "checks": [],
+                        }
+                    },
                 }
             }
         ),
@@ -423,7 +430,22 @@ def test_sft_report_requires_passing_semantic_evidence_for_every_public_row(tmp_
             "constraint_results": [],
         }
     batch_manifest_path.write_text(
-        json.dumps({"metadata": {"quality_adjudication": decisions}}), encoding="utf-8"
+        json.dumps(
+            {
+                "metadata": {
+                    "quality_adjudication": decisions,
+                    "deterministic_output_validation": {
+                        row_id: {
+                            "status": "passed",
+                            "declared_constraint_count": 0,
+                            "checks": [],
+                        }
+                        for row_id in decisions
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
     )
     run_manifest_path = tmp_path / "run.manifest.json"
     run_manifest_path.write_text(
@@ -476,3 +498,79 @@ def test_sft_report_blocks_missing_semantic_evidence_for_public_rows(tmp_path):
     assert report["semantic_adjudication"]["missing_row_ids"] == ["semantic-missing"]
     assert report["semantic_adjudication"]["status"] == "incomplete"
     assert "semantic_adjudication_missing" in report["acceptance"]["publish_blockers"]
+    assert "deterministic_output_validation_missing" in report["acceptance"]["publish_blockers"]
+
+
+def test_sft_report_blocks_failed_deterministic_output_evidence(tmp_path):
+    dataset_path = tmp_path / "creative.jsonl"
+    write_jsonl(
+        [
+            _sft_row(
+                row_id="creative-fail",
+                category="unused",
+                eval_family="creative_writing",
+                template_family="subtext_scene",
+            )
+        ],
+        dataset_path,
+    )
+    batch_manifest_path = tmp_path / "batch.manifest.json"
+    batch_manifest_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "quality_adjudication": {
+                        "creative-fail": {
+                            "accepted": True,
+                            "scores": {
+                                "correctness": 4,
+                                "grounding": 4,
+                                "instruction_adherence": 4,
+                                "completeness": 4,
+                                "coherence": 4,
+                            },
+                            "constraint_results": [],
+                        }
+                    },
+                    "deterministic_output_validation": {
+                        "creative-fail": {
+                            "status": "failed",
+                            "declared_constraint_count": 2,
+                            "checks": [
+                                {
+                                    "constraint": "min_words",
+                                    "expected": 500,
+                                    "observed": 287,
+                                    "passed": False,
+                                }
+                            ],
+                        }
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    run_manifest_path = tmp_path / "run.manifest.json"
+    run_manifest_path.write_text(
+        json.dumps(
+            {
+                "datasets": [{"batch_manifests": [str(batch_manifest_path)]}],
+                "metadata": {"publish_ready": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_coverage_report(
+        [dataset_path],
+        holdout_registry=HoldoutRegistry([]),
+        run_manifest=run_manifest_path,
+    )
+
+    assert report["deterministic_output_validation"]["failed_row_ids"] == [
+        "creative-fail"
+    ]
+    assert "deterministic_output_constraint_failed" in report["acceptance"][
+        "publish_blockers"
+    ]

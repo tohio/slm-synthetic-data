@@ -56,3 +56,15 @@ def test_sft_batch_rejects_metadata_drift(tmp_path):
             adjudicator_backend=AcceptingAdjudicatorBackend(),
         )
     assert error.value.failure_type == "render_validation_error"
+
+
+def test_sft_batch_rejects_failed_deterministic_constraint_before_adjudication(tmp_path):
+    spec = build_specs(family="creative_writing", count=1)[0]
+    with pytest.raises(SFTBatchAcceptanceError, match="min_words expected=500") as error:
+        generate_llm_batch(
+            specs=[spec], output_path=tmp_path / "sft.jsonl",
+            manifest_path=tmp_path / "manifest.json", teacher_model="teacher/model",
+            generation_run="sft-001", max_tokens=1024, backend=Backend(),
+            adjudicator_backend=AcceptingAdjudicatorBackend(),
+        )
+    assert error.value.failure_type == "deterministic_constraint_error"

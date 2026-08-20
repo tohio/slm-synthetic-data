@@ -29,6 +29,16 @@ def test_dpo_holdout_key_stays_internal():
     assert "holdout_key" not in teacher_visible_dpo_spec(spec)
 
 
+def test_dpo_exact_constraints_are_teacher_visible_and_machine_checkable():
+    spec = build_specs(family="instruction_adherence", count=3)[2]
+    assert spec["output_constraints"] == {
+        "min_words": 120,
+        "max_words": 150,
+        "forbidden_terms": ["star", "planet", "alone"],
+    }
+    assert teacher_visible_dpo_spec(spec)["output_constraints"] == spec["output_constraints"]
+
+
 def test_dpo_sources_are_finite_and_unique():
     for dimension in DPO_PREFERENCE_DIMENSIONS:
         specs = build_specs(family=dimension, count=unique_capacity(dimension))

@@ -64,4 +64,6 @@ def _build_spec(family: str, index: int) -> dict[str, Any]:
     }
     if "holdout_key" in source:
         result["holdout_key"] = dict(source["holdout_key"])
+    if "output_constraints" in source:
+        result["output_constraints"] = dict(source["output_constraints"])
     return result
