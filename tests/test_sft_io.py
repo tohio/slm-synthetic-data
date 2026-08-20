@@ -13,10 +13,12 @@ def _row():
             {"role": "assistant", "content": "43"},
         ],
         "metadata": {
-            "category": "answer_only_compliance",
+            "task_family": "grounded_qa_and_reading",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "free_text",
+            "context_mode": "supplied_passage",
             "difficulty": 1,
             "template_family": "direct_qa",
-            "eval_family": "basic_arithmetic_qa",
         },
     }
 

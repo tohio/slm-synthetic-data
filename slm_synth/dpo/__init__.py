@@ -28,7 +28,7 @@ from slm_synth.dpo.runs import (
 )
 from slm_synth.dpo.schema import validate_dpo_row, validate_message_list
 from slm_synth.dpo.spec_builders import (
-    DPO_SPEC_FAMILIES,
+    DPO_PREFERENCE_DIMENSIONS,
     build_and_write_specs,
     build_specs,
     write_specs_jsonl,
@@ -38,7 +38,7 @@ from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 __all__ = [
     "DPO_BATCH_RESPONSE_SCHEMA",
     "DPOLLMRunResult",
-    "DPO_SPEC_FAMILIES",
+    "DPO_PREFERENCE_DIMENSIONS",
     "DPOLLMBatchResult",
     "build_coverage_report",
     "build_manifest_payload",

@@ -30,8 +30,10 @@ def build_manifest_payload(
         "dataset_path": str(Path(dataset_path)),
         "row_count": len(validated_rows),
         "generation_run": run,
-        "categories": _count_metadata(validated_rows, "category"),
-        "eval_families": _count_metadata(validated_rows, "eval_family"),
+        "task_families": _count_metadata(validated_rows, "task_family"),
+        "interaction_modes": _count_list_metadata(validated_rows, "interaction_modes"),
+        "output_modes": _count_metadata(validated_rows, "output_mode"),
+        "context_modes": _count_metadata(validated_rows, "context_mode"),
         "template_families": _count_metadata(validated_rows, "template_family"),
         "difficulty_counts": _count_metadata(validated_rows, "difficulty", stringify_keys=True),
         "metadata": dict(metadata or {}),
@@ -126,6 +128,11 @@ def _count_metadata(
     counter = Counter(row["metadata"][field] for row in rows)
     if stringify_keys:
         return {str(key): counter[key] for key in sorted(counter)}
+    return {key: counter[key] for key in sorted(counter)}
+
+
+def _count_list_metadata(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
+    counter = Counter(item for row in rows for item in row["metadata"][field])
     return {key: counter[key] for key in sorted(counter)}
 
 

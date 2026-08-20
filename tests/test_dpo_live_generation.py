@@ -23,10 +23,13 @@ def _dpo_spec():
             "number. The rejected answer should include extra explanation."
         ),
         "metadata": {
-            "category": "answer_only_compliance",
+            "task_family": "applied_math_and_reasoning",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "concise",
+            "context_mode": "self_contained",
+            "preference_dimension": "factual_accuracy",
             "difficulty": 1,
             "template_family": "direct_qa",
-            "eval_family": "basic_arithmetic_qa",
             "failure_mode": "extra_explanation",
         },
         "variables": {"a": 17, "b": 26},
@@ -45,10 +48,13 @@ def _teacher_data():
                     {"role": "assistant", "content": "The answer is 43 because 17 plus 26 equals 43."}
                 ],
                 "metadata": {
-                    "category": "answer_only_compliance",
+                    "task_family": "applied_math_and_reasoning",
+                    "interaction_modes": ["single_turn"],
+                    "output_mode": "concise",
+                    "context_mode": "self_contained",
+                    "preference_dimension": "factual_accuracy",
                     "difficulty": 1,
                     "template_family": "direct_qa",
-                    "eval_family": "basic_arithmetic_qa",
                     "failure_mode": "extra_explanation",
                 },
             }

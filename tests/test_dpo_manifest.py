@@ -18,11 +18,14 @@ def _row(row_id, *, category, failure_mode, difficulty, template_family, eval_fa
             {"role": "assistant", "content": "The answer is 43 because 16 plus 27 equals 43."},
         ],
         "metadata": {
-            "category": category,
+            "task_family": "applied_math_and_reasoning",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "concise",
+            "context_mode": "self_contained",
+            "preference_dimension": eval_family,
             "failure_mode": failure_mode,
             "difficulty": difficulty,
             "template_family": template_family,
-            "eval_family": eval_family,
         },
     }
 
@@ -35,7 +38,7 @@ def test_build_manifest_payload_counts_dpo_metadata(tmp_path):
             failure_mode="extra_explanation",
             difficulty=1,
             template_family="direct_qa",
-            eval_family="basic_arithmetic_qa",
+            eval_family="factual_accuracy",
         ),
         _row(
             "dpo_format_repeat_000002",
@@ -43,7 +46,7 @@ def test_build_manifest_payload_counts_dpo_metadata(tmp_path):
             failure_mode="format_violation",
             difficulty=2,
             template_family="repeat_word_count",
-            eval_family="repeat_exact_n_times",
+            eval_family="instruction_adherence",
         ),
     ]
 
@@ -58,8 +61,8 @@ def test_build_manifest_payload_counts_dpo_metadata(tmp_path):
     assert payload["dataset_path"] == str(tmp_path / "dpo.jsonl")
     assert payload["row_count"] == 2
     assert payload["generation_run"] == "dpo-smoke-001"
-    assert payload["categories"] == {"answer_only_compliance": 1, "exact_output_format_control": 1}
-    assert payload["eval_families"] == {"basic_arithmetic_qa": 1, "repeat_exact_n_times": 1}
+    assert payload["task_families"] == {"applied_math_and_reasoning": 2}
+    assert payload["preference_dimensions"] == {"factual_accuracy": 1, "instruction_adherence": 1}
     assert payload["template_families"] == {"direct_qa": 1, "repeat_word_count": 1}
     assert payload["difficulty_counts"] == {"1": 1, "2": 1}
     assert payload["failure_modes"] == {"extra_explanation": 1, "format_violation": 1}
@@ -74,7 +77,7 @@ def test_write_manifest_writes_dpo_manifest(tmp_path):
             failure_mode="extra_explanation",
             difficulty=1,
             template_family="direct_qa",
-            eval_family="basic_arithmetic_qa",
+            eval_family="factual_accuracy",
         )
     ]
 
@@ -103,9 +106,9 @@ def test_write_run_manifest_summarizes_dpo_family_outputs(tmp_path):
                 "row_count": 2,
             },
             {
-                "family": "repeat_exact_n_times",
-                "dataset_path": tmp_path / "datasets" / "repeat_exact_n_times.jsonl",
-                "manifest_path": tmp_path / "manifests" / "repeat_exact_n_times.dpo-smoke-001.manifest.json",
+                "family": "instruction_adherence",
+                "dataset_path": tmp_path / "datasets" / "instruction_adherence.jsonl",
+                "manifest_path": tmp_path / "manifests" / "instruction_adherence.dpo-smoke-001.manifest.json",
                 "row_count": 3,
             },
         ],
@@ -115,7 +118,7 @@ def test_write_run_manifest_summarizes_dpo_family_outputs(tmp_path):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["dataset_type"] == "dpo"
     assert manifest["generation_run"] == "dpo-smoke-001"
-    assert manifest["families"] == ["answer_only_arithmetic", "repeat_exact_n_times"]
+    assert manifest["families"] == ["answer_only_arithmetic", "instruction_adherence"]
     assert manifest["total_rows"] == 5
     assert manifest["metadata"] == {"family_count": 2}
     assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "answer_only_arithmetic.jsonl")
@@ -153,7 +156,7 @@ def test_build_manifest_payload_rejects_invalid_rows(tmp_path):
         failure_mode="extra_explanation",
         difficulty=1,
         template_family="direct_qa",
-        eval_family="basic_arithmetic_qa",
+        eval_family="factual_accuracy",
     )
     row["rejected"] = list(row["chosen"])
 

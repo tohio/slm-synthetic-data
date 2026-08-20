@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from slm_synth.sft.schema import validate_message
-from slm_synth.taxonomy import validate_metadata
+from slm_synth.taxonomy import validate_alignment_metadata
 
 DPO_REQUIRED_FIELDS = frozenset({"id", "prompt", "chosen", "rejected", "metadata"})
 
@@ -62,7 +62,7 @@ def validate_dpo_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "prompt": prompt,
         "chosen": chosen,
         "rejected": rejected,
-        "metadata": validate_metadata(row["metadata"], require_failure_mode=True),
+        "metadata": validate_alignment_metadata(row["metadata"], preference=True),
     }
 
 

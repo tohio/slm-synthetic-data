@@ -54,10 +54,12 @@ Public SFT rows use this schema:
     {"role": "assistant", "content": "string"}
   ],
   "metadata": {
-    "category": "string",
+    "task_family": "string",
+    "interaction_modes": ["string"],
+    "output_mode": "string",
+    "context_mode": "string",
     "difficulty": 1,
-    "template_family": "string",
-    "eval_family": "string | null"
+    "template_family": "string"
   }
 }
 ```
@@ -75,10 +77,13 @@ Public DPO rows use this schema:
   "chosen": [{"role": "assistant", "content": "string"}],
   "rejected": [{"role": "assistant", "content": "string"}],
   "metadata": {
-    "category": "string",
+    "task_family": "string",
+    "interaction_modes": ["string"],
+    "output_mode": "string",
+    "context_mode": "string",
     "difficulty": 1,
     "template_family": "string",
-    "eval_family": "string | null",
+    "preference_dimension": "string",
     "failure_mode": "string"
   }
 }
@@ -139,13 +144,18 @@ Production distillation DPO pairs use teacher-quality chosen responses and contr
 
 | Field | Meaning | Used by |
 |---|---|---|
-| `category` | Training objective. | SFT, DPO, distillation SFT, distillation DPO |
-| `eval_family` | Eval-shaped behavior pattern. | SFT, DPO, distillation SFT, holdout checks |
+| `task_family` | Broad task objective. | Generic SFT and DPO |
+| `interaction_modes` | Conversation shape: single-turn, multi-turn, system-conditioned, or tool-mediated. | Generic SFT and DPO |
+| `output_mode` | Required response surface. | Generic SFT and DPO |
+| `context_mode` | Source-context shape. | Generic SFT and DPO |
+| `preference_dimension` | Quality dimension separating chosen from rejected. | Generic DPO |
+| `category` | Distillation training objective. | Distillation SFT and DPO |
+| `eval_family` | Distillation-only behavior label pending the separate distillation review. | Distillation SFT and DPO |
 | `template_family` | Generation/template surface. | SFT, DPO, distillation SFT, distillation DPO |
 | `failure_mode` | Rejected-answer behavior. | DPO, distillation DPO |
 | `holdout_key` | Exact structured holdout guard. | Spec validation and materialization |
 
-Same-family training examples are allowed when variables and templates differ from eval items. Exact eval prompts and matching structured holdout keys are rejected.
+Generic SFT/DPO rows do not expose evaluation-family labels. Exact normalized prompt fingerprints and matching structured `holdout_key` values are rejected locally; both controls remain internal and are never sent to teachers or published.
 
 ## Generation Budgets
 

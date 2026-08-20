@@ -43,13 +43,14 @@ class DuplicatePromptSFTBackend(FakeSFTBackend):
 class RejectSecondSFTBackend(FakeSFTBackend):
     def _item(self, spec):
         item = super()._item(spec)
-        if int(spec["id"].rsplit("_", 1)[1]) == 2: item["messages"][1]["content"] = "wrong"
+        if int(spec["id"].rsplit("_", 1)[1]) == 2:
+            item["metadata"] = {**item["metadata"], "output_mode": "concise"}
         return item
 
 
 def generate(tmp_path, backend, **planning):
     return generate_llm_run(
-        families=planning.pop("families", ["basic_arithmetic_qa"]),
+        families=planning.pop("families", ["grounded_qa_and_reading"]),
         batch_size=planning.pop("batch_size", 2),
         output_dir=tmp_path / "datasets",
         manifest_dir=tmp_path / "manifests",
@@ -75,13 +76,13 @@ def test_generate_sft_llm_run_supports_explicit_candidate_counts(tmp_path):
     result = generate(
         tmp_path,
         FakeSFTBackend(),
-        families=["basic_arithmetic_qa", "repeat_exact_n_times"],
-        candidate_counts_by_family={"basic_arithmetic_qa": 2, "repeat_exact_n_times": 1},
+        families=["grounded_qa_and_reading", "rewriting_and_editing"],
+        candidate_counts_by_family={"grounded_qa_and_reading": 2, "rewriting_and_editing": 1},
     )
     manifest = json.loads(result.manifest_path.read_text())
     assert result.row_count == 3
     assert manifest["metadata"]["planning_mode"] == "candidate_counts_by_family"
-    assert manifest["metadata"]["candidate_rows_per_family"] == {"basic_arithmetic_qa": 2, "repeat_exact_n_times": 1}
+    assert manifest["metadata"]["candidate_rows_per_family"] == {"grounded_qa_and_reading": 2, "rewriting_and_editing": 1}
 
 
 def test_generate_sft_llm_run_does_not_replace_duplicate_candidates(tmp_path):
@@ -111,23 +112,23 @@ def test_generate_sft_llm_run_reduces_batch_size_after_failure(tmp_path):
 
 
 def test_generate_sft_llm_run_rejects_multiple_planning_strategies(tmp_path):
-    with pytest.raises(ValueError, match="provide exactly one"):
-        generate(tmp_path, FakeSFTBackend(), count_per_family=1, candidate_counts_by_family={"basic_arithmetic_qa": 1})
+    with pytest.raises(ValueError, match="provide only one"):
+        generate(tmp_path, FakeSFTBackend(), count_per_family=1, candidate_counts_by_family={"grounded_qa_and_reading": 1})
 
 
 def test_generate_sft_llm_run_checks_capacity_before_backend_construction(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr("slm_synth.sft.runs.build_openrouter_backend", lambda **kwargs: calls.append(kwargs))
-    with pytest.raises(ValueError, match="exceeds declared unique source capacity"):
+    with pytest.raises(ValueError, match="finite source capacity"):
         generate_llm_run(
-            families=["direct_division"], count_per_family=2, batch_size=1,
+            families=["summarization"], count_per_family=2, batch_size=1,
             output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
             teacher_model="teacher/model", generation_run="too-large", max_tokens=100,
-            start_index=unique_capacity("direct_division"), concurrency=1,
+            start_index=unique_capacity("summarization"), concurrency=1,
         )
     assert calls == []
 
 
 def test_resolve_sft_spec_families_rejects_duplicates():
     with pytest.raises(ValueError, match="Duplicate SFT spec family"):
-        resolve_spec_families(["basic_arithmetic_qa", "basic_arithmetic_qa"])
+        resolve_spec_families(["grounded_qa_and_reading", "grounded_qa_and_reading"])

@@ -18,11 +18,14 @@ def _row():
             {"role": "assistant", "content": "The answer is 43 because 16 plus 27 equals 43."},
         ],
         "metadata": {
-            "category": "answer_only_compliance",
+            "task_family": "applied_math_and_reasoning",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "concise",
+            "context_mode": "self_contained",
+            "preference_dimension": "factual_accuracy",
             "failure_mode": "extra_explanation",
             "difficulty": 1,
             "template_family": "direct_qa",
-            "eval_family": "basic_arithmetic_qa",
         },
     }
 

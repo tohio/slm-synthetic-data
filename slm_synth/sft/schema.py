@@ -5,13 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from slm_synth.taxonomy import validate_metadata
+from slm_synth.taxonomy import validate_alignment_metadata
 
 SFT_ALLOWED_ROLES = frozenset({"system", "user", "assistant"})
-SFT_ALLOWED_ROLE_CONTRACTS = (
-    ("user", "assistant"),
-    ("system", "user", "assistant"),
-)
 SFT_REQUIRED_FIELDS = frozenset({"id", "messages", "metadata"})
 
 
@@ -21,7 +17,7 @@ def validate_sft_row(row: Mapping[str, Any]) -> dict[str, Any]:
     Required row shape:
       - id: non-empty string
       - messages: one user turn and one assistant turn, optionally prefixed by one system turn
-      - metadata: category/difficulty/template/eval labels
+      - metadata: task and interaction coverage labels
     """
     if not isinstance(row, Mapping):
         raise TypeError("SFT row must be an object")
@@ -36,7 +32,8 @@ def validate_sft_row(row: Mapping[str, Any]) -> dict[str, Any]:
 
     row_id = _require_non_empty_string(row["id"], "id")
     messages = validate_messages(row["messages"])
-    metadata = validate_metadata(row["metadata"], require_failure_mode=False)
+    metadata = validate_alignment_metadata(row["metadata"])
+    _validate_interaction_contract(messages, metadata["interaction_modes"])
 
     return {
         "id": row_id,
@@ -53,12 +50,22 @@ def validate_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, s
         raise ValueError("messages must contain at least one message")
 
     validated = [validate_message(message) for message in messages]
-    roles = tuple(message["role"] for message in validated)
-    if roles not in SFT_ALLOWED_ROLE_CONTRACTS:
-        supported = " or ".join(str(contract) for contract in SFT_ALLOWED_ROLE_CONTRACTS)
-        raise ValueError(f"SFT messages must follow role contract {supported}; got {roles}")
+    roles = [message["role"] for message in validated]
+    conversational_roles = roles[1:] if roles[0] == "system" else roles
+    expected = ["user" if index % 2 == 0 else "assistant" for index in range(len(conversational_roles))]
+    if conversational_roles != expected or conversational_roles[-1] != "assistant":
+        raise ValueError("SFT messages must alternate user/assistant, optionally after one system message, and end with assistant")
 
     return validated
+
+
+def _validate_interaction_contract(messages: list[dict[str, str]], modes: list[str]) -> None:
+    roles = [message["role"] for message in messages]
+    turn_count = sum(role == "user" for role in roles)
+    if ("multi_turn" in modes) != (turn_count > 1):
+        raise ValueError("interaction_modes single_turn/multi_turn must match the message sequence")
+    if ("system_conditioned" in modes) != (roles[0] == "system"):
+        raise ValueError("system_conditioned must match the presence of a leading system message")
 
 
 def validate_message(message: Mapping[str, Any]) -> dict[str, str]:
@@ -87,84 +94,3 @@ def _require_non_empty_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     return value.strip()
-
-# BEGIN adjacent SFT role normalization
-def _normalize_adjacent_sft_role_messages(row):
-    """Merge adjacent same-role SFT messages before role-contract validation."""
-    if not isinstance(row, dict):
-        return row
-
-    messages = row.get("messages")
-    if not isinstance(messages, list):
-        return row
-
-    normalized_messages = []
-
-    for message in messages:
-        if not isinstance(message, dict):
-            normalized_messages.append(message)
-            continue
-
-        copied = dict(message)
-        role = copied.get("role")
-        content = copied.get("content")
-
-        if isinstance(content, str):
-            copied["content"] = content.strip()
-
-        if (
-            role in {"user", "assistant"}
-            and normalized_messages
-            and isinstance(normalized_messages[-1], dict)
-            and normalized_messages[-1].get("role") == role
-            and isinstance(normalized_messages[-1].get("content"), str)
-            and isinstance(copied.get("content"), str)
-        ):
-            left = normalized_messages[-1]["content"].rstrip()
-            right = copied["content"].strip()
-            normalized_messages[-1]["content"] = (
-                f"{left}\n{right}".strip() if left and right else left or right
-            )
-            continue
-
-        normalized_messages.append(copied)
-
-    normalized = dict(row)
-    normalized["messages"] = normalized_messages
-    return normalized
-
-
-def _install_adjacent_sft_role_normalization():
-    candidate_names = (
-        "validate_sft_row",
-        "validate_row",
-        "validate_sft_record",
-        "validate_record",
-    )
-
-    for name in candidate_names:
-        original = globals().get(name)
-        if not callable(original):
-            continue
-
-        if getattr(original, "_sft_adjacent_role_normalized", False):
-            return
-
-        def wrapped(row, *args, __original=original, **kwargs):
-            return __original(
-                _normalize_adjacent_sft_role_messages(row),
-                *args,
-                **kwargs,
-            )
-
-        wrapped.__name__ = getattr(original, "__name__", name)
-        wrapped.__doc__ = getattr(original, "__doc__", None)
-        wrapped._sft_adjacent_role_normalized = True
-        globals()[name] = wrapped
-        return
-
-    raise RuntimeError("No SFT validation function found for adjacent-role normalization")
-
-
-_install_adjacent_sft_role_normalization()
-# END adjacent SFT role normalization

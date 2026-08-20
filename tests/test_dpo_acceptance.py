@@ -13,10 +13,13 @@ def _row(row_id: str, prompt: str, chosen: str = "4", rejected: str = "5") -> di
         "chosen": [{"role": "assistant", "content": chosen}],
         "rejected": [{"role": "assistant", "content": rejected}],
         "metadata": {
-            "category": "answer_only_compliance",
+            "task_family": "applied_math_and_reasoning",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "concise",
+            "context_mode": "self_contained",
+            "preference_dimension": "factual_accuracy",
             "difficulty": 1,
             "template_family": "direct_qa",
-            "eval_family": "basic_arithmetic_qa",
             "failure_mode": "wrong_numeric_answer",
         },
     }

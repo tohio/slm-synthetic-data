@@ -6,7 +6,7 @@ from slm_synth.cards import build_dataset_card
 from slm_synth.sft.card import load_sft_dataset_card_configs, require_sft_dataset_card_configs
 
 
-FAMILIES = ["ai_concept_explanation", "basic_arithmetic_qa"]
+FAMILIES = ["creative_writing", "grounded_qa_and_reading"]
 
 
 def _write_consolidated_card(tmp_path: Path) -> Path:
@@ -33,11 +33,11 @@ def test_consolidated_sft_card_has_default_and_per_family_configs(tmp_path):
 
     assert list(configs) == ["default", *FAMILIES]
     assert configs["default"] == [{"split": "train", "path": "data/*.jsonl"}]
-    assert configs["ai_concept_explanation"] == [
-        {"split": "train", "path": "data/ai_concept_explanation.jsonl"}
+    assert configs["creative_writing"] == [
+        {"split": "train", "path": "data/creative_writing.jsonl"}
     ]
-    assert configs["basic_arithmetic_qa"] == [
-        {"split": "train", "path": "data/basic_arithmetic_qa.jsonl"}
+    assert configs["grounded_qa_and_reading"] == [
+        {"split": "train", "path": "data/grounded_qa_and_reading.jsonl"}
     ]
 
 

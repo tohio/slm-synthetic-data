@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES
+from slm_synth.dpo.spec_builders import DPO_PREFERENCE_DIMENSIONS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,9 +55,9 @@ def test_dpo_workflow_documents_acceptance_and_consolidated_publication():
 
 def test_documented_dpo_family_table_covers_every_supported_family():
     document = _read("docs/GENERATION_FAMILIES.md")
-    dpo_section = document.split("## DPO Families", 1)[1].split("## Distillation SFT Signals", 1)[0]
+    dpo_section = document.split("## DPO Preference Dimensions", 1)[1].split("## Distillation SFT Signals", 1)[0]
 
-    for family in DPO_SPEC_FAMILIES:
+    for family in DPO_PREFERENCE_DIMENSIONS:
         assert f"`{family}`" in dpo_section
     assert "unique source capacity" in dpo_section
     assert "inspection signals rather than automatic rejection thresholds" in dpo_section

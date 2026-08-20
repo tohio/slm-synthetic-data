@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from slm_synth.taxonomy import validate_metadata
+from slm_synth.taxonomy import validate_alignment_metadata
 
 SFT_SPEC_REQUIRED_FIELDS = frozenset({"id", "instruction", "metadata"})
 SFT_SPEC_OPTIONAL_FIELDS = frozenset({"variables", "constraints", "holdout_key"})
@@ -34,7 +34,7 @@ def validate_sft_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     validated: dict[str, Any] = {
         "id": _require_non_empty_string(spec["id"], "id"),
         "instruction": _require_non_empty_string(spec["instruction"], "instruction"),
-        "metadata": validate_metadata(spec["metadata"], require_failure_mode=False),
+        "metadata": validate_alignment_metadata(spec["metadata"]),
     }
 
     if "variables" in spec:

@@ -10,6 +10,9 @@ from slm_synth.taxonomy import (
     validate_failure_mode,
     validate_metadata,
     validate_template_family,
+    TASK_FAMILIES,
+    PREFERENCE_DIMENSIONS,
+    validate_alignment_metadata,
 )
 
 
@@ -96,3 +99,22 @@ def test_taxonomy_rejects_unknown_or_invalid_values():
 
     with pytest.raises(ValueError, match="snake_case"):
         validate_template_family("Repeat Word Count")
+
+
+def test_generic_alignment_taxonomy_has_agreed_family_counts():
+    assert len(TASK_FAMILIES) == 10
+    assert len(PREFERENCE_DIMENSIONS) == 10
+
+
+def test_generic_alignment_metadata_excludes_eval_family():
+    metadata = {
+        "task_family": "summarization",
+        "interaction_modes": ["single_turn", "system_conditioned"],
+        "output_mode": "concise",
+        "context_mode": "supplied_passage",
+        "difficulty": 2,
+        "template_family": "grounded_summary",
+    }
+    assert validate_alignment_metadata(metadata) == metadata
+    with pytest.raises(ValueError, match="unsupported field"):
+        validate_alignment_metadata({**metadata, "eval_family": "basic_arithmetic_qa"})

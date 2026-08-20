@@ -83,8 +83,8 @@ make sft-inspect
 ```
 
 ```bash
-SFT_FAMILIES="basic_arithmetic_qa ai_concept_explanation" \
-SFT_CANDIDATE_COUNTS="basic_arithmetic_qa=4 ai_concept_explanation=2" \
+SFT_FAMILIES="grounded_qa_and_reading rewriting_and_editing" \
+SFT_CANDIDATE_COUNTS="grounded_qa_and_reading=2 rewriting_and_editing=2" \
 SFT_GENERATION_RUN=sft-candidate-001 \
 make sft-generate
 make sft-inspect SFT_INSPECT_RUN=sft-candidate-001
@@ -98,7 +98,7 @@ replaced to fill a quota.
 |---|---:|---|
 | `SFT_RUN` | `sft-smoke-001` | Smoke run id. |
 | `SFT_GENERATION_RUN` | `sft-candidate-001` | Candidate generation run id. |
-| `SFT_SMOKE_FAMILIES` | `basic_arithmetic_qa` | Smoke family list. |
+| `SFT_SMOKE_FAMILIES` | `grounded_qa_and_reading` | Smoke task-family list. |
 | `SFT_FAMILIES` | `all` | Target family list. |
 | `SFT_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
 | `SFT_CANDIDATE_COUNTS` | unset | Required `family=count` candidate plan for `sft-generate`. |
@@ -138,7 +138,7 @@ The run id, target, selected families, start index, teacher model, and provider 
 |---|---:|---|
 | `DPO_RUN` | `dpo-smoke-001` | Smoke run id. |
 | `DPO_TARGET_RUN` | `dpo-target-001` | Target run id. |
-| `DPO_SMOKE_FAMILIES` | `basic_arithmetic_qa` | Smoke family list. |
+| `DPO_SMOKE_FAMILIES` | `instruction_adherence` | Smoke preference-dimension list. |
 | `DPO_FAMILIES` | `all` | Target family list. |
 | `DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
 | `DPO_TARGET_PAIRS` | `14000` | Target pairs across selected families. |

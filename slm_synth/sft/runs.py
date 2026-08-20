@@ -477,7 +477,7 @@ def _write_public_family_files(
 
     accepted_rows, round_acceptance = partition_unique_sft_rows(candidate_rows)
     current_rows_by_family = {
-        family: [row for row in accepted_rows if row["metadata"]["eval_family"] == family]
+        family: [row for row in accepted_rows if row["metadata"]["task_family"] == family]
         for family in families
     }
     prior_datasets_by_family = {dataset["family"]: dataset for dataset in prior_datasets}

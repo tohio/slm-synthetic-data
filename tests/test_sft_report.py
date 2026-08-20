@@ -22,10 +22,12 @@ def _sft_row(
             {"role": "assistant", "content": "4"},
         ],
         "metadata": {
-            "category": category,
+            "task_family": eval_family,
+            "interaction_modes": ["single_turn"],
+            "output_mode": "free_text",
+            "context_mode": "self_contained",
             "difficulty": 1,
             "template_family": template_family,
-            "eval_family": eval_family,
         },
     }
 
@@ -38,13 +40,13 @@ def test_build_sft_coverage_report_counts_metadata_across_files(tmp_path):
             _sft_row(
                 row_id="sft-arithmetic-1",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
             ),
             _sft_row(
                 row_id="sft-arithmetic-2",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
             ),
         ],
@@ -55,7 +57,7 @@ def test_build_sft_coverage_report_counts_metadata_across_files(tmp_path):
             _sft_row(
                 row_id="sft-repeat-1",
                 category="exact_output_format_control",
-                eval_family="repeat_exact_n_times",
+                eval_family="rewriting_and_editing",
                 template_family="repeat_word_count",
             )
         ],
@@ -70,20 +72,16 @@ def test_build_sft_coverage_report_counts_metadata_across_files(tmp_path):
         str(arithmetic_path): 2,
         str(repeat_path): 1,
     }
-    assert report["categories"] == {
-        "answer_only_compliance": 2,
-        "exact_output_format_control": 1,
-    }
-    assert report["eval_families"] == {
-        "basic_arithmetic_qa": 2,
-        "repeat_exact_n_times": 1,
+    assert report["task_families"] == {
+        "grounded_qa_and_reading": 2,
+        "rewriting_and_editing": 1,
     }
     assert report["template_families"] == {
         "direct_qa": 2,
         "repeat_word_count": 1,
     }
     assert report["difficulty_counts"] == {"1": 3}
-    assert report["families"]["basic_arithmetic_qa"]["acceptance"] == {
+    assert report["families"]["grounded_qa_and_reading"]["acceptance"] == {
         "attempted_rows": 2,
         "accepted_rows": 2,
         "rejected_rows": 0,
@@ -100,8 +98,7 @@ def test_write_sft_coverage_report_writes_json(tmp_path):
         "dataset_type": "sft",
         "row_count": 0,
         "files": {},
-        "categories": {},
-        "eval_families": {},
+        "task_families": {},
         "template_families": {},
         "difficulty_counts": {},
     }
@@ -129,14 +126,14 @@ def test_sft_report_blocks_normalized_prompt_and_conversation_duplicates(tmp_pat
             _sft_row(
                 row_id="first",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
                 prompt="What is 2 + 2?",
             ),
             _sft_row(
                 row_id="second",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
                 prompt="  what IS 2 + 2? ",
             ),
@@ -164,14 +161,14 @@ def test_sft_report_checks_holdouts_and_keeps_response_repetition_reporting_only
             _sft_row(
                 row_id="first",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
                 prompt="What is 2 + 2?",
             ),
             _sft_row(
                 row_id="second",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
                 prompt="What is 3 + 1?",
             ),
@@ -195,7 +192,7 @@ def test_sft_report_checks_holdouts_and_keeps_response_repetition_reporting_only
         [
             HoldoutRecord(
                 id="holdout-1",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 prompt="what is 2 + 2?",
                 answer="4",
             )
@@ -216,7 +213,7 @@ def test_sft_report_marks_missing_holdout_check_as_publish_blocker(tmp_path):
             _sft_row(
                 row_id="first",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
             )
         ],
@@ -238,7 +235,7 @@ def test_sft_report_records_candidate_and_rejection_outcomes_from_manifest(tmp_p
             _sft_row(
                 row_id="first",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="grounded_qa_and_reading",
                 template_family="direct_qa",
             )
         ],

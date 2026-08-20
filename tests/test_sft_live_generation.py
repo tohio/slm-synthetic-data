@@ -20,10 +20,12 @@ def _sft_spec():
         "id": "sft_direct_arithmetic_000001",
         "instruction": "Create an addition question using 13 and 28. Answer concisely.",
         "metadata": {
-            "category": "direct_arithmetic",
+            "task_family": "grounded_qa_and_reading",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "free_text",
+            "context_mode": "supplied_passage",
             "difficulty": 1,
             "template_family": "direct_qa",
-            "eval_family": "basic_arithmetic_qa",
         },
         "variables": {"a": 13, "b": 28, "answer": 41},
         "holdout_key": {"op": "add", "a": 13, "b": 28},
@@ -40,10 +42,12 @@ def _teacher_data():
                     {"role": "assistant", "content": "41"},
                 ],
                 "metadata": {
-                    "category": "direct_arithmetic",
+                    "task_family": "grounded_qa_and_reading",
+                    "interaction_modes": ["single_turn"],
+                    "output_mode": "free_text",
+                    "context_mode": "supplied_passage",
                     "difficulty": 1,
                     "template_family": "direct_qa",
-                    "eval_family": "basic_arithmetic_qa",
                 },
             }
         ]

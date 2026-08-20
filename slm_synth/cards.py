@@ -65,10 +65,12 @@ CARD_SPECS: dict[str, dict[str, str]] = {
     {"role": "assistant", "content": "string"}
   ],
   "metadata": {
-    "category": "string",
+    "task_family": "string",
+    "interaction_modes": ["string"],
+    "output_mode": "string",
+    "context_mode": "string",
     "difficulty": 1,
-    "template_family": "string",
-    "eval_family": "string"
+    "template_family": "string"
   }
 }""",
         "intended_use": "Use this dataset for supervised fine-tuning experiments.",
@@ -91,10 +93,13 @@ CARD_SPECS: dict[str, dict[str, str]] = {
     {"role": "assistant", "content": "string"}
   ],
   "metadata": {
-    "category": "string",
+    "task_family": "string",
+    "interaction_modes": ["string"],
+    "output_mode": "string",
+    "context_mode": "string",
     "difficulty": 1,
     "template_family": "string",
-    "eval_family": "string",
+    "preference_dimension": "string",
     "failure_mode": "string"
   }
 }""",

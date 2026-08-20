@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from slm_synth.taxonomy import validate_metadata
+from slm_synth.taxonomy import validate_alignment_metadata
 
 DPO_SPEC_REQUIRED_FIELDS = frozenset({"id", "instruction", "metadata"})
 DPO_SPEC_OPTIONAL_FIELDS = frozenset({"variables", "constraints", "holdout_key"})
@@ -29,7 +29,7 @@ def validate_dpo_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     validated: dict[str, Any] = {
         "id": _require_non_empty_string(spec["id"], "id"),
         "instruction": _require_non_empty_string(spec["instruction"], "instruction"),
-        "metadata": validate_metadata(spec["metadata"], require_failure_mode=True),
+        "metadata": validate_alignment_metadata(spec["metadata"], preference=True),
     }
 
     if "variables" in spec:

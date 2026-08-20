@@ -10,10 +10,13 @@ def _sample_dpo_rows(count: int = 1) -> list[dict[str, object]]:
             "chosen": [{"role": "assistant", "content": "4"}],
             "rejected": [{"role": "assistant", "content": "The answer is 4."}],
             "metadata": {
-                "category": "answer_only_compliance",
+                "task_family": "applied_math_and_reasoning",
+                "interaction_modes": ["single_turn"],
+                "output_mode": "concise",
+                "context_mode": "self_contained",
+                "preference_dimension": "factual_accuracy",
                 "difficulty": 1,
                 "template_family": "direct_qa",
-                "eval_family": "basic_arithmetic_qa",
                 "failure_mode": "extra_explanation",
             },
         }
@@ -35,7 +38,7 @@ def test_dpo_build_specs_cli_calls_builder(tmp_path, monkeypatch, capsys):
             [
                 "build-specs",
                 "--family",
-                "basic_arithmetic_qa",
+                "factual_accuracy",
                 "--count",
                 "3",
                 "--output",
@@ -49,7 +52,7 @@ def test_dpo_build_specs_cli_calls_builder(tmp_path, monkeypatch, capsys):
 
     assert calls == [
         {
-            "family": "basic_arithmetic_qa",
+            "family": "factual_accuracy",
             "count": 3,
             "output_path": str(tmp_path / "dpo.specs.jsonl"),
             "start_index": 7,
@@ -198,7 +201,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
 
         class Result:
             row_count = 4
-            families = ("basic_arithmetic_qa", "repeat_exact_n_times")
+            families = ("factual_accuracy", "instruction_adherence")
             generation_run = "dpo-live-run-001"
             manifest_path = tmp_path / "manifests" / "dpo-live-run-001.manifest.json"
 
@@ -212,8 +215,8 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             [
                 "generate-llm-run",
                 "--families",
-                "basic_arithmetic_qa",
-                "repeat_exact_n_times",
+                "factual_accuracy",
+                "instruction_adherence",
                 "--count-per-family",
                 "2",
                 "--batch-size",
@@ -242,7 +245,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
 
     assert calls == [
         {
-            "families": ["basic_arithmetic_qa", "repeat_exact_n_times"],
+            "families": ["factual_accuracy", "instruction_adherence"],
             "count_per_family": 2,
             "target_pairs": None,
             "batch_size": 1,
@@ -282,7 +285,7 @@ def test_dpo_generate_llm_run_cli_accepts_target_pairs(tmp_path, monkeypatch):
 
         class Result:
             row_count = 3
-            families = ("basic_arithmetic_qa", "repeat_exact_n_times")
+            families = ("factual_accuracy", "instruction_adherence")
             generation_run = "dpo-target-001"
             manifest_path = tmp_path / "manifests" / "dpo-target-001.manifest.json"
 
@@ -296,8 +299,8 @@ def test_dpo_generate_llm_run_cli_accepts_target_pairs(tmp_path, monkeypatch):
             [
                 "generate-llm-run",
                 "--families",
-                "basic_arithmetic_qa",
-                "repeat_exact_n_times",
+                "factual_accuracy",
+                "instruction_adherence",
                 "--target-pairs",
                 "3",
                 "--batch-size",
@@ -330,7 +333,7 @@ def test_dpo_report_coverage_cli_prints_json(tmp_path, capsys):
     captured = capsys.readouterr()
     assert '"dataset_type": "dpo"' in captured.out
     assert '"row_count": 1' in captured.out
-    assert '"answer_only_compliance": 1' in captured.out
+    assert '"factual_accuracy": 1' in captured.out
     assert '"extra_explanation": 1' in captured.out
 
 

@@ -23,8 +23,7 @@ from slm_synth.dpo.generation import (
 from slm_synth.dpo.acceptance import partition_unique_dpo_rows
 from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import write_manifest, write_run_manifest
-from slm_synth.dpo.batches import is_exact_target_dpo_spec
-from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_specs, validate_spec_range
+from slm_synth.dpo.spec_builders import DPO_PREFERENCE_DIMENSIONS, build_specs, validate_spec_range
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 from slm_synth.telemetry import aggregate_llm_telemetry, aggregate_llm_telemetry_from_manifests
 from slm_synth.throughput_defaults import (
@@ -205,11 +204,7 @@ def generate_llm_run(
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
-            backend=(
-                active_backend
-                if all(is_exact_target_dpo_spec(spec) for spec in job["specs"])
-                else get_backend()
-            ),
+            backend=get_backend(),
         )
 
     results: list[Any] = []
@@ -468,7 +463,7 @@ def generate_llm_run(
 def resolve_spec_families(families: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
     """Resolve requested DPO spec families, where None or ['all'] means all families."""
     if families is None or tuple(families) == ("all",):
-        return tuple(sorted(DPO_SPEC_FAMILIES))
+        return tuple(sorted(DPO_PREFERENCE_DIMENSIONS))
     if "all" in families:
         raise ValueError("'all' cannot be combined with explicit DPO spec families")
 
@@ -478,8 +473,8 @@ def resolve_spec_families(families: list[str] | tuple[str, ...] | None) -> tuple
         if not isinstance(family, str) or not family.strip():
             raise ValueError("DPO spec family must be a non-empty string")
         normalized = family.strip().lower()
-        if normalized not in DPO_SPEC_FAMILIES:
-            supported = ", ".join(sorted(DPO_SPEC_FAMILIES))
+        if normalized not in DPO_PREFERENCE_DIMENSIONS:
+            supported = ", ".join(sorted(DPO_PREFERENCE_DIMENSIONS))
             raise ValueError(f"Unsupported DPO spec family '{family}'. Supported families: {supported}")
         if normalized in seen:
             raise ValueError(f"Duplicate DPO spec family: {normalized}")
@@ -556,7 +551,7 @@ def _write_public_family_files(
 
     accepted_rows, round_acceptance = partition_unique_dpo_rows(candidate_rows)
     current_rows_by_family = {
-        family: [row for row in accepted_rows if row["metadata"]["eval_family"] == family]
+        family: [row for row in accepted_rows if row["metadata"]["preference_dimension"] == family]
         for family in families
     }
     prior_datasets_by_family = {dataset["family"]: dataset for dataset in prior_datasets}
@@ -697,7 +692,7 @@ def _load_resume_state(
         rows = read_jsonl(dataset_path)
         if item.get("row_count") != len(rows):
             raise ValueError(f"DPO resume dataset row count does not match manifest for {family}")
-        if any(row["metadata"]["eval_family"] != family for row in rows):
+        if any(row["metadata"]["preference_dimension"] != family for row in rows):
             raise ValueError(f"DPO resume dataset contains the wrong family metadata for {family}")
         if content_fingerprints.get(family) != _rows_fingerprint(rows):
             raise ValueError(f"DPO resume dataset content fingerprint does not match manifest for {family}")

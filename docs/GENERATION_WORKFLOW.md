@@ -32,8 +32,8 @@ make sft-inspect SFT_INSPECT_RUN=sft-smoke-001
 Small candidate run:
 
 ```bash
-SFT_FAMILIES="basic_arithmetic_qa ai_concept_explanation" \
-SFT_CANDIDATE_COUNTS="basic_arithmetic_qa=4 ai_concept_explanation=2" \
+SFT_FAMILIES="grounded_qa_and_reading rewriting_and_editing" \
+SFT_CANDIDATE_COUNTS="grounded_qa_and_reading=2 rewriting_and_editing=2" \
 SFT_GENERATION_RUN=sft-small-001 \
 make sft-generate
 
@@ -44,8 +44,8 @@ make sft-report SFT_REPORT_RUN=sft-small-001
 Another explicit candidate plan (choose counts only after reviewing family capacity and pilot quality):
 
 ```bash
-SFT_FAMILIES="basic_arithmetic_qa ai_concept_explanation" \
-SFT_CANDIDATE_COUNTS="basic_arithmetic_qa=8 ai_concept_explanation=4" \
+SFT_FAMILIES="grounded_qa_and_reading rewriting_and_editing" \
+SFT_CANDIDATE_COUNTS="grounded_qa_and_reading=3 rewriting_and_editing=3" \
 SFT_GENERATION_RUN=sft-prod-001 \
 make sft-generate
 
@@ -87,8 +87,8 @@ Publication is blocked when:
 tohio/slm-synthetic-sft/
 ├── README.md
 ├── data/
-│   ├── ai_concept_explanation.jsonl
-│   ├── basic_arithmetic_qa.jsonl
+│   ├── grounded_qa_and_reading.jsonl
+│   ├── rewriting_and_editing.jsonl
 │   └── ...
 └── artifacts/
     ├── coverage.json
@@ -174,8 +174,8 @@ Publication is blocked when:
 tohio/slm-synthetic-dpo/
 ├── README.md
 ├── data/
-│   ├── ai_concept_explanation.jsonl
-│   ├── basic_arithmetic_qa.jsonl
+│   ├── instruction_adherence.jsonl
+│   ├── groundedness.jsonl
 │   └── ...
 └── artifacts/
     ├── coverage.json

@@ -15,7 +15,7 @@ from slm_synth.run_summary import print_dpo_run_summary
 from slm_synth.dpo.generation import generate_llm_batch_from_files, materialize_llm_batch_from_files
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.dpo.runs import generate_llm_run
-from slm_synth.dpo.spec_builders import DPO_SPEC_FAMILIES, build_and_write_specs
+from slm_synth.dpo.spec_builders import DPO_PREFERENCE_DIMENSIONS, build_and_write_specs
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
@@ -146,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     build_specs_parser = subparsers.add_parser("build-specs")
-    build_specs_parser.add_argument("--family", required=True, choices=sorted(DPO_SPEC_FAMILIES))
+    build_specs_parser.add_argument("--family", required=True, choices=sorted(DPO_PREFERENCE_DIMENSIONS))
     build_specs_parser.add_argument("--count", required=True, type=int)
     build_specs_parser.add_argument("--output", required=True, help="Output DPO task spec JSONL path.")
     build_specs_parser.add_argument("--start-index", type=int, default=1)
@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--families",
         nargs="+",
         default=["all"],
-        choices=["all", *sorted(DPO_SPEC_FAMILIES)],
+        choices=["all", *sorted(DPO_PREFERENCE_DIMENSIONS)],
         help="DPO spec families to generate, or 'all'.",
     )
     planning_group = generate_run_parser.add_mutually_exclusive_group(required=True)

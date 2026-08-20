@@ -58,8 +58,10 @@ def build_coverage_report(
         "dataset_type": "sft",
         "row_count": len(rows),
         "files": file_counts,
-        "categories": _count_metadata(rows, "category"),
-        "eval_families": _count_metadata(rows, "eval_family"),
+        "task_families": _count_metadata(rows, "task_family"),
+        "interaction_modes": _count_list_metadata(rows, "interaction_modes"),
+        "output_modes": _count_metadata(rows, "output_mode"),
+        "context_modes": _count_metadata(rows, "context_mode"),
         "template_families": _count_metadata(rows, "template_family"),
         "difficulty_counts": _count_metadata(rows, "difficulty", stringify_keys=True),
         "content_uniqueness": content,
@@ -135,6 +137,11 @@ def _count_metadata(
     return {key: counter[key] for key in sorted(counter)}
 
 
+def _count_list_metadata(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
+    counter = Counter(item for row in rows for item in row["metadata"][field])
+    return {key: counter[key] for key in sorted(counter)}
+
+
 def _build_family_reports(
     rows: list[dict[str, Any]],
     *,
@@ -143,8 +150,8 @@ def _build_family_reports(
     require_holdout_check: bool,
 ) -> dict[str, Any]:
     reports: dict[str, Any] = {}
-    for family in sorted({row["metadata"]["eval_family"] for row in rows}):
-        family_rows = [row for row in rows if row["metadata"]["eval_family"] == family]
+    for family in sorted({row["metadata"]["task_family"] for row in rows}):
+        family_rows = [row for row in rows if row["metadata"]["task_family"] == family]
         content = build_sft_content_summary(family_rows)
         unique_rows, visible_acceptance = partition_unique_sft_rows(family_rows)
         attempted = _family_count(manifest_metadata, "attempted_rows_per_family", family, len(family_rows))
@@ -173,7 +180,9 @@ def _build_family_reports(
         )
         reports[family] = {
             "row_count": len(family_rows),
-            "categories": _count_metadata(family_rows, "category"),
+            "interaction_modes": _count_list_metadata(family_rows, "interaction_modes"),
+            "output_modes": _count_metadata(family_rows, "output_mode"),
+            "context_modes": _count_metadata(family_rows, "context_mode"),
             "template_families": _count_metadata(family_rows, "template_family"),
             "difficulty_counts": _count_metadata(family_rows, "difficulty", stringify_keys=True),
             "content_uniqueness": content,

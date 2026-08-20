@@ -13,10 +13,12 @@ def _row(row_id, *, category, difficulty, template_family, eval_family):
             {"role": "assistant", "content": "43"},
         ],
         "metadata": {
-            "category": category,
+            "task_family": eval_family,
+            "interaction_modes": ["single_turn"],
+            "output_mode": "free_text",
+            "context_mode": "self_contained",
             "difficulty": difficulty,
             "template_family": template_family,
-            "eval_family": eval_family,
         },
     }
 
@@ -28,14 +30,14 @@ def test_build_manifest_payload_counts_sft_metadata(tmp_path):
             category="answer_only_compliance",
             difficulty=1,
             template_family="direct_qa",
-            eval_family="basic_arithmetic_qa",
+            eval_family="grounded_qa_and_reading",
         ),
         _row(
             "sft_direct_arithmetic_000002",
             category="direct_arithmetic",
             difficulty=2,
             template_family="direct_qa",
-            eval_family="direct_subtraction",
+            eval_family="applied_math_and_reasoning",
         ),
     ]
 
@@ -50,8 +52,7 @@ def test_build_manifest_payload_counts_sft_metadata(tmp_path):
     assert payload["dataset_path"] == str(tmp_path / "sft.jsonl")
     assert payload["row_count"] == 2
     assert payload["generation_run"] == "sft-smoke-001"
-    assert payload["categories"] == {"answer_only_compliance": 1, "direct_arithmetic": 1}
-    assert payload["eval_families"] == {"basic_arithmetic_qa": 1, "direct_subtraction": 1}
+    assert payload["task_families"] == {"applied_math_and_reasoning": 1, "grounded_qa_and_reading": 1}
     assert payload["template_families"] == {"direct_qa": 2}
     assert payload["difficulty_counts"] == {"1": 1, "2": 1}
     assert payload["metadata"] == {"source": "unit-test"}
@@ -64,7 +65,7 @@ def test_write_manifest_writes_sft_manifest(tmp_path):
             category="answer_only_compliance",
             difficulty=1,
             template_family="direct_qa",
-            eval_family="basic_arithmetic_qa",
+            eval_family="grounded_qa_and_reading",
         )
     ]
 
@@ -78,7 +79,7 @@ def test_write_manifest_writes_sft_manifest(tmp_path):
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["dataset_type"] == "sft"
     assert payload["row_count"] == 1
-    assert payload["categories"] == {"answer_only_compliance": 1}
+    assert payload["task_families"] == {"grounded_qa_and_reading": 1}
 
 
 def test_write_run_manifest_summarizes_sft_family_outputs(tmp_path):
@@ -93,9 +94,9 @@ def test_write_run_manifest_summarizes_sft_family_outputs(tmp_path):
                 "row_count": 2,
             },
             {
-                "family": "repeat_exact_n_times",
-                "dataset_path": tmp_path / "datasets" / "repeat_exact_n_times.jsonl",
-                "manifest_path": tmp_path / "manifests" / "repeat_exact_n_times.sft-smoke-001.manifest.json",
+                "family": "rewriting_and_editing",
+                "dataset_path": tmp_path / "datasets" / "rewriting_and_editing.jsonl",
+                "manifest_path": tmp_path / "manifests" / "rewriting_and_editing.sft-smoke-001.manifest.json",
                 "row_count": 3,
             },
         ],
@@ -105,7 +106,7 @@ def test_write_run_manifest_summarizes_sft_family_outputs(tmp_path):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["dataset_type"] == "sft"
     assert manifest["generation_run"] == "sft-smoke-001"
-    assert manifest["families"] == ["answer_only_arithmetic", "repeat_exact_n_times"]
+    assert manifest["families"] == ["answer_only_arithmetic", "rewriting_and_editing"]
     assert manifest["total_rows"] == 5
     assert manifest["metadata"] == {"family_count": 2}
     assert manifest["datasets"][0]["dataset_path"] == str(tmp_path / "datasets" / "answer_only_arithmetic.jsonl")
@@ -142,7 +143,7 @@ def test_build_manifest_payload_rejects_invalid_rows(tmp_path):
         category="answer_only_compliance",
         difficulty=1,
         template_family="direct_qa",
-        eval_family="basic_arithmetic_qa",
+        eval_family="grounded_qa_and_reading",
     )
     row["metadata"]["failure_mode"] = "extra_explanation"
 

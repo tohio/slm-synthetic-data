@@ -23,10 +23,13 @@ def _dpo_row(
         "chosen": [{"role": "assistant", "content": "4"}],
         "rejected": [{"role": "assistant", "content": "The answer is 4."}],
         "metadata": {
-            "category": category,
+            "task_family": "applied_math_and_reasoning",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "concise",
+            "context_mode": "self_contained",
+            "preference_dimension": eval_family,
             "difficulty": 1,
             "template_family": template_family,
-            "eval_family": eval_family,
             "failure_mode": failure_mode,
         },
     }
@@ -40,14 +43,14 @@ def test_build_dpo_coverage_report_counts_metadata_across_files(tmp_path):
             _dpo_row(
                 row_id="dpo-arithmetic-1",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="factual_accuracy",
                 template_family="direct_qa",
                 failure_mode="extra_explanation",
             ),
             _dpo_row(
                 row_id="dpo-arithmetic-2",
                 category="answer_only_compliance",
-                eval_family="basic_arithmetic_qa",
+                eval_family="factual_accuracy",
                 template_family="direct_qa",
                 failure_mode="extra_explanation",
             ),
@@ -59,7 +62,7 @@ def test_build_dpo_coverage_report_counts_metadata_across_files(tmp_path):
             _dpo_row(
                 row_id="dpo-repeat-1",
                 category="exact_output_format_control",
-                eval_family="repeat_exact_n_times",
+                eval_family="instruction_adherence",
                 template_family="repeat_word_count",
                 failure_mode="format_violation",
             )
@@ -75,13 +78,9 @@ def test_build_dpo_coverage_report_counts_metadata_across_files(tmp_path):
         str(arithmetic_path): 2,
         str(repeat_path): 1,
     }
-    assert report["categories"] == {
-        "answer_only_compliance": 2,
-        "exact_output_format_control": 1,
-    }
-    assert report["eval_families"] == {
-        "basic_arithmetic_qa": 2,
-        "repeat_exact_n_times": 1,
+    assert report["preference_dimensions"] == {
+        "factual_accuracy": 2,
+        "instruction_adherence": 1,
     }
     assert report["template_families"] == {
         "direct_qa": 2,
@@ -93,7 +92,7 @@ def test_build_dpo_coverage_report_counts_metadata_across_files(tmp_path):
         "format_violation": 1,
     }
     assert report["acceptance"]["publish_blockers"] == ["holdouts_not_checked"]
-    assert report["families"]["basic_arithmetic_qa"]["content_quality"]["prompts"]["unique"] == 2
+    assert report["families"]["factual_accuracy"]["content_quality"]["prompts"]["unique"] == 2
 
 
 def test_write_dpo_coverage_report_writes_json(tmp_path):
@@ -102,8 +101,8 @@ def test_write_dpo_coverage_report_writes_json(tmp_path):
         "dataset_type": "dpo",
         "row_count": 0,
         "files": {},
-        "categories": {},
-        "eval_families": {},
+        "task_families": {},
+        "preference_dimensions": {},
         "template_families": {},
         "difficulty_counts": {},
         "failure_modes": {},
@@ -130,11 +129,11 @@ def test_dpo_report_blocks_normalized_duplicates_and_holdout_collisions(tmp_path
     write_jsonl(
         [
             _dpo_row(
-                row_id="one", category="answer_only_compliance", eval_family="basic_arithmetic_qa",
+                row_id="one", category="answer_only_compliance", eval_family="factual_accuracy",
                 template_family="direct_qa", failure_mode="wrong_numeric_answer", prompt="What is 2 + 2?",
             ),
             _dpo_row(
-                row_id="two", category="answer_only_compliance", eval_family="basic_arithmetic_qa",
+                row_id="two", category="answer_only_compliance", eval_family="factual_accuracy",
                 template_family="direct_qa", failure_mode="wrong_numeric_answer", prompt=" what IS 2 + 2? ",
             ),
         ],
@@ -142,7 +141,7 @@ def test_dpo_report_blocks_normalized_duplicates_and_holdout_collisions(tmp_path
     )
     registry = HoldoutRegistry([
         HoldoutRecord(
-            id="held-out", eval_family="basic_arithmetic_qa",
+            id="held-out", eval_family="factual_accuracy",
             prompt="What is 2 + 2?", answer="4",
         )
     ])
@@ -163,7 +162,7 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
     dataset_path = tmp_path / "arithmetic.jsonl"
     write_jsonl([
         _dpo_row(
-            row_id="one", category="answer_only_compliance", eval_family="basic_arithmetic_qa",
+            row_id="one", category="answer_only_compliance", eval_family="factual_accuracy",
             template_family="direct_qa", failure_mode="wrong_numeric_answer",
         )
     ], dataset_path)
@@ -175,7 +174,7 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
         "accepted_target": {"target": 1, "accepted": 1, "attempted": 2, "remaining": 0},
         "duplicate_pairs": 1,
         "duplicate_reason_counts": {"duplicate_prompt": 1},
-        "pairs_per_family": {"basic_arithmetic_qa": 1},
+        "pairs_per_family": {"factual_accuracy": 1},
     }}), encoding="utf-8")
 
     report = build_coverage_report(

@@ -16,10 +16,13 @@ def _dpo_row(row_id="dpo-1"):
         "chosen": [{"role": "assistant", "content": "4"}],
         "rejected": [{"role": "assistant", "content": "5"}],
         "metadata": {
-            "category": "direct_arithmetic",
+            "task_family": "applied_math_and_reasoning",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "concise",
+            "context_mode": "self_contained",
+            "preference_dimension": "factual_accuracy",
             "difficulty": 1,
             "template_family": "direct_addition",
-            "eval_family": "basic_arithmetic_qa",
             "failure_mode": "wrong_numeric_answer",
         },
     }
@@ -38,8 +41,8 @@ def test_count_and_validate_dpo_jsonl_rejects_bad_public_row(tmp_path):
 def test_discover_dpo_jsonl_prefers_final_files_over_stale_batches(tmp_path):
     dataset_dir = tmp_path / "datasets"
     dataset_dir.mkdir()
-    final_path = dataset_dir / "basic_arithmetic_qa.jsonl"
-    stale_batch_path = dataset_dir / "basic_arithmetic_qa.batch000001.jsonl"
+    final_path = dataset_dir / "factual_accuracy.jsonl"
+    stale_batch_path = dataset_dir / "factual_accuracy.batch000001.jsonl"
     final_path.write_text(json.dumps(_dpo_row("dpo-1")) + "\n", encoding="utf-8")
     stale_batch_path.write_text(json.dumps(_dpo_row("dpo-2")) + "\n", encoding="utf-8")
 
@@ -49,7 +52,7 @@ def test_discover_dpo_jsonl_prefers_final_files_over_stale_batches(tmp_path):
 def test_discover_dpo_jsonl_keeps_batch_shards_without_final_file(tmp_path):
     dataset_dir = tmp_path / "datasets"
     dataset_dir.mkdir()
-    batch_path = dataset_dir / "basic_arithmetic_qa.batch000001.jsonl"
+    batch_path = dataset_dir / "factual_accuracy.batch000001.jsonl"
     batch_path.write_text(json.dumps(_dpo_row("dpo-1")) + "\n", encoding="utf-8")
 
     assert discover_jsonl_files(dataset_dir) == [batch_path]
@@ -63,8 +66,8 @@ def test_discover_dpo_jsonl_ignores_internal_dirs(tmp_path, dirname):
     dataset_dir = tmp_path / "datasets"
     internal_dir = dataset_dir / dirname
     internal_dir.mkdir(parents=True)
-    public_path = dataset_dir / "basic_arithmetic_qa.jsonl"
-    internal_path = internal_dir / "basic_arithmetic_qa.jsonl"
+    public_path = dataset_dir / "factual_accuracy.jsonl"
+    internal_path = internal_dir / "factual_accuracy.jsonl"
     public_path.write_text(json.dumps(_dpo_row("dpo-1")) + "\n", encoding="utf-8")
     internal_path.write_text(json.dumps(_dpo_row("dpo-2")) + "\n", encoding="utf-8")
 
@@ -77,22 +80,22 @@ def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
     manifest_dir = run_dir / "manifests"
     dataset_dir.mkdir(parents=True)
     manifest_dir.mkdir()
-    (dataset_dir / "basic_arithmetic_qa.jsonl").write_text(
+    (dataset_dir / "factual_accuracy.jsonl").write_text(
         json.dumps(_dpo_row("dpo-1")) + "\n",
         encoding="utf-8",
     )
     ai_row = _dpo_row("dpo-2")
-    ai_row["metadata"]["eval_family"] = "ai_concept_explanation"
-    (dataset_dir / "ai_concept_explanation.jsonl").write_text(
+    ai_row["metadata"]["preference_dimension"] = "helpfulness_and_completeness"
+    (dataset_dir / "helpfulness_and_completeness.jsonl").write_text(
         json.dumps(ai_row) + "\n",
         encoding="utf-8",
     )
-    families = ["ai_concept_explanation", "basic_arithmetic_qa"]
+    families = ["factual_accuracy", "helpfulness_and_completeness"]
     (run_dir / "README.md").write_text(
         build_dataset_card("dpo", total=2, signals=families), encoding="utf-8"
     )
-    (manifest_dir / "basic_arithmetic_qa.batch000001.dpo-run.manifest.json").write_text("{}", encoding="utf-8")
-    (manifest_dir / "ai_concept_explanation.batch000001.dpo-run.manifest.json").write_text("{}", encoding="utf-8")
+    (manifest_dir / "factual_accuracy.batch000001.dpo-run.manifest.json").write_text("{}", encoding="utf-8")
+    (manifest_dir / "helpfulness_and_completeness.batch000001.dpo-run.manifest.json").write_text("{}", encoding="utf-8")
     run_manifest = manifest_dir / "dpo-run.manifest.json"
     run_manifest.write_text(json.dumps({
         "dataset_type": "dpo",
@@ -153,7 +156,7 @@ def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
 
     assert result == {
         "repo_id": "tohio/slm-synthetic-dpo",
-        "files": ["data/ai_concept_explanation.jsonl", "data/basic_arithmetic_qa.jsonl"],
+        "files": ["data/factual_accuracy.jsonl", "data/helpfulness_and_completeness.jsonl"],
         "families": families,
         "family_count": 2,
         "pairs": 2,
@@ -163,21 +166,21 @@ def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
     assert len(commit_calls) == 1
     assert commit_calls[0][1] == "tohio/slm-synthetic-dpo"
     operations = commit_calls[0][2]
-    assert "data/basic_arithmetic_qa.jsonl" in operations
-    assert "data/ai_concept_explanation.jsonl" in operations
+    assert "data/factual_accuracy.jsonl" in operations
+    assert "data/helpfulness_and_completeness.jsonl" in operations
     assert "data/removed_family.jsonl" in operations
     assert "artifacts/manifests/obsolete.manifest.json" in operations
     assert "README.md" in operations
     assert "artifacts/coverage.json" in operations
     assert "artifacts/manifests/dpo-run.manifest.json" in operations
-    assert "artifacts/manifests/basic_arithmetic_qa.batch000001.dpo-run.manifest.json" in operations
-    assert "artifacts/manifests/ai_concept_explanation.batch000001.dpo-run.manifest.json" in operations
+    assert "artifacts/manifests/factual_accuracy.batch000001.dpo-run.manifest.json" in operations
+    assert "artifacts/manifests/helpfulness_and_completeness.batch000001.dpo-run.manifest.json" in operations
     assert "coverage.json" in operations
     assert "manifests/old.manifest.json" in operations
     uploaded_readme = commit_calls[0][3]
     assert "config_name: default" in uploaded_readme
-    assert "config_name: ai_concept_explanation" in uploaded_readme
-    assert "path: data/ai_concept_explanation.jsonl" in uploaded_readme
+    assert "config_name: helpfulness_and_completeness" in uploaded_readme
+    assert "path: data/helpfulness_and_completeness.jsonl" in uploaded_readme
 
 
 def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_path, monkeypatch):
@@ -186,12 +189,12 @@ def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_p
     manifest_dir = run_dir / "manifests"
     dataset_dir.mkdir(parents=True)
     manifest_dir.mkdir()
-    (dataset_dir / "basic_arithmetic_qa.jsonl").write_text(
+    (dataset_dir / "factual_accuracy.jsonl").write_text(
         json.dumps(_dpo_row()) + "\n", encoding="utf-8",
     )
     (manifest_dir / "run.manifest.json").write_text(json.dumps({
         "dataset_type": "dpo",
-        "families": ["basic_arithmetic_qa"],
+        "families": ["factual_accuracy"],
         "metadata": {
             "publish_ready": True,
             "accepted_target": {"target": 1, "accepted": 1, "attempted": 1, "remaining": 0},

@@ -71,24 +71,20 @@ slm_synth/pretrain/artifacts/factual_restraint.py
 
 ## SFT Families
 
-SFT families define eval-shaped supervised tasks. Public rows contain a user message, an assistant response, and metadata with `category`, `difficulty`, `template_family`, and `eval_family`.
+Generic SFT uses ten broad task families rather than eval-shaped families:
 
-| Family | Category | Template family | Purpose |
-|---|---|---|---|
-| `ai_concept_explanation` | `general_instruction_following` | `short_ai_definition` | Short machine-learning concept explanations. |
-| `basic_arithmetic_qa` | `direct_arithmetic` | `direct_addition` | Direct addition with answer-only numeric responses. |
-| `capital_city_qa` | `concise_factual_qa` | `capital_city_direct` | Capital-city factual answers with answer-only formatting. |
-| `clear_sky_color_qa` | `concise_factual_qa` | `common_fact_color` | Common color facts and short factual answers. |
-| `code_explanation_no_code` | `general_instruction_following` | `code_explanation_plain_text` | Plain-text explanation of small code snippets without fenced code. |
-| `code_expression_result` | `code_expression_evaluation` | `python_expression_result` | Python expression evaluation with answer-only result. |
-| `code_generation_function` | `code_generation` | `python_function_code_only` | Complete Python function generation, code only. |
-| `direct_division` | `direct_arithmetic` | `direct_division` | Exact integer division with answer-only numeric responses. |
-| `direct_subtraction` | `direct_arithmetic` | `direct_subtraction` | Direct subtraction with answer-only numeric responses. |
-| `function_completion_body_only` | `code_generation` | `python_function_body_only` | Function body completion without repeating the signature. |
-| `list_exact_n_items` | `exact_output_format_control` | `list_exact_count` | Exact-count list formatting. |
-| `private_or_unverifiable_company_fact` | `private_info_restraint` | `private_company_metric` | Refusal/restraint for private or unverifiable company metrics. |
-| `repeat_exact_n_times` | `exact_output_format_control` | `repeat_word_count` | Exact repeat-count output control. |
-| `short_factual_stop_behavior` | `controlled_verbosity` | `short_factual_answer` | Short factual answers that stop when complete. |
+- `everyday_conversation`
+- `rewriting_and_editing`
+- `summarization`
+- `classification_and_extraction`
+- `grounded_qa_and_reading`
+- `planning_brainstorming_recommendations`
+- `creative_writing`
+- `programming`
+- `applied_math_and_reasoning`
+- `safety_uncertainty_and_refusal`
+
+Coverage is also labeled by `interaction_modes`, `output_mode`, and `context_mode`. Generic DPO uses the same task axes plus one of ten preference dimensions: helpfulness and completeness, factual accuracy, instruction adherence, appropriate detail, organization, style and tone, tool-call correctness, groundedness, safe-refusal calibration, or code correctness. `eval_family` is not part of generic SFT/DPO specs or public artifacts.
 
 Implementation source of truth:
 
@@ -96,35 +92,28 @@ Implementation source of truth:
 slm_synth/sft/spec_builders.py
 ```
 
-## DPO Families
+## DPO Preference Dimensions
 
-Generic DPO uses the same supported family set as SFT, but each family adds a rejected-response failure mode. Public pairs contain `prompt`, `chosen`, `rejected`, and metadata with `failure_mode`.
+Public pairs contain `prompt`, `chosen`, `rejected`, the shared SFT axes, one `preference_dimension`, and a concrete `failure_mode`.
 
-| Family | Failure mode | Preference objective |
+| Preference dimension | Representative failure mode | Preference objective |
 |---|---|---|
-| `ai_concept_explanation` | `wrong_factual_answer`, `incomplete_instruction_guess` | Prefer correct, concise concept explanation over incorrect or incomplete explanation. |
-| `basic_arithmetic_qa` | `wrong_numeric_answer` | Prefer exact numeric answer over wrong number. |
-| `capital_city_qa` | `wrong_factual_answer` | Prefer correct capital over incorrect factual answer. |
-| `clear_sky_color_qa` | `wrong_factual_answer` | Prefer correct common fact over incorrect answer. |
-| `code_explanation_no_code` | `code_includes_explanation`, `code_logic_error` | Prefer correct plain-text explanation over code-surface or logic failures. |
-| `code_expression_result` | `wrong_numeric_answer` | Prefer exact expression result over wrong value. |
-| `code_generation_function` | `code_includes_explanation`, `format_violation` | Prefer code-only complete function over prose, Markdown, or trailing explanation. |
-| `direct_division` | `wrong_numeric_answer` | Prefer exact integer quotient over wrong number. |
-| `direct_subtraction` | `wrong_numeric_answer` | Prefer exact subtraction result over wrong number. |
-| `function_completion_body_only` | `code_includes_explanation`, `format_violation` | Prefer body-only function completion over prose, Markdown, or signature leakage. |
-| `list_exact_n_items` | `format_violation` | Prefer exact item count and separators over extra/misformatted items. |
-| `private_or_unverifiable_company_fact` | `unknown_fact_fabrication`, `unsafe_private_info_guess`, `persona_fabrication` | Prefer restraint over fabricated private details, guesses, or invented sourcing. |
-| `repeat_exact_n_times` | `format_violation` | Prefer exact repeat count over extra/missing repeated items. |
-| `short_factual_stop_behavior` | `verbosity_mismatch`, `extra_explanation` | Prefer concise answer-only response over restating or unnecessary explanation. |
+| `helpfulness_and_completeness` | `incomplete_response` | Prefer a response that fully addresses the request. |
+| `factual_accuracy` | `unsupported_claim` | Prefer correct, supportable claims. |
+| `instruction_adherence` | `instruction_violation` | Prefer compliance with explicit constraints. |
+| `appropriate_detail` | `excessive_detail` | Prefer detail calibrated to the request. |
+| `organization` | `poor_organization` | Prefer coherent, usable structure. |
+| `style_and_tone` | `tone_mismatch` | Prefer the requested tone and audience fit. |
+| `tool_call_correctness` | `incorrect_tool_call` | Prefer correct tool selection and arguments. |
+| `groundedness` | `ungrounded_response` | Prefer answers supported by supplied context. |
+| `safe_refusal_calibration` | `over_refusal` | Prefer safe help without unnecessary refusal. |
+| `code_correctness` | `code_logic_error` | Prefer code that satisfies the stated behavior. |
 
 Implementation source of truth:
 
 ```text
 slm_synth/dpo/spec_builders.py
-slm_synth/sft/spec_builders.py
 ```
-
-Exact-target pairs are materialized locally for arithmetic, capital/color facts, expression evaluation, code generation/completion, exact lists/repetition, and short factual stopping. Concept explanation, code explanation, and private-fact restraint require teacher generation. Exact-target prompts preserve the source style/context axes; provider calls receive only specifications that require semantic generation.
 
 Every DPO family declares a finite unique source capacity inherited from its SFT source family. Generation preflights the initial target plus the configured replacement budget before constructing a provider backend. Accepted output must have unique normalized prompts and complete preference triples; replacements use later source indexes and retain the same family allocation.
 

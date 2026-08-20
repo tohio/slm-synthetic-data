@@ -11,10 +11,12 @@ def _sample_sft_rows(count: int = 1) -> list[dict[str, object]]:
                 {"role": "assistant", "content": "4"},
             ],
             "metadata": {
-                "category": "answer_only_compliance",
+                "task_family": "grounded_qa_and_reading",
+                "interaction_modes": ["single_turn"],
+                "output_mode": "free_text",
+                "context_mode": "supplied_passage",
                 "difficulty": 1,
                 "template_family": "direct_qa",
-                "eval_family": "basic_arithmetic_qa",
             },
         }
         for index in range(1, count + 1)
@@ -35,7 +37,7 @@ def test_sft_build_specs_cli_calls_builder(tmp_path, monkeypatch, capsys):
             [
                 "build-specs",
                 "--family",
-                "basic_arithmetic_qa",
+                "grounded_qa_and_reading",
                 "--count",
                 "3",
                 "--output",
@@ -49,7 +51,7 @@ def test_sft_build_specs_cli_calls_builder(tmp_path, monkeypatch, capsys):
 
     assert calls == [
         {
-            "family": "basic_arithmetic_qa",
+            "family": "grounded_qa_and_reading",
             "count": 3,
             "output_path": str(tmp_path / "sft.specs.jsonl"),
             "start_index": 7,
@@ -199,7 +201,7 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
 
         class Result:
             row_count = 4
-            families = ("basic_arithmetic_qa", "repeat_exact_n_times")
+            families = ("grounded_qa_and_reading", "rewriting_and_editing")
             generation_run = "sft-live-run-001"
             manifest_path = tmp_path / "manifests" / "sft-live-run-001.manifest.json"
 
@@ -213,8 +215,8 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             [
                 "generate-llm-run",
                 "--families",
-                "basic_arithmetic_qa",
-                "repeat_exact_n_times",
+                "grounded_qa_and_reading",
+                "rewriting_and_editing",
                 "--count-per-family",
                 "2",
                 "--batch-size",
@@ -242,7 +244,7 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
 
     assert calls == [
         {
-            "families": ["basic_arithmetic_qa", "repeat_exact_n_times"],
+            "families": ["grounded_qa_and_reading", "rewriting_and_editing"],
             "count_per_family": 2,
             "candidate_counts_by_family": None,
             "batch_size": 1,
@@ -280,7 +282,7 @@ def test_sft_generate_llm_run_cli_accepts_explicit_candidate_counts(tmp_path, mo
 
         class Result:
             row_count = 3
-            families = ("basic_arithmetic_qa", "repeat_exact_n_times")
+            families = ("grounded_qa_and_reading", "rewriting_and_editing")
             generation_run = "sft-target-001"
             manifest_path = tmp_path / "manifests" / "sft-target-001.manifest.json"
 
@@ -294,11 +296,11 @@ def test_sft_generate_llm_run_cli_accepts_explicit_candidate_counts(tmp_path, mo
             [
                 "generate-llm-run",
                 "--families",
-                "basic_arithmetic_qa",
-                "repeat_exact_n_times",
+                "grounded_qa_and_reading",
+                "rewriting_and_editing",
                 "--candidate-counts",
-                "basic_arithmetic_qa=2",
-                "repeat_exact_n_times=1",
+                "grounded_qa_and_reading=2",
+                "rewriting_and_editing=1",
                 "--batch-size",
                 "1",
                 "--output-dir",
@@ -318,8 +320,8 @@ def test_sft_generate_llm_run_cli_accepts_explicit_candidate_counts(tmp_path, mo
 
     assert calls[0]["count_per_family"] is None
     assert calls[0]["candidate_counts_by_family"] == {
-        "basic_arithmetic_qa": 2,
-        "repeat_exact_n_times": 1,
+        "grounded_qa_and_reading": 2,
+        "rewriting_and_editing": 1,
     }
 
 
@@ -332,7 +334,7 @@ def test_sft_report_coverage_cli_prints_json(tmp_path, capsys):
     captured = capsys.readouterr()
     assert '"dataset_type": "sft"' in captured.out
     assert '"row_count": 1' in captured.out
-    assert '"answer_only_compliance": 1' in captured.out
+    assert '"grounded_qa_and_reading": 1' in captured.out
 
 
 def test_sft_report_coverage_cli_writes_json(tmp_path, capsys):

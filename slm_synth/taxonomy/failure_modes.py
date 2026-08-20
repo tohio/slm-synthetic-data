@@ -17,6 +17,14 @@ FAILURE_MODES = frozenset(
         "code_logic_error",
         "code_includes_explanation",
         "wrong_factual_answer",
+        "incomplete_response",
+        "unsupported_claim",
+        "instruction_violation",
+        "excessive_detail",
+        "poor_organization",
+        "tone_mismatch",
+        "incorrect_tool_call",
+        "ungrounded_response",
     }
 )
 

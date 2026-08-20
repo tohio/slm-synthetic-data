@@ -16,10 +16,13 @@ def test_build_sft_family_dataset_card_uses_family_count(tmp_path: Path) -> None
                 {"role": "assistant", "content": "return a + b"},
             ],
             "metadata": {
-                "category": "code_generation",
+                "task_family": "applied_math_and_reasoning",
+                "interaction_modes": ["single_turn"],
+                "output_mode": "concise",
+                "context_mode": "self_contained",
+                "preference_dimension": "factual_accuracy",
                 "difficulty": 2,
                 "template_family": "python_function_body_only",
-                "eval_family": "function_completion_body_only",
             },
         },
         {
@@ -29,10 +32,13 @@ def test_build_sft_family_dataset_card_uses_family_count(tmp_path: Path) -> None
                 {"role": "assistant", "content": "return x"},
             ],
             "metadata": {
-                "category": "code_generation",
+                "task_family": "applied_math_and_reasoning",
+                "interaction_modes": ["single_turn"],
+                "output_mode": "concise",
+                "context_mode": "self_contained",
+                "preference_dimension": "factual_accuracy",
                 "difficulty": 2,
                 "template_family": "python_function_body_only",
-                "eval_family": "function_completion_body_only",
             },
         },
     ]
@@ -59,10 +65,13 @@ def test_build_dpo_family_dataset_card_uses_family_count(tmp_path: Path) -> None
         "chosen": [{"role": "assistant", "content": "It adds two values."}],
         "rejected": [{"role": "assistant", "content": "The code is `a + b`."}],
         "metadata": {
-            "category": "general_instruction_following",
+            "task_family": "applied_math_and_reasoning",
+            "interaction_modes": ["single_turn"],
+            "output_mode": "concise",
+            "context_mode": "self_contained",
+            "preference_dimension": "factual_accuracy",
             "difficulty": 2,
             "template_family": "code_explanation_plain_text",
-            "eval_family": "code_explanation_no_code",
             "failure_mode": "code_includes_explanation",
         },
     }

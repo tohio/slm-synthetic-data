@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This package generates generic DPO preference datasets. It owns source specifications, exact-target and teacher-backed pair generation, output acceptance, replacement rounds, safe resume, coverage reporting, manifests, dataset cards, and Hugging Face publication.
+This package generates generic teacher-backed DPO preference datasets. It owns source specifications, pair generation, output acceptance, replacement rounds, safe resume, coverage reporting, manifests, dataset cards, and Hugging Face publication.
 
 It does not produce SFT rows, distillation-specific pairs, pretraining records, or model-training artifacts.
 
@@ -12,8 +12,8 @@ It does not produce SFT rows, distillation-specific pairs, pretraining records, 
 dpo/
 ├── spec_builders.py  # capacity-bounded source specifications
 ├── specs.py          # teacher-visible specification validation
-├── batches.py        # batch prompts, exact targets, and response validation
-├── generation.py     # deterministic and teacher-backed batch generation
+├── batches.py        # batch prompts and response validation
+├── generation.py     # teacher-backed batch generation
 ├── acceptance.py     # normalized uniqueness and pair-quality reporting
 ├── runs.py           # multi-family generation, backfill, and resume
 ├── schema.py         # public row validation
@@ -26,7 +26,7 @@ dpo/
 
 ## Generation
 
-The 14 DPO families inherit the source capacities of their SFT counterparts. Eleven verifiable families are materialized locally from exact targets. Concept explanations, code explanations, and private-fact restraint use the configured teacher model. Provider calls receive only specifications that require semantic generation.
+DPO is organized by ten preference dimensions. Each pair also carries the shared task, interaction, output, and context axes used by generic SFT. The chosen and rejected responses are generated semantically by the configured teacher; no eval-shaped family or deterministic answer-pair path remains.
 
 Requested source ranges, including the configured replacement budget, are validated before a provider backend is constructed. Model selection remains configurable through `DPO_MODEL`; OpenRouter routing remains configurable through the shared routing variables.
 

@@ -44,10 +44,12 @@ def _schema_for_kind(kind: str) -> str:
             '    {"role": "assistant", "content": "string"}',
             "  ],",
             '  "metadata": {',
-            '    "category": "string",',
+            '    "task_family": "string",',
+            '    "interaction_modes": ["string"],',
+            '    "output_mode": "string",',
+            '    "context_mode": "string",',
             '    "difficulty": 1,',
-            '    "template_family": "string",',
-            '    "eval_family": "string"',
+            '    "template_family": "string"',
             "  }",
             "}",
         ]
@@ -67,10 +69,13 @@ def _schema_for_kind(kind: str) -> str:
             '    {"role": "assistant", "content": "string"}',
             "  ],",
             '  "metadata": {',
-            '    "category": "string",',
+            '    "task_family": "string",',
+            '    "interaction_modes": ["string"],',
+            '    "output_mode": "string",',
+            '    "context_mode": "string",',
             '    "difficulty": 1,',
             '    "template_family": "string",',
-            '    "eval_family": "string",',
+            '    "preference_dimension": "string",',
             '    "failure_mode": "string"',
             "  }",
             "}",
@@ -88,10 +93,13 @@ def build_family_dataset_card(*, kind: str, family: str, jsonl_paths: Iterable[s
     paths = _as_paths(jsonl_paths)
     row_count = _read_jsonl_count(paths)
     metadata = _first_metadata(paths)
-    category = metadata.get("category")
+    task_family = metadata.get("task_family")
     difficulty = metadata.get("difficulty")
     template_family = metadata.get("template_family")
-    eval_family = metadata.get("eval_family") or family
+    interaction_modes = metadata.get("interaction_modes")
+    output_mode = metadata.get("output_mode")
+    context_mode = metadata.get("context_mode")
+    preference_dimension = metadata.get("preference_dimension")
 
     if kind == "sft":
         title = f"SLM Synthetic SFT — {family}"
@@ -121,14 +129,20 @@ def build_family_dataset_card(*, kind: str, family: str, jsonl_paths: Iterable[s
         )
 
     metadata_lines = []
-    if category is not None:
-        metadata_lines.append(f"- Category: `{category}`")
+    if task_family is not None:
+        metadata_lines.append(f"- Task family: `{task_family}`")
+    if interaction_modes is not None:
+        metadata_lines.append(f"- Interaction modes: `{interaction_modes}`")
+    if output_mode is not None:
+        metadata_lines.append(f"- Output mode: `{output_mode}`")
+    if context_mode is not None:
+        metadata_lines.append(f"- Context mode: `{context_mode}`")
     if difficulty is not None:
         metadata_lines.append(f"- Difficulty: `{difficulty}`")
     if template_family is not None:
         metadata_lines.append(f"- Template family: `{template_family}`")
-    if eval_family is not None:
-        metadata_lines.append(f"- Eval family: `{eval_family}`")
+    if preference_dimension is not None:
+        metadata_lines.append(f"- Preference dimension: `{preference_dimension}`")
 
     metadata_block = ""
     if metadata_lines:

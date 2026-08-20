@@ -6,7 +6,7 @@ from slm_synth.cards import build_dataset_card
 from slm_synth.dpo.card import load_dpo_dataset_card_configs, require_dpo_dataset_card_configs
 
 
-FAMILIES = ["ai_concept_explanation", "basic_arithmetic_qa"]
+FAMILIES = ["factual_accuracy", "helpfulness_and_completeness"]
 
 
 def _write_consolidated_card(tmp_path: Path) -> Path:
@@ -31,11 +31,11 @@ def test_consolidated_dpo_card_has_default_and_per_family_configs(tmp_path):
 
     assert list(configs) == ["default", *FAMILIES]
     assert configs["default"] == [{"split": "train", "path": "data/*.jsonl"}]
-    assert configs["ai_concept_explanation"] == [
-        {"split": "train", "path": "data/ai_concept_explanation.jsonl"}
+    assert configs["helpfulness_and_completeness"] == [
+        {"split": "train", "path": "data/helpfulness_and_completeness.jsonl"}
     ]
-    assert configs["basic_arithmetic_qa"] == [
-        {"split": "train", "path": "data/basic_arithmetic_qa.jsonl"}
+    assert configs["factual_accuracy"] == [
+        {"split": "train", "path": "data/factual_accuracy.jsonl"}
     ]
 
 
