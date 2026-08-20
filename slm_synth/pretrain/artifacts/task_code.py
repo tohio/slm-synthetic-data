@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from slm_synth.pretrain.artifacts.base import GroundedArtifact
 from slm_synth.pretrain.artifacts.task_code_advanced import ADVANCED_TASK_CODE_SPECS
+from slm_synth.pretrain.artifacts.task_code_advanced_2 import ADVANCED_TASK_CODE_SPECS_2
+from slm_synth.pretrain.artifacts.task_code_advanced_3 import ADVANCED_TASK_CODE_SPECS_3
 
 
 class TaskCodeArtifactFactory:
@@ -130,7 +132,7 @@ class TaskCodeArtifactFactory:
         ),
     )
 
-    SPECS = CORE_SPECS + ADVANCED_TASK_CODE_SPECS
+    SPECS = CORE_SPECS + ADVANCED_TASK_CODE_SPECS + ADVANCED_TASK_CODE_SPECS_2 + ADVANCED_TASK_CODE_SPECS_3
     FAMILIES = tuple(spec[0] for spec in SPECS)
     UNIQUE_CANDIDATE_CAPACITY = len(SPECS)
 
