@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.dpo.runs import generate_llm_run, resolve_spec_families
+from slm_synth.dpo.runs import generate_llm_run, resolve_preference_dimensions
 from slm_synth.dpo.spec_builders import DPO_SPEC_CAPACITIES
 from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPOBackend
 
@@ -41,10 +41,10 @@ def _backends(backend):
     return {"backend": StagedDPOBackend(backend), "adjudicator_backend": AcceptingAdjudicatorBackend()}
 
 
-def _generate(tmp_path, backend, *, families=None, counts=None, batch_size=2, **kwargs):
-    families = families or ["helpfulness_and_completeness"]
-    counts = counts or {family: 3 for family in families}
-    return generate_llm_run(families=families, candidate_counts_by_dimension=counts, batch_size=batch_size, output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests", teacher_model="openai/gpt-4.1-mini", generation_run="dpo-candidate-run-001", max_tokens=1024, **_backends(backend), **kwargs)
+def _generate(tmp_path, backend, *, preference_dimensions=None, counts=None, batch_size=2, **kwargs):
+    dimensions = preference_dimensions or ["helpfulness_and_completeness"]
+    counts = counts or {dimension: 3 for dimension in dimensions}
+    return generate_llm_run(preference_dimensions=dimensions, candidate_counts_by_dimension=counts, batch_size=batch_size, output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests", teacher_model="openai/gpt-4.1-mini", generation_run="dpo-candidate-run-001", max_tokens=1024, **_backends(backend), **kwargs)
 
 
 def test_generate_dpo_llm_run_records_candidate_outcome_and_tokens(tmp_path):
@@ -63,9 +63,9 @@ def test_generate_dpo_llm_run_records_candidate_outcome_and_tokens(tmp_path):
 
 def test_generate_dpo_llm_run_supports_dimension_specific_counts(tmp_path):
     families = ["helpfulness_and_completeness", "safe_refusal_calibration"]
-    result = _generate(tmp_path, FakeDPOBackend(), families=families, counts={"helpfulness_and_completeness": 2, "safe_refusal_calibration": 1})
+    result = _generate(tmp_path, FakeDPOBackend(), preference_dimensions=families, counts={"helpfulness_and_completeness": 2, "safe_refusal_calibration": 1})
     assert result.row_count == 3
-    assert result.families == tuple(families)
+    assert result.preference_dimensions == tuple(families)
 
 
 def test_generate_dpo_llm_run_does_not_replace_duplicate_candidates(tmp_path):
@@ -89,14 +89,14 @@ def test_generate_dpo_llm_run_only_splits_failed_requests(tmp_path):
 
 def test_generate_dpo_llm_run_requires_exact_dimension_mapping(tmp_path):
     with pytest.raises(ValueError, match="exactly the requested"):
-        _generate(tmp_path, FakeDPOBackend(), families=["factual_accuracy", "groundedness"], counts={"factual_accuracy": 1})
+        _generate(tmp_path, FakeDPOBackend(), preference_dimensions=["factual_accuracy", "groundedness"], counts={"factual_accuracy": 1})
 
 
 def test_generate_dpo_llm_run_preflights_capacity_before_backend(tmp_path, monkeypatch):
     monkeypatch.setattr("slm_synth.dpo.runs.build_openrouter_backend", lambda **kwargs: (_ for _ in ()).throw(AssertionError("backend constructed")))
     family = "groundedness"
     with pytest.raises(ValueError, match="finite source capacity"):
-        generate_llm_run(families=[family], candidate_counts_by_dimension={family: 2}, start_index=DPO_SPEC_CAPACITIES[family], batch_size=1, output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests", teacher_model="unused/model", generation_run="dpo-capacity-001", max_tokens=1024)
+        generate_llm_run(preference_dimensions=[family], candidate_counts_by_dimension={family: 2}, start_index=DPO_SPEC_CAPACITIES[family], batch_size=1, output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests", teacher_model="unused/model", generation_run="dpo-capacity-001", max_tokens=1024)
 
 
 def test_generate_dpo_llm_run_rejects_bad_batch_and_concurrency(tmp_path):
@@ -106,6 +106,6 @@ def test_generate_dpo_llm_run_rejects_bad_batch_and_concurrency(tmp_path):
         _generate(tmp_path, FakeDPOBackend(), concurrency=0)
 
 
-def test_resolve_dpo_spec_families_rejects_duplicates():
-    with pytest.raises(ValueError, match="Duplicate DPO spec family"):
-        resolve_spec_families(["factual_accuracy", "factual_accuracy"])
+def test_resolve_dpo_preference_dimensions_rejects_duplicates():
+    with pytest.raises(ValueError, match="Duplicate DPO preference dimension"):
+        resolve_preference_dimensions(["factual_accuracy", "factual_accuracy"])

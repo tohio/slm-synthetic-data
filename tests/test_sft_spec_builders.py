@@ -2,10 +2,9 @@ import json
 
 import pytest
 
-from slm_synth.sft.generation import read_specs_jsonl
 from slm_synth.sft.spec_builders import (
-    SFT_SPEC_CAPACITIES, SFT_SPEC_FAMILIES, build_and_write_specs, build_specs,
-    unique_capacity, validate_spec_range, write_specs_jsonl,
+    SFT_SPEC_CAPACITIES, SFT_SPEC_FAMILIES, build_specs,
+    unique_capacity, validate_spec_range,
 )
 from slm_synth.sft.specs import require_unique_sft_sources, sft_source_fingerprint, teacher_visible_sft_spec
 from slm_synth.taxonomy import TASK_FAMILIES
@@ -57,11 +56,3 @@ def test_sft_source_fingerprint_ignores_id():
     assert sft_source_fingerprint(first) == sft_source_fingerprint(renamed)
     with pytest.raises(ValueError, match="repeated teacher-visible"):
         require_unique_sft_sources([first, renamed])
-
-
-def test_sft_spec_jsonl_round_trip(tmp_path):
-    path = tmp_path / "nested" / "sft.specs.jsonl"
-    assert build_and_write_specs(family="rewriting_and_editing", count=2, output_path=path) == 2
-    rows = read_specs_jsonl(path)
-    assert len(rows) == 2
-    assert write_specs_jsonl(rows, tmp_path / "copy.jsonl") == 2

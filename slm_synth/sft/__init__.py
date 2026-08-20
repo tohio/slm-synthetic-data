@@ -21,12 +21,8 @@ from slm_synth.sft.generation import (
     SFTLLMBatchResult,
     build_openrouter_backend,
     generate_llm_batch,
-    generate_llm_batch_from_files,
     generate_teacher_batch_response,
     materialize_llm_batch,
-    materialize_llm_batch_from_files,
-    read_specs_jsonl,
-    read_teacher_response_json,
 )
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import build_manifest_payload, write_manifest, write_run_manifest
@@ -39,9 +35,7 @@ from slm_synth.sft.runs import (
 from slm_synth.sft.schema import validate_message, validate_sft_row
 from slm_synth.sft.spec_builders import (
     SFT_SPEC_FAMILIES,
-    build_and_write_specs,
     build_specs,
-    write_specs_jsonl,
 )
 from slm_synth.sft.specs import teacher_visible_sft_spec, validate_sft_spec
 
@@ -54,23 +48,18 @@ __all__ = [
     "build_manifest_payload",
     "build_sft_content_summary",
     "build_coverage_report",
-    "build_and_write_specs",
     "build_specs",
     "build_sft_teacher_request_items",
     "build_sft_teacher_request_object",
     "build_openrouter_backend",
     "generate_llm_batch",
-    "generate_llm_batch_from_files",
     "generate_llm_run",
     "generate_teacher_batch_response",
     "materialize_llm_batch",
-    "materialize_llm_batch_from_files",
     "load_sft_dataset_card_configs",
     "normalize_sft_text",
     "partition_unique_sft_rows",
     "read_jsonl",
-    "read_specs_jsonl",
-    "read_teacher_response_json",
     "render_sft_batch_prompt",
     "resolve_spec_families",
     "require_publish_ready_report",
@@ -84,7 +73,6 @@ __all__ = [
     "validate_sft_row",
     "validate_sft_spec",
     "write_jsonl",
-    "write_specs_jsonl",
     "write_coverage_report",
     "write_manifest",
     "write_run_manifest",

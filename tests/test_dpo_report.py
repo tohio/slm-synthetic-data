@@ -78,7 +78,7 @@ def test_build_dpo_coverage_report_counts_metadata_across_files(tmp_path):
         str(arithmetic_path): 2,
         str(repeat_path): 1,
     }
-    assert report["preference_dimensions"] == {
+    assert report["preference_dimension_counts"] == {
         "factual_accuracy": 2,
         "instruction_adherence": 1,
     }
@@ -92,7 +92,7 @@ def test_build_dpo_coverage_report_counts_metadata_across_files(tmp_path):
         "format_violation": 1,
     }
     assert report["acceptance"]["publish_blockers"] == ["holdouts_not_checked"]
-    assert report["families"]["factual_accuracy"]["content_quality"]["prompts"]["unique"] == 2
+    assert report["preference_dimensions"]["factual_accuracy"]["content_quality"]["prompts"]["unique"] == 2
 
 
 def test_write_dpo_coverage_report_writes_json(tmp_path):
@@ -102,6 +102,7 @@ def test_write_dpo_coverage_report_writes_json(tmp_path):
         "row_count": 0,
         "files": {},
         "task_families": {},
+        "preference_dimension_counts": {},
         "preference_dimensions": {},
         "template_families": {},
         "difficulty_counts": {},

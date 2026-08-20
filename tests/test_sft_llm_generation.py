@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.sft.generation import SFTBatchAcceptanceError, generate_llm_batch, materialize_llm_batch_from_files
+from slm_synth.sft.generation import SFTBatchAcceptanceError, generate_llm_batch, materialize_llm_batch
 from slm_synth.sft.spec_builders import build_specs
 from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend
 
@@ -30,16 +30,13 @@ def test_generate_sft_llm_batch_writes_rows(tmp_path):
     assert result.row_count == 2
 
 
-def test_materialize_sft_from_files_round_trips(tmp_path):
+def test_materialize_sft_batch_round_trips(tmp_path):
     spec = build_specs(family="rewriting_and_editing", count=1)[0]
     response = Backend().generate_structured_object_with_metadata(
         prompt="Input specs:\n" + json.dumps({"items": [spec]}), schema={}, schema_name="sft"
     )["data"]
-    specs_path, response_path = tmp_path / "specs.jsonl", tmp_path / "response.json"
-    specs_path.write_text(json.dumps(spec) + "\n")
-    response_path.write_text(json.dumps(response))
-    result = materialize_llm_batch_from_files(
-        specs_path=specs_path, teacher_response_path=response_path, output_path=tmp_path / "sft.jsonl",
+    result = materialize_llm_batch(
+        specs=[spec], teacher_response=response, output_path=tmp_path / "sft.jsonl",
         manifest_path=tmp_path / "manifest.json", teacher_model="teacher/model", generation_run="sft-001",
     )
     assert result.row_count == 1

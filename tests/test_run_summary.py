@@ -137,7 +137,9 @@ def test_print_dpo_run_summary_emits_same_shape(tmp_path, capsys):
         json.dumps(
             {
                 "total_rows": 64,
-                "datasets": [{"family": "basic_arithmetic_qa", "row_count": 64}],
+                "datasets": [
+                    {"preference_dimension": "factual_accuracy", "row_count": 64}
+                ],
                 "metadata": {
                     "batch_size": 64,
                     "concurrency": 1024,
@@ -167,7 +169,7 @@ def test_print_dpo_run_summary_emits_same_shape(tmp_path, capsys):
     assert "adaptive_batch_size_decreases=8" in output
     assert "batches=32" in output
     assert "adaptive_peak_in_flight_limit=1024" in output
-    assert '[generate] DPO families={"basic_arithmetic_qa": 64}' in output
+    assert '[generate] DPO preference_dimensions={"factual_accuracy": 64}' in output
 
 
 def test_print_distillation_run_summary_emits_run_and_signal_stats(tmp_path, capsys):

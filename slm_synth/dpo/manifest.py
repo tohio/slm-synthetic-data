@@ -71,17 +71,21 @@ def write_run_manifest(
     datasets: Iterable[Mapping[str, Any]],
     metadata: Mapping[str, Any] | None = None,
 ) -> Path:
-    """Write a local manifest summarizing one multi-family DPO run."""
+    """Write a local manifest summarizing one multi-dimension DPO run."""
     run = _require_non_empty_string(generation_run, "generation_run")
 
     normalized_datasets: list[dict[str, Any]] = []
-    seen_families: set[str] = set()
+    seen_dimensions: set[str] = set()
     total_rows = 0
     for dataset in datasets:
-        family = _require_non_empty_string(dataset.get("family"), "family")
-        if family in seen_families:
-            raise ValueError(f"duplicate family in run manifest datasets: {family}")
-        seen_families.add(family)
+        dimension = _require_non_empty_string(
+            dataset.get("preference_dimension"), "preference_dimension"
+        )
+        if dimension in seen_dimensions:
+            raise ValueError(
+                f"duplicate preference dimension in run manifest datasets: {dimension}"
+            )
+        seen_dimensions.add(dimension)
 
         row_count = dataset.get("row_count")
         if not isinstance(row_count, int) or row_count < 0:
@@ -96,7 +100,7 @@ def write_run_manifest(
 
         normalized_datasets.append(
             {
-                "family": family,
+                "preference_dimension": dimension,
                 "dataset_path": str(Path(dataset_path)),
                 "manifest_path": str(Path(manifest_item_path)),
                 "row_count": row_count,
@@ -109,7 +113,9 @@ def write_run_manifest(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "dataset_type": "dpo",
         "generation_run": run,
-        "families": [dataset["family"] for dataset in normalized_datasets],
+        "preference_dimensions": [
+            dataset["preference_dimension"] for dataset in normalized_datasets
+        ],
         "datasets": normalized_datasets,
         "total_rows": total_rows,
         "metadata": dict(metadata or {}),

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 from slm_synth.dpo.source_catalog import DPO_SOURCE_CATALOG
@@ -41,19 +39,6 @@ def validate_spec_range(*, family: str, count: int, start_index: int = 1) -> Non
     capacity = DPO_SPEC_CAPACITIES[dimension]
     if end > capacity:
         raise ValueError(f"DPO preference dimension {dimension!r} requested {start_index}..{end}; finite source capacity is {capacity}")
-
-
-def write_specs_jsonl(specs: list[dict[str, Any]], path: str | Path) -> int:
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8") as handle:
-        for spec in specs:
-            handle.write(json.dumps(validate_dpo_spec(spec), ensure_ascii=False) + "\n")
-    return len(specs)
-
-
-def build_and_write_specs(*, family: str, count: int, output_path: str | Path, start_index: int = 1) -> int:
-    return write_specs_jsonl(build_specs(family=family, count=count, start_index=start_index), output_path)
 
 
 def _build_spec(dimension: str, index: int) -> dict[str, Any]:

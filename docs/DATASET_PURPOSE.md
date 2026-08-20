@@ -140,7 +140,11 @@ reference the shared tools and resolve their own call IDs. Chosen and rejected
 responses are public. Teacher/provider details, retries, cost, task variables,
 and `holdout_key` stay in manifests.
 
-Published generic DPO data uses one repository containing one `data/<family>.jsonl` file per family. The default dataset configuration loads every family file; named configurations select one family. These configurations do not create train/validation/test splits or duplicate stored pairs.
+Published generic DPO data uses one repository containing one
+`data/<preference_dimension>.jsonl` file per preference dimension. The default
+dataset configuration loads every dimension file; named configurations select
+one dimension. These configurations do not create train/validation/test splits
+or duplicate stored pairs.
 
 ## Distillation SFT Data
 

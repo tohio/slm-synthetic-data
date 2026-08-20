@@ -1,3 +1,5 @@
+import pytest
+
 from slm_synth.sft.cli import main
 from slm_synth.sft.io import write_jsonl
 
@@ -23,176 +25,12 @@ def _sample_sft_rows(count: int = 1) -> list[dict[str, object]]:
     ]
 
 
-def test_sft_build_specs_cli_calls_builder(tmp_path, monkeypatch, capsys):
-    calls = []
-
-    def fake_build_and_write_specs(**kwargs):
-        calls.append(kwargs)
-        return 3
-
-    monkeypatch.setattr("slm_synth.sft.cli.build_and_write_specs", fake_build_and_write_specs)
-
-    assert (
-        main(
-            [
-                "build-specs",
-                "--family",
-                "grounded_qa_and_reading",
-                "--count",
-                "3",
-                "--output",
-                str(tmp_path / "sft.specs.jsonl"),
-                "--start-index",
-                "7",
-            ]
-        )
-        == 0
-    )
-
-    assert calls == [
-        {
-            "family": "grounded_qa_and_reading",
-            "count": 3,
-            "output_path": str(tmp_path / "sft.specs.jsonl"),
-            "start_index": 7,
-        }
-    ]
-    captured = capsys.readouterr()
-    assert "wrote 3 SFT task spec" in captured.out
-
-
-def test_sft_materialize_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
-    calls = []
-
-    def fake_materialize_llm_batch_from_files(**kwargs):
-        calls.append(kwargs)
-
-        class Result:
-            dataset_path = tmp_path / "sft.jsonl"
-            manifest_path = tmp_path / "sft.manifest.json"
-            row_count = 2
-
-        return Result()
-
-    monkeypatch.setattr("slm_synth.sft.cli.materialize_llm_batch_from_files", fake_materialize_llm_batch_from_files)
-
-    assert (
-        main(
-            [
-                "materialize-llm-batch",
-                "--specs",
-                str(tmp_path / "specs.jsonl"),
-                "--teacher-response",
-                str(tmp_path / "teacher_response.json"),
-                "--output",
-                str(tmp_path / "sft.jsonl"),
-                "--manifest",
-                str(tmp_path / "sft.manifest.json"),
-                "--teacher-model",
-                "openai/gpt-4.1-mini",
-                "--teacher-provider",
-                "openrouter",
-                "--generation-run",
-                "sft-llm-smoke-001",
-            ]
-        )
-        == 0
-    )
-
-    assert calls == [
-        {
-            "specs_path": str(tmp_path / "specs.jsonl"),
-            "teacher_response_path": str(tmp_path / "teacher_response.json"),
-            "output_path": str(tmp_path / "sft.jsonl"),
-            "manifest_path": str(tmp_path / "sft.manifest.json"),
-            "teacher_model": "openai/gpt-4.1-mini",
-                "teacher_provider": "openrouter",
-                "generation_run": "sft-llm-smoke-001",
-                "holdout_registry": None,
-        }
-    ]
-    captured = capsys.readouterr()
-    assert "materialized 2 LLM-generated SFT row" in captured.out
-
-
-def test_sft_generate_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
-    calls = []
-
-    def fake_generate_llm_batch_from_files(**kwargs):
-        calls.append(kwargs)
-
-        class Result:
-            dataset_path = tmp_path / "sft.jsonl"
-            manifest_path = tmp_path / "sft.manifest.json"
-            row_count = 2
-
-        return Result()
-
-    monkeypatch.setattr("slm_synth.sft.cli.generate_llm_batch_from_files", fake_generate_llm_batch_from_files)
-
-    assert (
-        main(
-            [
-                "generate-llm-batch",
-                "--specs",
-                str(tmp_path / "specs.jsonl"),
-                "--output",
-                str(tmp_path / "sft.jsonl"),
-                "--manifest",
-                str(tmp_path / "sft.manifest.json"),
-                "--teacher-model",
-                "openai/gpt-4.1-mini",
-                "--teacher-provider",
-                "openrouter",
-                "--generation-run",
-                "sft-live-smoke-001",
-                "--max-tokens",
-                "1024",
-                "--temperature",
-                "0.1",
-                "--top-p",
-                "0.9",
-                "--request-timeout",
-                "30",
-                "--max-request-retries",
-                "2",
-                "--max-retryable-request-attempts",
-                "5",
-                "--retry-max-elapsed-seconds",
-                "120",
-                "--adaptive-maximum-in-flight",
-                "3",
-                "--adaptive-initial-in-flight",
-                "1",
-            ]
-        )
-        == 0
-    )
-
-    assert calls == [
-        {
-            "specs_path": str(tmp_path / "specs.jsonl"),
-            "output_path": str(tmp_path / "sft.jsonl"),
-            "manifest_path": str(tmp_path / "sft.manifest.json"),
-            "teacher_model": "openai/gpt-4.1-mini",
-            "teacher_provider": "openrouter",
-            "generation_run": "sft-live-smoke-001",
-                "max_tokens": 1024,
-                "adjudicator_model": None,
-                "adjudicator_max_tokens": None,
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "request_timeout": 30.0,
-            "max_request_retries": 2,
-            "max_retryable_request_attempts": 5,
-            "retry_max_elapsed_seconds": 120.0,
-            "adaptive_maximum_in_flight": 3,
-                "adaptive_initial_in_flight": 1,
-                "holdout_registry": None,
-        }
-    ]
-    captured = capsys.readouterr()
-    assert "generated 2 LLM-generated SFT row" in captured.out
+@pytest.mark.parametrize(
+    "command", ["build-specs", "materialize-llm-batch", "generate-llm-batch"]
+)
+def test_sft_cli_has_no_standalone_legacy_generation_paths(command):
+    with pytest.raises(SystemExit):
+        main([command])
 
 
 def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):

@@ -39,7 +39,7 @@ def test_count_and_validate_dpo_jsonl_rejects_bad_public_row(tmp_path):
         count_and_validate_jsonl(dataset)
 
 
-def test_discover_dpo_jsonl_prefers_final_files_over_stale_batches(tmp_path):
+def test_discover_dpo_jsonl_rejects_stale_batch_shards(tmp_path):
     dataset_dir = tmp_path / "datasets"
     dataset_dir.mkdir()
     final_path = dataset_dir / "factual_accuracy.jsonl"
@@ -47,23 +47,25 @@ def test_discover_dpo_jsonl_prefers_final_files_over_stale_batches(tmp_path):
     final_path.write_text(json.dumps(_dpo_row("dpo-1")) + "\n", encoding="utf-8")
     stale_batch_path.write_text(json.dumps(_dpo_row("dpo-2")) + "\n", encoding="utf-8")
 
-    assert discover_jsonl_files(dataset_dir) == [final_path]
+    with pytest.raises(ValueError, match="flat final"):
+        discover_jsonl_files(dataset_dir)
 
 
-def test_discover_dpo_jsonl_keeps_batch_shards_without_final_file(tmp_path):
+def test_discover_dpo_jsonl_rejects_batch_only_export(tmp_path):
     dataset_dir = tmp_path / "datasets"
     dataset_dir.mkdir()
     batch_path = dataset_dir / "factual_accuracy.batch000001.jsonl"
     batch_path.write_text(json.dumps(_dpo_row("dpo-1")) + "\n", encoding="utf-8")
 
-    assert discover_jsonl_files(dataset_dir) == [batch_path]
+    with pytest.raises(ValueError, match="flat final"):
+        discover_jsonl_files(dataset_dir)
 
 
 @pytest.mark.parametrize(
     "dirname",
     ["scratch", "batches", "partials", "partial", "rejected", "retries", "retry", "provider", "provider_internal", "tmp"],
 )
-def test_discover_dpo_jsonl_ignores_internal_dirs(tmp_path, dirname):
+def test_discover_dpo_jsonl_rejects_nested_compatibility_artifacts(tmp_path, dirname):
     dataset_dir = tmp_path / "datasets"
     internal_dir = dataset_dir / dirname
     internal_dir.mkdir(parents=True)
@@ -72,7 +74,18 @@ def test_discover_dpo_jsonl_ignores_internal_dirs(tmp_path, dirname):
     public_path.write_text(json.dumps(_dpo_row("dpo-1")) + "\n", encoding="utf-8")
     internal_path.write_text(json.dumps(_dpo_row("dpo-2")) + "\n", encoding="utf-8")
 
-    assert discover_jsonl_files(dataset_dir) == [public_path]
+    with pytest.raises(ValueError, match="flat final"):
+        discover_jsonl_files(dataset_dir)
+
+
+def test_count_and_validate_dpo_jsonl_requires_filename_dimension_binding(tmp_path):
+    dataset = tmp_path / "groundedness.jsonl"
+    dataset.write_text(json.dumps(_dpo_row()) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected 'groundedness'"):
+        count_and_validate_jsonl(
+            dataset, expected_preference_dimension="groundedness"
+        )
 
 
 def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkeypatch):
@@ -100,7 +113,7 @@ def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
     run_manifest = manifest_dir / "dpo-run.manifest.json"
     run_manifest.write_text(json.dumps({
         "dataset_type": "dpo",
-        "families": families,
+        "preference_dimensions": families,
         "metadata": {
             "publish_ready": True,
             "candidate_pairs": 2,
@@ -157,8 +170,8 @@ def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
     assert result == {
         "repo_id": "tohio/slm-synthetic-dpo",
         "files": ["data/factual_accuracy.jsonl", "data/helpfulness_and_completeness.jsonl"],
-        "families": families,
-        "family_count": 2,
+        "preference_dimensions": families,
+        "preference_dimension_count": 2,
         "pairs": 2,
     }
     assert ("repo", {"repo_id": "tohio/slm-synthetic-dpo", "repo_type": "dataset", "private": False, "exist_ok": True}) in calls
@@ -194,7 +207,7 @@ def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_p
     )
     (manifest_dir / "run.manifest.json").write_text(json.dumps({
         "dataset_type": "dpo",
-        "families": ["factual_accuracy"],
+        "preference_dimensions": ["factual_accuracy"],
         "metadata": {
             "publish_ready": True,
             "candidate_pairs": 1,

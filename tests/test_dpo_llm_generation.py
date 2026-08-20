@@ -4,7 +4,7 @@ import pytest
 
 from slm_synth.dpo.generation import (
     DPOBatchAcceptanceError, generate_llm_batch, generate_teacher_batch_response_with_metadata,
-    materialize_llm_batch, materialize_llm_batch_from_files,
+    materialize_llm_batch,
 )
 from slm_synth.dpo.spec_builders import build_specs
 from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPOBackend
@@ -92,18 +92,14 @@ def test_materialize_rejects_id_mismatch(tmp_path):
         )
 
 
-def test_materialize_from_files_round_trips(tmp_path):
+def test_materialize_batch_round_trips(tmp_path):
     spec = build_specs(family="groundedness", count=1)[0]
     backend = Backend()
     response = backend.generate_structured_object_with_metadata(
         prompt="Input specs:\n" + json.dumps({"items": [spec]}), schema={}, schema_name="dpo"
     )["data"]
-    specs_path = tmp_path / "specs.jsonl"
-    response_path = tmp_path / "response.json"
-    specs_path.write_text(json.dumps(spec) + "\n")
-    response_path.write_text(json.dumps(response))
-    result = materialize_llm_batch_from_files(
-        specs_path=specs_path, teacher_response_path=response_path, output_path=tmp_path / "dpo.jsonl",
+    result = materialize_llm_batch(
+        specs=[spec], teacher_response=response, output_path=tmp_path / "dpo.jsonl",
         manifest_path=tmp_path / "manifest.json", teacher_model="teacher/model", generation_run="dpo-001",
     )
     assert result.row_count == 1

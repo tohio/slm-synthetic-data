@@ -155,12 +155,14 @@ def print_batch_failure(
 def _print_chat_run_summary(*, label: str, manifest: Mapping[str, Any]) -> None:
     metadata = _metadata(manifest)
     telemetry = _llm_telemetry(metadata)
-    families = _count_by_key(manifest.get("datasets", []), "family")
+    group_key = "preference_dimension" if label == "DPO" else "family"
+    group_label = "preference_dimensions" if label == "DPO" else "families"
+    groups = _count_by_key(manifest.get("datasets", []), group_key)
     print(
         f"[generate] Completed {label} run: "
         f"rows={int(manifest.get('total_rows', 0) or 0)}, "
         f"estimated_tokens={int(metadata.get('estimated_tokens', 0) or 0)}, "
-        f"families={len(families)}, "
+        f"{group_label}={len(groups)}, "
         f"batch_size={metadata.get('batch_size', 'n/a')}, "
         f"concurrency={metadata.get('concurrency', 'n/a')}, "
         f"adaptive_maximum_in_flight={metadata.get('adaptive_maximum_in_flight', 'n/a')}, "
@@ -172,7 +174,7 @@ def _print_chat_run_summary(*, label: str, manifest: Mapping[str, Any]) -> None:
         f"adaptive_batch_size_failures={metadata.get('adaptive_batch_size_failures', 'n/a')}, "
         f"{_telemetry_text(telemetry)}"
     )
-    print(f"[generate] {label} families={json.dumps(families, sort_keys=True)}")
+    print(f"[generate] {label} {group_label}={json.dumps(groups, sort_keys=True)}")
 
 
 def _pretrain_rows(manifest: Mapping[str, Any]) -> dict[str, int]:

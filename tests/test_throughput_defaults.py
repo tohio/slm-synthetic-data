@@ -75,30 +75,53 @@ def test_make_openrouter_backed_defaults_match_pretrain_posture():
     assert "--concurrency $(DPO_TARGET_CONCURRENCY)" in makefile
 
 
-def test_plain_batch_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one():
+def test_generic_run_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one():
     from slm_synth.dpo.cli import build_parser as build_dpo_parser
     from slm_synth.sft.cli import build_parser as build_sft_parser
     from slm_synth.distillation_sft.cli import build_parser as build_distillation_parser
 
-    common_sft_dpo_args = [
-        "generate-llm-batch",
-        "--specs",
-        "specs.jsonl",
-        "--output",
-        "rows.jsonl",
-        "--manifest",
-        "manifest.json",
+    common_run_args = [
+        "--batch-size",
+        "1",
+        "--output-dir",
+        "datasets",
+        "--manifest-dir",
+        "manifests",
         "--teacher-model",
         "openai/gpt-4.1-mini",
         "--generation-run",
-        "batch-smoke",
+        "run-smoke",
         "--max-tokens",
         "1024",
     ]
-    for parser_builder in (build_sft_parser, build_dpo_parser):
-        args = parser_builder().parse_args(common_sft_dpo_args)
+    generic_args = (
+        (
+            build_sft_parser,
+            [
+                "generate-llm-run",
+                "--families",
+                "everyday_conversation",
+                "--candidate-counts",
+                "everyday_conversation=1",
+                *common_run_args,
+            ],
+        ),
+        (
+            build_dpo_parser,
+            [
+                "generate-llm-run",
+                "--preference-dimensions",
+                "helpfulness_and_completeness",
+                "--candidate-counts",
+                "helpfulness_and_completeness=1",
+                *common_run_args,
+            ],
+        ),
+    )
+    for parser_builder, parser_args in generic_args:
+        args = parser_builder().parse_args(parser_args)
         assert args.adaptive_initial_in_flight == DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT
-        assert args.adaptive_maximum_in_flight == DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT
+        assert args.concurrency == DEFAULT_OPENROUTER_SMOKE_CONCURRENCY
 
     distillation_args = build_distillation_parser().parse_args(
         [

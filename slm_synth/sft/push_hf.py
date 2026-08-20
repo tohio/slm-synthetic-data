@@ -22,20 +22,6 @@ from slm_synth.sft.schema import validate_sft_row
 from slm_synth.sft.report import build_coverage_report, require_publish_ready_report
 
 
-INTERNAL_DATASET_DIR_NAMES = {
-    "batches",
-    "partial",
-    "partials",
-    "provider",
-    "provider_internal",
-    "rejected",
-    "retries",
-    "retry",
-    "scratch",
-    "tmp",
-}
-
-
 def get_hf_token() -> str:
     token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
     if not token:
@@ -47,34 +33,25 @@ def discover_jsonl_files(dataset_dir: str | Path) -> list[Path]:
     root = Path(dataset_dir)
     if not root.exists():
         raise FileNotFoundError(f"SFT dataset directory does not exist: {root}")
-    candidates = sorted(
+    candidates = sorted(path for path in root.rglob("*.jsonl") if path.is_file())
+    invalid = [
         path
-        for path in root.rglob("*.jsonl")
-        if path.is_file() and not _is_internal_dataset_path(path.relative_to(root))
-    )
-    files = _prefer_final_public_files(candidates)
+        for path in candidates
+        if path.parent != root or ".batch" in path.stem
+    ]
+    if invalid:
+        rendered = ", ".join(str(path.relative_to(root)) for path in invalid)
+        raise ValueError(
+            "SFT publication accepts only flat final data/<task_family>.jsonl files; "
+            f"remove batch, nested, or compatibility artifacts: {rendered}"
+        )
+    files = candidates
     if not files:
         raise FileNotFoundError(f"No SFT JSONL files found in {root}")
     return files
-
-
-def _is_internal_dataset_path(relative_path: Path) -> bool:
-    return any(part in INTERNAL_DATASET_DIR_NAMES for part in relative_path.parts[:-1])
-
-
-def _prefer_final_public_files(paths: list[Path]) -> list[Path]:
-    files_by_family: dict[str, list[Path]] = {}
-    for path in paths:
-        files_by_family.setdefault(family_from_dataset_path(path), []).append(path)
-
-    files: list[Path] = []
-    for family_paths in files_by_family.values():
-        final_files = [path for path in family_paths if ".batch" not in path.stem]
-        files.extend(final_files or family_paths)
-    return sorted(files)
-
-
-def count_and_validate_jsonl(path: str | Path) -> int:
+def count_and_validate_jsonl(
+    path: str | Path, *, expected_task_family: str | None = None
+) -> int:
     count = 0
     jsonl_path = Path(path)
     with jsonl_path.open("r", encoding="utf-8") as handle:
@@ -85,7 +62,15 @@ def count_and_validate_jsonl(path: str | Path) -> int:
                 row = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"invalid JSONL in {jsonl_path} at line {line_number}: {exc}") from exc
-            validate_sft_row(row)
+            validated = validate_sft_row(row)
+            if (
+                expected_task_family is not None
+                and validated["metadata"]["task_family"] != expected_task_family
+            ):
+                raise ValueError(
+                    f"SFT row {validated['id']} in {jsonl_path} has task_family "
+                    f"{validated['metadata']['task_family']!r}; expected {expected_task_family!r}"
+                )
             count += 1
     return count
 
@@ -224,7 +209,9 @@ def push_sft_run(
     data_operations: list[CommitOperationAdd] = []
     for family in sorted(files_by_family):
         file_path = files_by_family[family][0]
-        row_count = count_and_validate_jsonl(file_path)
+        row_count = count_and_validate_jsonl(
+            file_path, expected_task_family=family
+        )
         if row_count == 0:
             raise ValueError(f"SFT family dataset is empty: {family}")
         total_rows += row_count

@@ -37,7 +37,7 @@ def test_count_and_validate_sft_jsonl_rejects_bad_public_row(tmp_path):
         count_and_validate_jsonl(dataset)
 
 
-def test_discover_sft_jsonl_prefers_final_files_over_stale_batches(tmp_path):
+def test_discover_sft_jsonl_rejects_stale_batch_shards(tmp_path):
     dataset_dir = tmp_path / "datasets"
     dataset_dir.mkdir()
     final_path = dataset_dir / "grounded_qa_and_reading.jsonl"
@@ -45,23 +45,25 @@ def test_discover_sft_jsonl_prefers_final_files_over_stale_batches(tmp_path):
     final_path.write_text(json.dumps(_sft_row("sft-1")) + "\n", encoding="utf-8")
     stale_batch_path.write_text(json.dumps(_sft_row("sft-2")) + "\n", encoding="utf-8")
 
-    assert discover_jsonl_files(dataset_dir) == [final_path]
+    with pytest.raises(ValueError, match="flat final"):
+        discover_jsonl_files(dataset_dir)
 
 
-def test_discover_sft_jsonl_keeps_batch_shards_without_final_file(tmp_path):
+def test_discover_sft_jsonl_rejects_batch_only_export(tmp_path):
     dataset_dir = tmp_path / "datasets"
     dataset_dir.mkdir()
     batch_path = dataset_dir / "grounded_qa_and_reading.batch000001.jsonl"
     batch_path.write_text(json.dumps(_sft_row("sft-1")) + "\n", encoding="utf-8")
 
-    assert discover_jsonl_files(dataset_dir) == [batch_path]
+    with pytest.raises(ValueError, match="flat final"):
+        discover_jsonl_files(dataset_dir)
 
 
 @pytest.mark.parametrize(
     "dirname",
     ["scratch", "batches", "partials", "partial", "rejected", "retries", "retry", "provider", "provider_internal", "tmp"],
 )
-def test_discover_sft_jsonl_ignores_internal_dirs(tmp_path, dirname):
+def test_discover_sft_jsonl_rejects_nested_compatibility_artifacts(tmp_path, dirname):
     dataset_dir = tmp_path / "datasets"
     internal_dir = dataset_dir / dirname
     internal_dir.mkdir(parents=True)
@@ -70,7 +72,16 @@ def test_discover_sft_jsonl_ignores_internal_dirs(tmp_path, dirname):
     public_path.write_text(json.dumps(_sft_row("sft-1")) + "\n", encoding="utf-8")
     internal_path.write_text(json.dumps(_sft_row("sft-2")) + "\n", encoding="utf-8")
 
-    assert discover_jsonl_files(dataset_dir) == [public_path]
+    with pytest.raises(ValueError, match="flat final"):
+        discover_jsonl_files(dataset_dir)
+
+
+def test_count_and_validate_sft_jsonl_requires_filename_family_binding(tmp_path):
+    dataset = tmp_path / "creative_writing.jsonl"
+    dataset.write_text(json.dumps(_sft_row()) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected 'creative_writing'"):
+        count_and_validate_jsonl(dataset, expected_task_family="creative_writing")
 
 
 def test_push_sft_run_blocks_before_hf_when_acceptance_report_is_missing(tmp_path, monkeypatch):

@@ -20,7 +20,7 @@ def build_coverage_report(
     run_manifest: str | Path | None = None,
     require_holdout_check: bool = True,
 ) -> dict[str, Any]:
-    """Build aggregate and per-family DPO acceptance and coverage reporting."""
+    """Build aggregate and per-dimension DPO acceptance and coverage reporting."""
     dataset_paths = _resolve_jsonl_paths(paths)
     rows: list[dict[str, Any]] = []
     file_counts: dict[str, int] = {}
@@ -55,7 +55,7 @@ def build_coverage_report(
         "interaction_modes": _count_list_metadata(rows, "interaction_modes"),
         "output_modes": _count_metadata(rows, "output_mode"),
         "context_modes": _count_metadata(rows, "context_mode"),
-        "preference_dimensions": _count_metadata(rows, "preference_dimension"),
+        "preference_dimension_counts": _count_metadata(rows, "preference_dimension"),
         "template_families": _count_metadata(rows, "template_family"),
         "difficulty_counts": _count_metadata(rows, "difficulty", stringify_keys=True),
         "failure_modes": _count_metadata(rows, "failure_mode"),
@@ -73,7 +73,7 @@ def build_coverage_report(
             "publish_ready": not blockers,
             "publish_blockers": blockers,
         },
-        "families": _build_family_reports(
+        "preference_dimensions": _build_dimension_reports(
             rows,
             manifest_metadata=metadata,
             holdout_registry=holdout_registry,
@@ -99,7 +99,7 @@ def write_coverage_report(*, report: dict[str, Any], path: str | Path) -> Path:
     return output_path
 
 
-def _build_family_reports(
+def _build_dimension_reports(
     rows: list[dict[str, Any]],
     *,
     manifest_metadata: dict[str, Any],
@@ -108,38 +108,53 @@ def _build_family_reports(
 ) -> dict[str, Any]:
     reports: dict[str, Any] = {}
     configured = manifest_metadata.get("candidate_pairs_per_dimension", {})
-    family_names = {row["metadata"]["preference_dimension"] for row in rows}
+    dimension_names = {row["metadata"]["preference_dimension"] for row in rows}
     if isinstance(configured, dict):
-        family_names.update(configured)
-    for family in sorted(family_names):
-        family_rows = [row for row in rows if row["metadata"]["preference_dimension"] == family]
-        content = build_dpo_content_summary(family_rows)
-        unique_rows, visible = partition_unique_dpo_rows(family_rows)
-        attempted = _family_count(manifest_metadata, "attempted_pairs_per_dimension", family, len(family_rows))
-        candidates = _family_count(
-            manifest_metadata, "candidate_pairs_per_dimension", family, attempted
+        dimension_names.update(configured)
+    for dimension in sorted(dimension_names):
+        dimension_rows = [
+            row
+            for row in rows
+            if row["metadata"]["preference_dimension"] == dimension
+        ]
+        content = build_dpo_content_summary(dimension_rows)
+        unique_rows, visible = partition_unique_dpo_rows(dimension_rows)
+        attempted = _dimension_count(
+            manifest_metadata,
+            "attempted_pairs_per_dimension",
+            dimension,
+            len(dimension_rows),
+        )
+        candidates = _dimension_count(
+            manifest_metadata, "candidate_pairs_per_dimension", dimension, attempted
         )
         duplicates = max(
-            _family_count(manifest_metadata, "duplicate_pairs_per_dimension", family, 0),
+            _dimension_count(
+                manifest_metadata, "duplicate_pairs_per_dimension", dimension, 0
+            ),
             visible["duplicate_pairs"],
         )
-        rejected = _family_count(manifest_metadata, "rejected_pairs_per_dimension", family, 0)
-        holdouts = _build_holdout_summary(family_rows, holdout_registry)
+        rejected = _dimension_count(
+            manifest_metadata, "rejected_pairs_per_dimension", dimension, 0
+        )
+        holdouts = _build_holdout_summary(dimension_rows, holdout_registry)
         blockers = _publish_blockers(
             content=content,
             holdouts=holdouts,
             manifest_metadata={},
             require_holdout_check=require_holdout_check,
         )
-        reports[family] = {
-            "row_count": len(family_rows),
-            "task_families": _count_metadata(family_rows, "task_family"),
-            "interaction_modes": _count_list_metadata(family_rows, "interaction_modes"),
-            "output_modes": _count_metadata(family_rows, "output_mode"),
-            "context_modes": _count_metadata(family_rows, "context_mode"),
-            "template_families": _count_metadata(family_rows, "template_family"),
-            "difficulty_counts": _count_metadata(family_rows, "difficulty", stringify_keys=True),
-            "failure_modes": _count_metadata(family_rows, "failure_mode"),
+        reports[dimension] = {
+            "row_count": len(dimension_rows),
+            "task_families": _count_metadata(dimension_rows, "task_family"),
+            "interaction_modes": _count_list_metadata(dimension_rows, "interaction_modes"),
+            "output_modes": _count_metadata(dimension_rows, "output_mode"),
+            "context_modes": _count_metadata(dimension_rows, "context_mode"),
+            "template_families": _count_metadata(dimension_rows, "template_family"),
+            "difficulty_counts": _count_metadata(
+                dimension_rows, "difficulty", stringify_keys=True
+            ),
+            "failure_modes": _count_metadata(dimension_rows, "failure_mode"),
             "content_quality": content,
             "holdouts": holdouts,
             "acceptance": {
@@ -230,10 +245,12 @@ def _non_negative_int(*values: Any) -> int:
     return 0
 
 
-def _family_count(metadata: dict[str, Any], field: str, family: str, fallback: int) -> int:
+def _dimension_count(
+    metadata: dict[str, Any], field: str, dimension: str, fallback: int
+) -> int:
     values = metadata.get(field)
     if isinstance(values, dict):
-        value = values.get(family)
+        value = values.get(dimension)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             return value
     return fallback

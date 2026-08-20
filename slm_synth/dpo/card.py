@@ -49,23 +49,30 @@ def load_dpo_dataset_card_configs(path: str | Path) -> dict[str, list[dict[str, 
 
 
 def require_dpo_dataset_card_configs(
-    path: str | Path, *, families: Iterable[str]
+    path: str | Path, *, preference_dimensions: Iterable[str]
 ) -> dict[str, list[dict[str, str]]]:
-    """Require one all-family default config and one exact config per family."""
-    expected_families = tuple(sorted(set(families)))
-    if not expected_families:
-        raise ValueError("at least one DPO family is required for dataset-card configs")
+    """Require one all-dimension default config and one config per dimension."""
+    expected_dimensions = tuple(sorted(set(preference_dimensions)))
+    if not expected_dimensions:
+        raise ValueError(
+            "at least one DPO preference dimension is required for dataset-card configs"
+        )
     configs = load_dpo_dataset_card_configs(path)
-    expected_names = {"default", *expected_families}
+    expected_names = {"default", *expected_dimensions}
     if set(configs) != expected_names:
         raise ValueError(
-            "DPO dataset card configs do not match run families: "
+            "DPO dataset card configs do not match run preference dimensions: "
             f"expected {sorted(expected_names)}, got {sorted(configs)}"
         )
     if configs["default"] != [{"split": "train", "path": "data/*.jsonl"}]:
-        raise ValueError("DPO default config must load all family JSONL files as train")
-    for family in expected_families:
-        expected = [{"split": "train", "path": f"data/{family}.jsonl"}]
-        if configs[family] != expected:
-            raise ValueError(f"DPO family config {family} must load only data/{family}.jsonl")
+        raise ValueError(
+            "DPO default config must load all preference-dimension JSONL files as train"
+        )
+    for dimension in expected_dimensions:
+        expected = [{"split": "train", "path": f"data/{dimension}.jsonl"}]
+        if configs[dimension] != expected:
+            raise ValueError(
+                f"DPO preference-dimension config {dimension} must load only "
+                f"data/{dimension}.jsonl"
+            )
     return configs

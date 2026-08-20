@@ -27,7 +27,7 @@ def _resolve_config_paths(root: Path, files: list[dict[str, str]]) -> list[Path]
 
 
 def test_consolidated_dpo_card_has_default_and_per_family_configs(tmp_path):
-    configs = require_dpo_dataset_card_configs(_write_consolidated_card(tmp_path), families=FAMILIES)
+    configs = require_dpo_dataset_card_configs(_write_consolidated_card(tmp_path), preference_dimensions=FAMILIES)
 
     assert list(configs) == ["default", *FAMILIES]
     assert configs["default"] == [{"split": "train", "path": "data/*.jsonl"}]
@@ -56,12 +56,12 @@ def test_consolidated_dpo_default_and_family_configs_reference_same_files(tmp_pa
     assert family_files == default_files
 
 
-def test_consolidated_dpo_card_rejects_missing_family_config(tmp_path):
+def test_consolidated_dpo_card_rejects_missing_dimension_config(tmp_path):
     readme = tmp_path / "README.md"
     readme.write_text(
         "---\nconfigs:\n- config_name: default\n  data_files:\n  - split: train\n    path: data/*.jsonl\n---\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="do not match run families"):
-        require_dpo_dataset_card_configs(readme, families=FAMILIES)
+    with pytest.raises(ValueError, match="do not match run preference dimensions"):
+        require_dpo_dataset_card_configs(readme, preference_dimensions=FAMILIES)

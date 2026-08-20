@@ -1,3 +1,5 @@
+import pytest
+
 from slm_synth.dpo.cli import main
 from slm_synth.dpo.io import write_jsonl
 
@@ -24,175 +26,12 @@ def _sample_dpo_rows(count: int = 1) -> list[dict[str, object]]:
     ]
 
 
-def test_dpo_build_specs_cli_calls_builder(tmp_path, monkeypatch, capsys):
-    calls = []
-
-    def fake_build_and_write_specs(**kwargs):
-        calls.append(kwargs)
-        return 3
-
-    monkeypatch.setattr("slm_synth.dpo.cli.build_and_write_specs", fake_build_and_write_specs)
-
-    assert (
-        main(
-            [
-                "build-specs",
-                "--family",
-                "factual_accuracy",
-                "--count",
-                "3",
-                "--output",
-                str(tmp_path / "dpo.specs.jsonl"),
-                "--start-index",
-                "7",
-            ]
-        )
-        == 0
-    )
-
-    assert calls == [
-        {
-            "family": "factual_accuracy",
-            "count": 3,
-            "output_path": str(tmp_path / "dpo.specs.jsonl"),
-            "start_index": 7,
-        }
-    ]
-    captured = capsys.readouterr()
-    assert "wrote 3 DPO task spec" in captured.out
-
-
-def test_dpo_materialize_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
-    calls = []
-
-    def fake_materialize_llm_batch_from_files(**kwargs):
-        calls.append(kwargs)
-
-        class Result:
-            dataset_path = tmp_path / "dpo.jsonl"
-            manifest_path = tmp_path / "dpo.manifest.json"
-            row_count = 2
-
-        return Result()
-
-    monkeypatch.setattr("slm_synth.dpo.cli.materialize_llm_batch_from_files", fake_materialize_llm_batch_from_files)
-
-    assert (
-        main(
-            [
-                "materialize-llm-batch",
-                "--specs",
-                str(tmp_path / "specs.jsonl"),
-                "--teacher-response",
-                str(tmp_path / "teacher_response.json"),
-                "--output",
-                str(tmp_path / "dpo.jsonl"),
-                "--manifest",
-                str(tmp_path / "dpo.manifest.json"),
-                "--teacher-model",
-                "openai/gpt-4.1-mini",
-                "--teacher-provider",
-                "openrouter",
-                "--generation-run",
-                "dpo-llm-smoke-001",
-            ]
-        )
-        == 0
-    )
-
-    assert calls == [
-        {
-            "specs_path": str(tmp_path / "specs.jsonl"),
-            "teacher_response_path": str(tmp_path / "teacher_response.json"),
-            "output_path": str(tmp_path / "dpo.jsonl"),
-            "manifest_path": str(tmp_path / "dpo.manifest.json"),
-            "teacher_model": "openai/gpt-4.1-mini",
-            "teacher_provider": "openrouter",
-            "generation_run": "dpo-llm-smoke-001",
-        }
-    ]
-    captured = capsys.readouterr()
-    assert "materialized 2 LLM-generated DPO row" in captured.out
-
-
-def test_dpo_generate_llm_batch_cli_calls_runner(tmp_path, monkeypatch, capsys):
-    calls = []
-
-    def fake_generate_llm_batch_from_files(**kwargs):
-        calls.append(kwargs)
-
-        class Result:
-            dataset_path = tmp_path / "dpo.jsonl"
-            manifest_path = tmp_path / "dpo.manifest.json"
-            row_count = 2
-
-        return Result()
-
-    monkeypatch.setattr("slm_synth.dpo.cli.generate_llm_batch_from_files", fake_generate_llm_batch_from_files)
-
-    assert (
-        main(
-            [
-                "generate-llm-batch",
-                "--specs",
-                str(tmp_path / "specs.jsonl"),
-                "--output",
-                str(tmp_path / "dpo.jsonl"),
-                "--manifest",
-                str(tmp_path / "dpo.manifest.json"),
-                "--teacher-model",
-                "openai/gpt-4.1-mini",
-                "--teacher-provider",
-                "openrouter",
-                "--generation-run",
-                "dpo-live-smoke-001",
-                "--max-tokens",
-                "1024",
-                "--temperature",
-                "0.1",
-                "--top-p",
-                "0.9",
-                "--request-timeout",
-                "30",
-                "--max-request-retries",
-                "2",
-                "--max-retryable-request-attempts",
-                "5",
-                "--retry-max-elapsed-seconds",
-                "120",
-                "--adaptive-maximum-in-flight",
-                "3",
-                "--adaptive-initial-in-flight",
-                "1",
-            ]
-        )
-        == 0
-    )
-
-    assert calls == [
-        {
-            "specs_path": str(tmp_path / "specs.jsonl"),
-            "output_path": str(tmp_path / "dpo.jsonl"),
-            "manifest_path": str(tmp_path / "dpo.manifest.json"),
-            "teacher_model": "openai/gpt-4.1-mini",
-            "teacher_provider": "openrouter",
-            "generation_run": "dpo-live-smoke-001",
-                "max_tokens": 1024,
-                "adjudicator_model": None,
-                "adjudicator_max_tokens": None,
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "request_timeout": 30.0,
-            "max_request_retries": 2,
-            "max_retryable_request_attempts": 5,
-            "retry_max_elapsed_seconds": 120.0,
-            "adaptive_maximum_in_flight": 3,
-                "adaptive_initial_in_flight": 1,
-                "holdout_registry": None,
-        }
-    ]
-    captured = capsys.readouterr()
-    assert "generated 2 LLM-generated DPO row" in captured.out
+@pytest.mark.parametrize(
+    "command", ["build-specs", "materialize-llm-batch", "generate-llm-batch"]
+)
+def test_dpo_cli_has_no_standalone_legacy_generation_paths(command):
+    with pytest.raises(SystemExit):
+        main([command])
 
 
 def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
@@ -203,7 +42,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
 
         class Result:
             row_count = 4
-            families = ("factual_accuracy", "instruction_adherence")
+            preference_dimensions = ("factual_accuracy", "instruction_adherence")
             generation_run = "dpo-live-run-001"
             manifest_path = tmp_path / "manifests" / "dpo-live-run-001.manifest.json"
 
@@ -216,7 +55,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
         main(
             [
                 "generate-llm-run",
-                "--families",
+                "--preference-dimensions",
                 "factual_accuracy",
                 "instruction_adherence",
                 "--candidate-counts",
@@ -247,7 +86,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
 
     assert calls == [
         {
-            "families": ["factual_accuracy", "instruction_adherence"],
+            "preference_dimensions": ["factual_accuracy", "instruction_adherence"],
             "candidate_counts_by_dimension": {"factual_accuracy": 2, "instruction_adherence": 2},
             "batch_size": 1,
             "output_dir": str(tmp_path / "datasets"),
@@ -286,7 +125,7 @@ def test_dpo_generate_llm_run_cli_accepts_explicit_dimension_counts(tmp_path, mo
 
         class Result:
             row_count = 3
-            families = ("factual_accuracy", "instruction_adherence")
+            preference_dimensions = ("factual_accuracy", "instruction_adherence")
             generation_run = "dpo-target-001"
             manifest_path = tmp_path / "manifests" / "dpo-target-001.manifest.json"
 
@@ -299,7 +138,7 @@ def test_dpo_generate_llm_run_cli_accepts_explicit_dimension_counts(tmp_path, mo
         main(
             [
                 "generate-llm-run",
-                "--families",
+                "--preference-dimensions",
                 "factual_accuracy",
                 "instruction_adherence",
                 "--candidate-counts",
@@ -337,6 +176,7 @@ def test_dpo_report_coverage_cli_prints_json(tmp_path, capsys):
     captured = capsys.readouterr()
     assert '"dataset_type": "dpo"' in captured.out
     assert '"row_count": 1' in captured.out
+    assert '"preference_dimension_counts"' in captured.out
     assert '"factual_accuracy": 1' in captured.out
     assert '"extra_explanation": 1' in captured.out
 

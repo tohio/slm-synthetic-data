@@ -69,12 +69,16 @@ Token estimates serialize the public prompt, chosen branch, rejected branch, and
 
 ```text
 README.md
-data/<family>.jsonl
+data/<preference_dimension>.jsonl
 artifacts/coverage.json
 artifacts/manifests/*.manifest.json
 ```
 
-The default dataset configuration loads all family files. Named configurations load one family without duplicating stored pairs. Publication requires one final JSONL file per manifest family and a current publish-ready report and dataset card.
+The default dataset configuration loads all preference-dimension files. Named
+configurations load one dimension without duplicating stored pairs.
+Publication requires one flat final JSONL file per manifest dimension, exact
+filename-to-metadata binding, and a current publish-ready report and card.
+`generate-llm-run` is the only generic DPO generation command.
 
 ## Commands
 

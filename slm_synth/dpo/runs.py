@@ -42,7 +42,7 @@ class DPOLLMRunResult:
 
     results: tuple[Any, ...]
     row_count: int
-    families: tuple[str, ...]
+    preference_dimensions: tuple[str, ...]
     generation_run: str
     manifest_path: Path
 
@@ -55,7 +55,7 @@ def default_batch_output_dir(output_dir: str | Path) -> Path:
 
 def generate_llm_run(
     *,
-    families: list[str] | tuple[str, ...] | None,
+    preference_dimensions: list[str] | tuple[str, ...] | None,
     candidate_counts_by_dimension: dict[str, int],
     batch_size: int = 1,
     output_dir: str | Path,
@@ -86,8 +86,8 @@ def generate_llm_run(
     backend: StructuredTeacherBackend | None = None,
     adjudicator_backend: StructuredTeacherBackend | None = None,
 ) -> DPOLLMRunResult:
-    """Build specs and generate DPO datasets across families and batches."""
-    resolved_families = resolve_spec_families(families)
+    """Build specs and generate DPO datasets across preference dimensions."""
+    resolved_families = resolve_preference_dimensions(preference_dimensions)
     normalized_counts = {
         str(dimension).strip().lower(): count
         for dimension, count in candidate_counts_by_dimension.items()
@@ -352,7 +352,7 @@ def generate_llm_run(
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
         generation_run=generation_run,
-        families=resolved_families,
+        preference_dimensions=resolved_families,
         datasets=datasets,
         teacher_model=teacher_model,
         teacher_provider=teacher_provider,
@@ -404,34 +404,39 @@ def generate_llm_run(
     return DPOLLMRunResult(
         results=tuple(results),
         row_count=accepted_pairs,
-        families=resolved_families,
+        preference_dimensions=resolved_families,
         generation_run=generation_run,
         manifest_path=run_manifest_path,
     )
 
 
-def resolve_spec_families(families: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-    """Resolve requested DPO spec families, where None or ['all'] means all families."""
-    if families is None or tuple(families) == ("all",):
+def resolve_preference_dimensions(
+    preference_dimensions: list[str] | tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    """Resolve requested DPO preference dimensions; ``all`` selects the catalog."""
+    if preference_dimensions is None or tuple(preference_dimensions) == ("all",):
         return tuple(sorted(DPO_PREFERENCE_DIMENSIONS))
-    if "all" in families:
-        raise ValueError("'all' cannot be combined with explicit DPO spec families")
+    if "all" in preference_dimensions:
+        raise ValueError("'all' cannot be combined with explicit DPO preference dimensions")
 
     resolved: list[str] = []
     seen: set[str] = set()
-    for family in families:
-        if not isinstance(family, str) or not family.strip():
-            raise ValueError("DPO spec family must be a non-empty string")
-        normalized = family.strip().lower()
+    for dimension in preference_dimensions:
+        if not isinstance(dimension, str) or not dimension.strip():
+            raise ValueError("DPO preference dimension must be a non-empty string")
+        normalized = dimension.strip().lower()
         if normalized not in DPO_PREFERENCE_DIMENSIONS:
             supported = ", ".join(sorted(DPO_PREFERENCE_DIMENSIONS))
-            raise ValueError(f"Unsupported DPO spec family '{family}'. Supported families: {supported}")
+            raise ValueError(
+                f"Unsupported DPO preference dimension '{dimension}'. "
+                f"Supported dimensions: {supported}"
+            )
         if normalized in seen:
-            raise ValueError(f"Duplicate DPO spec family: {normalized}")
+            raise ValueError(f"Duplicate DPO preference dimension: {normalized}")
         seen.add(normalized)
         resolved.append(normalized)
     if not resolved:
-        raise ValueError("at least one DPO spec family is required")
+        raise ValueError("at least one DPO preference dimension is required")
     return tuple(resolved)
 
 
@@ -439,7 +444,7 @@ def _write_llm_run_manifest(
     *,
     manifest_path: str | Path,
     generation_run: str,
-    families: tuple[str, ...],
+    preference_dimensions: tuple[str, ...],
     datasets: list[dict[str, Any]],
     teacher_model: str,
     teacher_provider: str,
@@ -453,10 +458,10 @@ def _write_llm_run_manifest(
         "generation_mode": "live_llm_run",
         "teacher_model": teacher_model,
         "teacher_provider": teacher_provider,
-        "families": list(families),
+        "preference_dimensions": list(preference_dimensions),
         "datasets": [
             {
-                "family": item["family"],
+                "preference_dimension": item["family"],
                 "dataset_path": str(Path(item["dataset_path"])),
                 "row_count": item["row_count"],
                 "batch_count": item["batch_count"],

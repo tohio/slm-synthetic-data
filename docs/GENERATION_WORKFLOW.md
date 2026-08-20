@@ -121,9 +121,11 @@ tohio/slm-synthetic-sft/
     └── manifests/
 ```
 
-The `default` configuration loads all `data/*.jsonl` files as the train split. Each family configuration loads its existing family file; it does not duplicate stored rows. Families remain metadata/configuration boundaries, not train/validation/test splits.
-
-The push target does not modify or delete legacy `slm-synthetic-sft-*` family repositories. Keep those repositories until the consolidated dataset has been published, loaded with both default and family configurations, inspected, and adopted by downstream consumers.
+The `default` configuration loads all `data/*.jsonl` files as the train split.
+Each task-family configuration loads its one `data/<task_family>.jsonl` file;
+it does not duplicate stored rows. The run workflow is the only generic SFT
+generation path. Publication rejects batch shards, nested JSONL files, and
+rows whose `task_family` does not match the filename.
 
 ## Generic DPO
 
@@ -137,7 +139,7 @@ make dpo-inspect DPO_INSPECT_RUN=dpo-smoke-001
 Small candidate run:
 
 ```bash
-DPO_FAMILIES="instruction_adherence" DPO_CANDIDATE_COUNTS="instruction_adherence=100" \
+DPO_PREFERENCE_DIMENSIONS="instruction_adherence" DPO_CANDIDATE_COUNTS="instruction_adherence=100" \
 DPO_GENERATION_RUN=dpo-small-001 make dpo-generate
 
 make dpo-inspect DPO_INSPECT_RUN=dpo-small-001
@@ -147,7 +149,7 @@ make dpo-report DPO_REPORT_RUN=dpo-small-001
 Larger candidate run:
 
 ```bash
-DPO_FAMILIES="helpfulness_and_completeness factual_accuracy instruction_adherence" \
+DPO_PREFERENCE_DIMENSIONS="helpfulness_and_completeness factual_accuracy instruction_adherence" \
 DPO_CANDIDATE_COUNTS="helpfulness_and_completeness=500 factual_accuracy=500 instruction_adherence=500" \
 DPO_GENERATION_RUN=dpo-prod-001 make dpo-generate
 
@@ -163,7 +165,9 @@ make dpo-push \
   DPO_HF_REPO=tohio/slm-synthetic-dpo
 ```
 
-Public pairs are written under `data/dpo/runs/<run>/datasets/`, with one final JSONL file per family. Batch shards remain under the sibling `batches/` directory.
+Public pairs are written under `data/dpo/runs/<run>/datasets/`, with one final
+JSONL file per preference dimension. Internal batch shards remain under the
+sibling `batches/` directory and are never publication inputs.
 
 ### DPO candidate acceptance
 
@@ -187,7 +191,7 @@ Publication is blocked when:
 - Holdouts were not checked or a collision exists.
 - Candidate/accepted accounting is inconsistent with the public files.
 - `coverage.json` is missing or stale relative to the public files.
-- The dataset card lacks the default or any required family configuration.
+- The dataset card lacks the default or any required preference-dimension configuration.
 
 ### DPO consolidated publication
 
@@ -205,9 +209,12 @@ tohio/slm-synthetic-dpo/
     └── manifests/
 ```
 
-The `default` configuration loads all `data/*.jsonl` files as the train split. Each family configuration loads its family file without duplicating stored pairs. Families are metadata/configuration boundaries, not train/validation/test splits.
-
-The push target does not modify legacy `slm-synthetic-dpo-*` repositories. Keep them until the consolidated dataset has been published, loaded through both default and family configurations, inspected, and adopted downstream.
+The `default` configuration loads all `data/*.jsonl` files as the train split.
+Each named preference-dimension configuration loads its one
+`data/<preference_dimension>.jsonl` file without duplicating pairs. The run
+workflow is the only generic DPO generation path. Publication rejects batch
+shards, nested JSONL files, and rows whose `preference_dimension` does not
+match the filename.
 
 ## Distillation SFT
 

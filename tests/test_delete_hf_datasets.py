@@ -4,6 +4,8 @@ import argparse
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _load_delete_module():
     path = Path(__file__).resolve().parents[1] / "scripts" / "delete_hf_datasets.py"
@@ -35,11 +37,11 @@ def test_planned_repos_includes_distillation_short_names() -> None:
     ]
 
 
-def test_planned_repos_includes_sft_and_dpo_families_without_duplicates() -> None:
+def test_planned_repos_accepts_exact_generic_repositories_without_duplicates() -> None:
     module = _load_delete_module()
     args = argparse.Namespace(
         namespace="tohio",
-        repo=["tohio/slm-synthetic-sft-basic-arithmetic-qa"],
+        repo=["tohio/slm-synthetic-sft", "tohio/slm-synthetic-dpo"],
         repo_file=None,
         include_sft=True,
         include_dpo=True,
@@ -51,9 +53,16 @@ def test_planned_repos_includes_sft_and_dpo_families_without_duplicates() -> Non
 
     repos = module.planned_repos(args)
 
-    assert "tohio/slm-synthetic-sft-basic-arithmetic-qa" in repos
-    assert "tohio/slm-synthetic-dpo-basic-arithmetic-qa" in repos
-    assert len(repos) == 28
+    assert repos == ["tohio/slm-synthetic-sft", "tohio/slm-synthetic-dpo"]
+
+
+def test_generic_family_repo_delete_selectors_are_removed() -> None:
+    module = _load_delete_module()
+
+    with pytest.raises(SystemExit):
+        module.build_parser().parse_args(["--include-sft"])
+    with pytest.raises(SystemExit):
+        module.build_parser().parse_args(["--include-dpo"])
 
 
 def test_dry_run_does_not_require_hf_token(capsys) -> None:

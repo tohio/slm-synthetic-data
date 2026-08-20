@@ -54,35 +54,11 @@ def _get_hf_token() -> str | None:
 # END .env loading for HF deletion
 
 
-SFT_DPO_FAMILIES = [
-    "ai-concept-explanation",
-    "basic-arithmetic-qa",
-    "capital-city-qa",
-    "clear-sky-color-qa",
-    "code-explanation-no-code",
-    "code-expression-result",
-    "code-generation-function",
-    "direct-division",
-    "direct-subtraction",
-    "function-completion-body-only",
-    "list-exact-n-items",
-    "private-or-unverifiable-company-fact",
-    "repeat-exact-n-times",
-    "short-factual-stop-behavior",
-]
-
-
 def planned_repos(args: argparse.Namespace) -> list[str]:
     repos: list[str] = []
 
     repos.extend(args.repo or [])
     repos.extend(_read_repo_file(args.repo_file))
-
-    if args.include_sft:
-        repos.extend(f"{args.namespace}/{args.sft_prefix}-{family}" for family in SFT_DPO_FAMILIES)
-
-    if args.include_dpo:
-        repos.extend(f"{args.namespace}/{args.dpo_prefix}-{family}" for family in SFT_DPO_FAMILIES)
 
     if args.include_distillation:
         repos.append(f"{args.namespace}/slm-synthetic-distillation-sft")
@@ -147,8 +123,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--namespace", default="tohio")
     parser.add_argument("--repo", action="append", help="Exact dataset repo id to delete. Can be repeated.")
     parser.add_argument("--repo-file", help="File containing one dataset repo id per line.")
-    parser.add_argument("--include-sft", action="store_true", help="Include slm-synthetic-sft-* family repos.")
-    parser.add_argument("--include-dpo", action="store_true", help="Include slm-synthetic-dpo-* family repos.")
     parser.add_argument(
         "--include-distillation",
         action="store_true",
@@ -159,8 +133,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include the old long distillation-DPO repo name.",
     )
-    parser.add_argument("--sft-prefix", default="slm-synthetic-sft")
-    parser.add_argument("--dpo-prefix", default="slm-synthetic-dpo")
     parser.add_argument("--yes", action="store_true", help="Actually delete. Without this, only prints planned deletions.")
     return parser
 
@@ -176,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not repos:
         print("No dataset repos selected.")
-        print("Use --repo, --repo-file, --include-sft, --include-dpo, or --include-distillation.")
+        print("Use --repo, --repo-file, or --include-distillation.")
         return 2
 
     print("Selected Hugging Face dataset repos:")

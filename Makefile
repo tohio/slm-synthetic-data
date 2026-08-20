@@ -120,7 +120,6 @@ SFT_ADJUDICATOR_MAX_TOKENS ?= $(SFT_MAX_TOKENS)
 SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-sft,))
-SFT_LEGACY_HF_PREFIX ?= slm-synthetic-sft
 SFT_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin SFT_FAMILIES)),$(SFT_FAMILIES),$(SFT_SMOKE_FAMILIES))
 SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE := $(if $(filter command line,$(origin SFT_CANDIDATE_COUNTS)),$(SFT_CANDIDATE_COUNTS),$(SFT_SMOKE_CANDIDATE_COUNTS))
 
@@ -129,8 +128,8 @@ DPO_RUN ?= dpo-smoke-001
 DPO_GENERATION_RUN ?= dpo-candidate-001
 DPO_REPORT_RUN ?= $(DPO_RUN)
 DPO_INSPECT_RUN ?= $(DPO_REPORT_RUN)
-DPO_FAMILIES ?= all
-DPO_SMOKE_FAMILIES ?= instruction_adherence
+DPO_PREFERENCE_DIMENSIONS ?= all
+DPO_SMOKE_PREFERENCE_DIMENSIONS ?= instruction_adherence
 DPO_CANDIDATE_COUNTS ?=
 DPO_SMOKE_CANDIDATE_COUNTS ?= instruction_adherence=2
 DPO_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
@@ -148,8 +147,7 @@ DPO_ADJUDICATOR_MAX_TOKENS ?= $(DPO_MAX_TOKENS)
 DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-dpo,))
-DPO_HF_PREFIX ?= slm-synthetic-dpo
-DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES)),$(DPO_FAMILIES),$(DPO_SMOKE_FAMILIES))
+DPO_SMOKE_PREFERENCE_DIMENSIONS_EFFECTIVE := $(if $(filter command line,$(origin DPO_PREFERENCE_DIMENSIONS)),$(DPO_PREFERENCE_DIMENSIONS),$(DPO_SMOKE_PREFERENCE_DIMENSIONS))
 DPO_SMOKE_CANDIDATE_COUNTS_EFFECTIVE := $(if $(filter command line,$(origin DPO_CANDIDATE_COUNTS)),$(DPO_CANDIDATE_COUNTS),$(DPO_SMOKE_CANDIDATE_COUNTS))
 
 # Hugging Face dataset deletion
@@ -170,7 +168,7 @@ HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_R
 	alignment-preflight sft-preflight dpo-preflight \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
 	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
-	hf-delete-datasets hf-delete-sft hf-delete-dpo hf-delete-distillation hf-delete-legacy-distillation-dpo \
+	hf-delete-datasets hf-delete-distillation hf-delete-legacy-distillation-dpo \
 	test clean
 
 help:
@@ -209,12 +207,10 @@ help:
 > @echo "  make distillation-sft-push        Push a distillation SFT run"
 > @echo "  make distillation-dpo-push        Push a distillation DPO run"
 > @echo "  make sft-push            Push one consolidated SFT dataset"
-> @echo "  make dpo-push            Push DPO families to slm-synthetic-dpo-* repos"
+> @echo "  make dpo-push            Push one consolidated DPO dataset"
 > @echo ""
 > @echo "Delete Hugging Face datasets:"
 > @echo "  make hf-delete-datasets                Dry-run exact repos from HF_DELETE_REPO/HF_DELETE_REPO_FILE"
-> @echo "  make hf-delete-sft                     Dry-run SFT family dataset repo deletion"
-> @echo "  make hf-delete-dpo                     Dry-run DPO family dataset repo deletion"
 > @echo "  make hf-delete-distillation            Dry-run distillation dataset repo deletion"
 > @echo "  make hf-delete-legacy-distillation-dpo Dry-run old long distillation-DPO repo deletion"
 > @echo "  Set HF_DELETE_YES=1 to actually delete"
@@ -247,7 +243,6 @@ help:
 > @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
 > @echo "  DPO_CANDIDATE_COUNTS=$(DPO_CANDIDATE_COUNTS)"
 > @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
-> @echo "  DPO_HF_PREFIX=$(DPO_HF_PREFIX)"
 > @echo "  HF_DELETE_NAMESPACE=$(HF_DELETE_NAMESPACE)"
 > @echo "  HF_DELETE_REPO=$(HF_DELETE_REPO)"
 > @echo "  HF_DELETE_REPO_FILE=$(HF_DELETE_REPO_FILE)"
@@ -512,7 +507,7 @@ sft-push:
 
 dpo-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
->   --families $(DPO_SMOKE_FAMILIES_EFFECTIVE) \
+>   --preference-dimensions $(DPO_SMOKE_PREFERENCE_DIMENSIONS_EFFECTIVE) \
 >   --candidate-counts $(DPO_SMOKE_CANDIDATE_COUNTS_EFFECTIVE) \
 >   --batch-size $(DPO_SMOKE_BATCH_SIZE) \
 >   --output-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/datasets \
@@ -533,7 +528,7 @@ dpo-smoke:
 dpo-generate:
 > @test -n "$(strip $(DPO_CANDIDATE_COUNTS))" || (echo "DPO_CANDIDATE_COUNTS is required (dimension=count ...)" >&2; exit 2)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
->   --families $(DPO_FAMILIES) \
+>   --preference-dimensions $(DPO_PREFERENCE_DIMENSIONS) \
 >   --candidate-counts $(DPO_CANDIDATE_COUNTS) \
 >   --batch-size $(DPO_BATCH_SIZE) \
 >   --output-dir $(DPO_RUN_ROOT)/$(DPO_GENERATION_RUN)/datasets \
@@ -578,20 +573,6 @@ hf-delete-datasets:
 >   --namespace $(HF_DELETE_NAMESPACE) \
 >   $(HF_DELETE_REPO_ARG) \
 >   $(HF_DELETE_REPO_FILE_ARG) \
->   $(HF_DELETE_YES_ARG)
-
-hf-delete-sft:
-> $(PYTHON) scripts/delete_hf_datasets.py \
->   --namespace $(HF_DELETE_NAMESPACE) \
->   --sft-prefix $(SFT_LEGACY_HF_PREFIX) \
->   --include-sft \
->   $(HF_DELETE_YES_ARG)
-
-hf-delete-dpo:
-> $(PYTHON) scripts/delete_hf_datasets.py \
->   --namespace $(HF_DELETE_NAMESPACE) \
->   --dpo-prefix $(DPO_HF_PREFIX) \
->   --include-dpo \
 >   $(HF_DELETE_YES_ARG)
 
 hf-delete-distillation:

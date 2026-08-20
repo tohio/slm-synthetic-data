@@ -10,7 +10,7 @@ Use this file when planning run targets, interpreting coverage reports, or choos
 |---|---|---|---|
 | Pretraining | `PRETRAIN_SIGNAL` | No value means all configured pretraining signals from `configs/synthetic_template.yaml`. | Token target is split by configured signal shares. |
 | SFT | `SFT_FAMILIES` | `all` means all supported SFT spec families, sorted by name. | `SFT_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected family. |
-| DPO | `DPO_FAMILIES` | `all` means all supported DPO preference dimensions, sorted by name. | `DPO_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected dimension. |
+| DPO | `DPO_PREFERENCE_DIMENSIONS` | `all` means all supported DPO preference dimensions, sorted by name. | `DPO_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected dimension. |
 | Distillation SFT | `DISTILLATION_SFT_SIGNALS` | Empty or `all` means all supported distillation SFT signals, sorted by name. | `DISTILLATION_SFT_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected signal. |
 | Distillation DPO | `DISTILLATION_DPO_FAMILIES` | `all` means all supported distillation DPO families, sorted by name. | Pair target is split evenly across families; remainder goes to earlier sorted families. |
 

@@ -137,7 +137,7 @@ make dpo-inspect
 ```
 
 ```bash
-DPO_FAMILIES="helpfulness_and_completeness instruction_adherence" \
+DPO_PREFERENCE_DIMENSIONS="helpfulness_and_completeness instruction_adherence" \
 DPO_CANDIDATE_COUNTS="helpfulness_and_completeness=40 instruction_adherence=40" \
 DPO_GENERATION_RUN=dpo-candidate-001 make dpo-generate
 make dpo-inspect DPO_INSPECT_RUN=dpo-candidate-001
@@ -150,8 +150,8 @@ replaced. Accepted pairs and estimated tokens are the run outcome.
 |---|---:|---|
 | `DPO_RUN` | `dpo-smoke-001` | Smoke run id. |
 | `DPO_GENERATION_RUN` | `dpo-candidate-001` | Candidate generation run id. |
-| `DPO_SMOKE_FAMILIES` | `instruction_adherence` | Smoke preference-dimension list. |
-| `DPO_FAMILIES` | `all` | Target family list. |
+| `DPO_SMOKE_PREFERENCE_DIMENSIONS` | `instruction_adherence` | Smoke preference-dimension list. |
+| `DPO_PREFERENCE_DIMENSIONS` | `all` | Target preference-dimension list. |
 | `DPO_SMOKE_CANDIDATE_COUNTS` | `instruction_adherence=2` | Explicit smoke candidate plan. |
 | `DPO_CANDIDATE_COUNTS` | unset | Required `dimension=count` candidate plan. |
 | `DPO_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum specs per teacher request. |
@@ -271,9 +271,13 @@ make distillation-sft-push DISTILLATION_SFT_HF_REPO=<namespace>/<repo>
 make distillation-dpo-push DISTILLATION_DPO_HF_NAMESPACE=<namespace>
 ```
 
-`sft-push` creates one atomic version in `SFT_HF_REPO`. The default dataset configuration loads every family file; named family configurations load the same files individually. Legacy per-family SFT repositories are not modified by this target.
+`sft-push` creates one atomic version in `SFT_HF_REPO`. The default dataset
+configuration loads every `data/<task_family>.jsonl` file; named task-family
+configurations load one file. Only flat final files are accepted.
 
-`dpo-push` creates one atomic version in `DPO_HF_REPO` with the same default and per-family loading model. Legacy `slm-synthetic-dpo-*` family repositories are not modified by this target.
+`dpo-push` creates one atomic version in `DPO_HF_REPO`. The default
+configuration loads every `data/<preference_dimension>.jsonl` file; each named
+configuration loads one dimension file. Only flat final files are accepted.
 
 ## Hugging Face Dataset Deletion
 
@@ -286,8 +290,6 @@ All deletion targets are dry-run by default. Set `HF_DELETE_YES=1` to actually d
 ```bash
 make hf-delete-distillation
 make hf-delete-legacy-distillation-dpo
-make hf-delete-sft
-make hf-delete-dpo
 ```
 
 Delete target output should list selected repositories and print `DRY RUN ONLY`.
@@ -325,8 +327,6 @@ tohio/slm-synthetic-distillation-dpo
 | Target | Purpose |
 |---|---|
 | `make hf-delete-datasets` | Delete exact repos from `HF_DELETE_REPO` or `HF_DELETE_REPO_FILE`. |
-| `make hf-delete-sft` | Delete legacy `slm-synthetic-sft-*` family dataset repos. |
-| `make hf-delete-dpo` | Delete `slm-synthetic-dpo-*` family dataset repos. |
 | `make hf-delete-distillation` | Delete `slm-synthetic-distillation-sft` and `slm-synthetic-distillation-dpo`. |
 | `make hf-delete-legacy-distillation-dpo` | Delete the old long distillation-DPO repo name. |
 
@@ -338,8 +338,6 @@ tohio/slm-synthetic-distillation-dpo
 | `HF_DELETE_REPO` | unset | Exact dataset repo id to delete. |
 | `HF_DELETE_REPO_FILE` | unset | File containing one exact dataset repo id per line. |
 | `HF_DELETE_YES` | unset | Set to `1`, `true`, or `yes` to actually delete. |
-| `SFT_LEGACY_HF_PREFIX` | `slm-synthetic-sft` | Legacy family-repository prefix used only by `make hf-delete-sft`. |
-| `DPO_HF_PREFIX` | `slm-synthetic-dpo` | Prefix used by `make hf-delete-dpo`. |
 
 Actual deletion requires `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` in the environment.
 

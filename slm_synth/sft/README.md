@@ -27,7 +27,13 @@ sft/
 
 ## How It Fits In
 
-Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and `sft-push` call this package. `sft-push` publishes one repository containing every family file, a default all-family configuration, and optional per-family configurations. Public command details live in `../../docs/COMMANDS.md`.
+Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and
+`sft-push` call this package. `sft-push` publishes one repository containing
+one flat `data/<task_family>.jsonl` file per selected family, a default
+all-family configuration, and one named configuration per family. Batch shards
+and nested JSONL files are never export candidates, and `generate-llm-run` is
+the only generic SFT generation command. Public command details live in
+`../../docs/COMMANDS.md`.
 
 ## Conventions
 

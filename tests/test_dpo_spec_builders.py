@@ -1,11 +1,7 @@
-import json
-
 import pytest
 
-from slm_synth.dpo.generation import read_specs_jsonl
 from slm_synth.dpo.spec_builders import (
-    DPO_PREFERENCE_DIMENSIONS, DPO_SPEC_CAPACITIES, build_and_write_specs,
-    build_specs, unique_capacity, write_specs_jsonl,
+    DPO_PREFERENCE_DIMENSIONS, DPO_SPEC_CAPACITIES, build_specs, unique_capacity,
 )
 from slm_synth.dpo.specs import dpo_source_fingerprint, teacher_visible_dpo_spec
 from slm_synth.taxonomy import PREFERENCE_DIMENSIONS, TASK_FAMILIES
@@ -50,12 +46,3 @@ def test_dpo_specs_require_semantic_teacher_preference_generation():
     spec = build_specs(family="code_correctness", count=1)[0]
     assert "chosen_answer" not in spec["variables"]
     assert "rejected_answer" not in spec["variables"]
-
-
-def test_dpo_spec_jsonl_round_trip(tmp_path):
-    path = tmp_path / "nested" / "dpo.specs.jsonl"
-    assert build_and_write_specs(family="style_and_tone", count=2, output_path=path) == 2
-    rows = read_specs_jsonl(path)
-    assert len(rows) == 2
-    assert write_specs_jsonl(rows, tmp_path / "copy.jsonl") == 2
-    assert "eval_family" not in json.dumps(rows)

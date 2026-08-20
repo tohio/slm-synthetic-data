@@ -206,7 +206,11 @@ def build_dataset_card(
     if family:
         lines.append(f"- Family: `{family}`")
     if clean_signals:
-        lines.append(f"- Signals: `{', '.join(clean_signals)}`")
+        label = {
+            "sft": "Task families",
+            "dpo": "Preference dimensions",
+        }.get(kind, "Signals")
+        lines.append(f"- {label}: `{', '.join(clean_signals)}`")
     if teacher_model:
         lines.append(f"- Teacher model: `{teacher_model}`")
     lines.append(f"- Language: {language}")
@@ -322,7 +326,11 @@ def _signals_from_manifest(manifest: Mapping[str, Any]) -> list[str]:
     for dataset in datasets:
         if not isinstance(dataset, Mapping):
             continue
-        value = _clean_string(dataset.get("signal")) or _clean_string(dataset.get("family"))
+        value = (
+            _clean_string(dataset.get("signal"))
+            or _clean_string(dataset.get("family"))
+            or _clean_string(dataset.get("preference_dimension"))
+        )
         if value:
             values.append(value)
     return sorted(set(values))

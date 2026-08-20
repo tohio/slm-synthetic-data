@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,33 +96,6 @@ def build_openrouter_backend(
         openrouter_routing_mode=openrouter_routing_mode,
         openrouter_provider=openrouter_provider,
     )
-
-
-def read_specs_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    """Read and validate SFT task specs from JSONL."""
-    input_path = Path(path)
-    specs: list[dict[str, Any]] = []
-    for line_number, line in enumerate(input_path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"invalid SFT spec JSONL in {input_path} at line {line_number}: {exc}") from exc
-        specs.append(validate_sft_spec(value))
-    return specs
-
-
-def read_teacher_response_json(path: str | Path) -> dict[str, Any]:
-    """Read a saved teacher batch response JSON object."""
-    input_path = Path(path)
-    try:
-        value = json.loads(input_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid SFT teacher response JSON in {input_path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise TypeError("SFT teacher response JSON must be an object")
-    return value
 
 
 def generate_teacher_batch_response(
@@ -258,60 +230,6 @@ def generate_llm_batch(
         raise SFTBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
 
 
-def generate_llm_batch_from_files(
-    *,
-    specs_path: str | Path,
-    output_path: str | Path,
-    manifest_path: str | Path,
-    teacher_model: str,
-    generation_run: str,
-    max_tokens: int,
-    adjudicator_model: str | None = None,
-    adjudicator_max_tokens: int | None = None,
-    teacher_provider: str = "openrouter",
-    temperature: float = 0.2,
-    top_p: float = 0.95,
-    request_timeout: float | None = None,
-    max_request_retries: int = 3,
-    max_retryable_request_attempts: int = 20,
-    retry_max_elapsed_seconds: float = 1800.0,
-    adaptive_maximum_in_flight: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
-    adaptive_initial_in_flight: int = 8,
-    openrouter_routing_mode: str | None = None,
-    openrouter_provider: str | None = None,
-    metadata: Mapping[str, Any] | None = None,
-    holdout_registry: HoldoutRegistry | None = None,
-    backend: StructuredTeacherBackend | None = None,
-    adjudicator_backend: StructuredTeacherBackend | None = None,
-) -> SFTLLMBatchResult:
-    """Read SFT specs, call OpenRouter, then materialize the generated batch."""
-    return generate_llm_batch(
-        specs=read_specs_jsonl(specs_path),
-        output_path=output_path,
-        manifest_path=manifest_path,
-        teacher_model=teacher_model,
-        teacher_provider=teacher_provider,
-        generation_run=generation_run,
-        max_tokens=max_tokens,
-        adjudicator_model=adjudicator_model,
-        adjudicator_max_tokens=adjudicator_max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        request_timeout=request_timeout,
-        max_request_retries=max_request_retries,
-        max_retryable_request_attempts=max_retryable_request_attempts,
-        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-        adaptive_initial_in_flight=adaptive_initial_in_flight,
-        openrouter_routing_mode=openrouter_routing_mode,
-        openrouter_provider=openrouter_provider,
-        metadata=metadata,
-        holdout_registry=holdout_registry,
-        backend=backend,
-        adjudicator_backend=adjudicator_backend,
-    )
-
-
 def materialize_llm_batch(
     *,
     specs: Iterable[Mapping[str, Any]],
@@ -382,32 +300,6 @@ def _validate_candidate_rows(
     validate_sft_rows_against_specs(rows, specs)
     _reject_holdout_matches(rows=rows, specs=specs, holdout_registry=holdout_registry)
     return rows
-
-
-def materialize_llm_batch_from_files(
-    *,
-    specs_path: str | Path,
-    teacher_response_path: str | Path,
-    output_path: str | Path,
-    manifest_path: str | Path,
-    teacher_model: str,
-    generation_run: str,
-    teacher_provider: str = "openrouter",
-    metadata: Mapping[str, Any] | None = None,
-    holdout_registry: HoldoutRegistry | None = None,
-) -> SFTLLMBatchResult:
-    """Read SFT specs and saved teacher JSON, then materialize the batch."""
-    return materialize_llm_batch(
-        specs=read_specs_jsonl(specs_path),
-        teacher_response=read_teacher_response_json(teacher_response_path),
-        output_path=output_path,
-        manifest_path=manifest_path,
-        teacher_model=teacher_model,
-        teacher_provider=teacher_provider,
-        generation_run=generation_run,
-        metadata=metadata,
-        holdout_registry=holdout_registry,
-    )
 
 
 def _reject_holdout_matches(

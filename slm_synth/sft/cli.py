@@ -12,10 +12,9 @@ from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
 )
 from slm_synth.run_summary import print_sft_run_summary
-from slm_synth.sft.generation import generate_llm_batch_from_files, materialize_llm_batch_from_files
 from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.sft.runs import generate_llm_run
-from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_and_write_specs
+from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
@@ -26,17 +25,6 @@ def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None
     if getattr(args, "openrouter_provider", None) is not None:
         kwargs["openrouter_provider"] = args.openrouter_provider
     return kwargs
-
-
-def cmd_build_specs(args: argparse.Namespace) -> int:
-    count = build_and_write_specs(
-        family=args.family,
-        count=args.count,
-        output_path=args.output,
-        start_index=args.start_index,
-    )
-    print(f"wrote {count} SFT task spec(s) for {args.family} to {args.output}")
-    return 0
 
 
 def cmd_report_coverage(args: argparse.Namespace) -> int:
@@ -50,58 +38,6 @@ def cmd_report_coverage(args: argparse.Namespace) -> int:
         print(f"wrote SFT coverage report to {output_path}")
     else:
         print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0
-
-
-def cmd_materialize_llm_batch(args: argparse.Namespace) -> int:
-    result = materialize_llm_batch_from_files(
-        specs_path=args.specs,
-        teacher_response_path=args.teacher_response,
-        output_path=args.output,
-        manifest_path=args.manifest,
-        teacher_model=args.teacher_model,
-        teacher_provider=args.teacher_provider,
-        generation_run=args.generation_run,
-        holdout_registry=_load_holdout_registry(args.holdout_registry),
-    )
-    print(
-        "materialized "
-        f"{result.row_count} LLM-generated SFT row(s) to {result.dataset_path}; "
-        f"manifest: {result.manifest_path}"
-    )
-    return 0
-
-
-def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
-    from slm_synth.alignment_preflight import preflight_sft_inventory
-
-    preflight_sft_inventory()
-    result = generate_llm_batch_from_files(
-        specs_path=args.specs,
-        output_path=args.output,
-        manifest_path=args.manifest,
-        teacher_model=args.teacher_model,
-        teacher_provider=args.teacher_provider,
-        generation_run=args.generation_run,
-        max_tokens=args.max_tokens,
-        adjudicator_model=args.adjudicator_model,
-        adjudicator_max_tokens=args.adjudicator_max_tokens,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        request_timeout=args.request_timeout,
-        max_request_retries=args.max_request_retries,
-        max_retryable_request_attempts=args.max_retryable_request_attempts,
-        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=args.adaptive_maximum_in_flight,
-        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
-        holdout_registry=_load_holdout_registry(args.holdout_registry),
-        **_openrouter_routing_kwargs(args),
-    )
-    print(
-        "generated "
-        f"{result.row_count} LLM-generated SFT row(s) to {result.dataset_path}; "
-        f"manifest: {result.manifest_path}"
-    )
     return 0
 
 
@@ -150,47 +86,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="Synthetic SFT dataset helpers.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    build_specs_parser = subparsers.add_parser("build-specs")
-    build_specs_parser.add_argument("--family", required=True, choices=sorted(SFT_SPEC_FAMILIES))
-    build_specs_parser.add_argument("--count", required=True, type=int)
-    build_specs_parser.add_argument("--output", required=True, help="Output SFT task spec JSONL path.")
-    build_specs_parser.add_argument("--start-index", type=int, default=1)
-    build_specs_parser.set_defaults(func=cmd_build_specs)
-
-    llm_batch_parser = subparsers.add_parser("materialize-llm-batch")
-    llm_batch_parser.add_argument("--specs", required=True, help="SFT task spec JSONL path.")
-    llm_batch_parser.add_argument("--teacher-response", required=True, help="Saved teacher batch response JSON path.")
-    llm_batch_parser.add_argument("--output", required=True, help="Output SFT JSONL path.")
-    llm_batch_parser.add_argument("--manifest", required=True, help="Output local manifest JSON path.")
-    llm_batch_parser.add_argument("--teacher-model", required=True)
-    llm_batch_parser.add_argument("--teacher-provider", default="openrouter")
-    llm_batch_parser.add_argument("--generation-run", required=True)
-    llm_batch_parser.add_argument("--holdout-registry", default=None)
-    llm_batch_parser.set_defaults(func=cmd_materialize_llm_batch)
-
-    generate_parser = subparsers.add_parser("generate-llm-batch")
-    generate_parser.add_argument("--specs", required=True, help="SFT task spec JSONL path.")
-    generate_parser.add_argument("--output", required=True, help="Output SFT JSONL path.")
-    generate_parser.add_argument("--manifest", required=True, help="Output local manifest JSON path.")
-    generate_parser.add_argument("--teacher-model", required=True)
-    generate_parser.add_argument("--teacher-provider", default="openrouter")
-    generate_parser.add_argument("--generation-run", required=True)
-    generate_parser.add_argument("--holdout-registry", default=None)
-    generate_parser.add_argument("--max-tokens", required=True, type=int)
-    generate_parser.add_argument("--adjudicator-model", default=None)
-    generate_parser.add_argument("--adjudicator-max-tokens", type=int, default=None)
-    generate_parser.add_argument("--temperature", type=float, default=0.2)
-    generate_parser.add_argument("--top-p", type=float, default=0.95)
-    generate_parser.add_argument("--request-timeout", type=float, default=None)
-    generate_parser.add_argument("--max-request-retries", type=int, default=3)
-    generate_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
-    generate_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
-    generate_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
-    generate_parser.add_argument("--adaptive-initial-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
-    generate_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
-    generate_parser.add_argument("--openrouter-provider", default=None)
-    generate_parser.set_defaults(func=cmd_generate_llm_batch)
 
     generate_run_parser = subparsers.add_parser("generate-llm-run")
     generate_run_parser.add_argument(
