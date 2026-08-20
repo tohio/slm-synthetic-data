@@ -46,6 +46,29 @@ def accepted_counts(path: Path, *, chars_per_token: float) -> tuple[Counter[str]
     return rows, tokens
 
 
+def verify_completion_report(output_dir: Path, expected_signals: list[str]) -> dict[str, Any]:
+    """Require a complete report with zero deficit for every configured signal."""
+    path = output_dir / "manifests" / REPORT_FILENAME
+    if not path.is_file():
+        raise FileNotFoundError(f"accepted-token completion report does not exist: {path}")
+    report = json.loads(path.read_text(encoding="utf-8"))
+    signal_reports = report.get("signals")
+    if not isinstance(signal_reports, Mapping):
+        raise ValueError("accepted-token completion report is missing signal results")
+    missing = sorted(set(expected_signals) - set(signal_reports))
+    deficits = {
+        signal: int(signal_reports.get(signal, {}).get("token_deficit", -1))
+        for signal in expected_signals
+    }
+    if report.get("status") != "complete" or report.get("publish_ready") is not True or missing or any(value != 0 for value in deficits.values()):
+        raise ValueError(
+            "pretraining run has not reached every accepted-token allocation: "
+            f"status={report.get('status')!r} missing={missing} deficits={deficits}"
+        )
+    print(f"[curate] verified accepted-token completion for {len(expected_signals)} signals: {path}")
+    return report
+
+
 def _candidate_capacity(mix_cfg: Mapping[str, Any]) -> int | None:
     value = mix_cfg.get("max_unique_candidates")
     if value is None:
@@ -229,7 +252,13 @@ def cli() -> None:
     parser.add_argument("--config", default="configs/synthetic.yaml")
     parser.add_argument("--signal", default=None)
     parser.add_argument("--allow-shortfall", action="store_true")
+    parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
+    if args.verify_only:
+        cfg = load_yaml_config(args.config)
+        signals = [args.signal] if args.signal else list(cfg.get("mix", {}))
+        verify_completion_report(resolve_output_dir(cfg), signals)
+        return
     curate_to_accepted_token_target(
         args.config,
         signal_override=args.signal,

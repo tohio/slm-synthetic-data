@@ -53,28 +53,26 @@ their assigned reasoning family, semantic context, numeric facts, and verified
 local answer. Its 288-candidate quality capacity is a ceiling: larger token
 plans do not pad the signal with operand-only variants.
 
-`task_code` uses a finite catalog of curated algorithms. Public tasks are deterministic
+`task_code` uses one finite 200-entry catalog of curated algorithms. Public tasks are deterministic
 from validated local code, while the teacher generates only a short faithful
 plan. Renamed functions, field substitutions, and threshold-only changes do
 not count as additional candidates.
 
-`educational_qa_mcq_math` uses a finite 24-relationship catalog. Questions,
-choices, answers, and verification expressions are authoritative local data;
-the teacher supplies only the explanation. Its capacity is a hard ceiling, and
-preflight rejects repeated source structures instead of accepting numeric
-variations as additional candidates.
+`educational_qa_mcq_math` uses 24 verified relationships across 11 grounded
+application contexts, for a finite capacity of 264. Questions, choices,
+answers, and verification expressions are authoritative local data; the
+teacher supplies only the explanation. Numeric-only copies do not count.
 
-`educational_qa_mcq_general` uses one locally grounded candidate for each of 24
-distinct reasoning families. Evidence, questions, choices, and answers remain
-authoritative local data; the teacher supplies only the explanation. Slot
-substitutions such as changed names, objects, places, or counts do not increase
-the signal's candidate capacity.
+`educational_qa_mcq_general` uses 24 reasoning families across nine
+evidence-document forms, for a finite capacity of 216. Evidence, questions,
+choices, and answers remain authoritative local data; the teacher supplies
+only the explanation. Entity-only substitutions do not increase capacity.
 
-`factual_restraint` uses a finite 32-scenario catalog spanning uncertainty,
-ambiguity, privacy, unannounced information, rumors, and medical, legal, and
-financial decisions. Questions and behavior requirements remain local, while
-the teacher supplies only the natural answer. Entity, date, location, and
-amount substitutions do not increase candidate capacity.
+`factual_restraint` uses 32 restraint behaviors with four materially different
+scenarios each, for a finite capacity of 128. It spans uncertainty, ambiguity,
+privacy, unannounced information, rumors, and medical, legal, and financial
+decisions. Questions and behavior requirements remain local, while the teacher
+supplies only the natural answer.
 
 `make pretrain-report` writes `manifests/diversity_report_<stage>.json`. The
 report uses deterministic bounded sampling to measure normalized template
@@ -82,3 +80,6 @@ reuse, near-duplicate clusters, artifact-family concentration, and exact
 template overlap across signals. For the deduped stage it is a blocking quality
 gate, and publishing independently audits the entire consolidated file before
 creating a remote commit.
+
+`make pretrain-report` first verifies that every configured signal has zero
+accepted-token deficit. A globally complete total cannot hide a short signal.

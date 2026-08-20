@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from slm_synth.pretrain.artifacts import ArithmeticArtifactFactory
 from slm_synth.pretrain.grounded import GroundedBatchStore
 from slm_synth.pretrain.report_artifacts import scan_signal
@@ -41,3 +42,24 @@ def test_preflight_artifacts_scans_planned_rows_without_api_calls(tmp_path, monk
     result = preflight.scan_plan(str(config))
     assert result["signals"][0]["rounded_rows"] == 32
     assert result["signals"][0]["exact_duplicates"] == 0
+
+
+def test_preflight_rejects_inventory_that_cannot_cover_token_target(tmp_path):
+    import yaml
+    import slm_synth.pretrain.preflight_artifacts as preflight
+    config = tmp_path / "synthetic.yaml"
+    config.write_text(yaml.safe_dump({
+        "output_dir": str(tmp_path / "out"),
+        "target_total_tokens": 1000,
+        "generation": {"batch_size": 2},
+        "mix": {"factual_restraint": {
+            "architecture": "grounded",
+            "share": 1.0,
+            "batch_size": 2,
+            "avg_tokens_per_sample": 10,
+            "max_unique_candidates": 2,
+        }},
+    }))
+
+    with pytest.raises(SystemExit, match="cannot cover"):
+        preflight.scan_plan(str(config))

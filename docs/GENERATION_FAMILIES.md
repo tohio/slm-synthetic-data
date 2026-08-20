@@ -23,37 +23,39 @@ Pretraining uses grounded local artifacts that are rendered by the provider into
 | Signal | Configured share | Artifact families | Purpose |
 |---|---:|---|---|
 | `arithmetic` | 14.7540984% | `direct_expression`, `missing_start_after_increase`, `missing_start_after_decrease`, `two_step_remaining`, `gain_then_spend`, `exact_group_count`, `equal_share_size`, `groups_with_loose_items`, `compare_group_totals`, `target_gap`, `three_source_total`, `constant_rate_total`, `two_rate_total`, `known_portion_equal_shares`, `net_change`, `rectangle_perimeter` | Verified integer arithmetic spread across distinct inverse, change, grouping, rate, comparison, sharing, and measurement relationships. Semantic contexts rotate before operand variants, and preflight rejects a planned arithmetic run if source structures repeat. |
-| `task_code` | 39.3442623% | 24 finite algorithm families covering normalization, filtering, aggregation, sequence processing, grouping, merging, windowing, matrix operations, partitioning, indexing, nested lookup, and sparse arithmetic. | Validated single-function Python records with deterministic faithful tasks and teacher-generated implementation plans. |
-| `educational_qa_mcq_math` | 14.7540984% | 24 finite verified relationships covering expressions, equations, sharing, rates, proportions, geometry, statistics, measurement, percentages, sequences, complements, and composite quantities. | Locally authoritative math multiple-choice questions with teacher-generated explanations only. |
-| `educational_qa_mcq_general` | 24.5901639% | 24 finite reasoning families covering code behavior, language, reading, rules, policies, experiments, ordering, lookup, comparison, temporal and spatial tracking, procedures, exceptions, trends, and attribution. | Locally authoritative evidence-grounded multiple-choice questions with teacher-generated explanations only. |
-| `factual_restraint` | 6.5573770% | 32 finite scenarios covering distinct future uncertainty, ambiguous-reference, private-information, unannounced-information, rumor-verification, medical, legal, and financial cases. | Calibrated restraint without fabricated facts, unsafe disclosure, or unsupported high-stakes decisions. |
+| `task_code` | 39.3442623% | 200 materially distinct single-function Python tasks spanning data processing, algorithms, data structures, graphs, strings, numerical methods, geometry, scheduling, and systems simulations. | Validated local code and deterministic tasks with teacher-generated implementation plans. |
+| `educational_qa_mcq_math` | 14.7540984% | 24 verified relationships rendered in 11 semantically grounded application contexts, for 264 finite candidates. | Locally authoritative math multiple-choice questions with teacher-generated explanations only. |
+| `educational_qa_mcq_general` | 24.5901639% | 24 reasoning families expressed through 9 evidence-document forms, for 216 finite candidates. | Locally authoritative evidence-grounded multiple-choice questions with teacher-generated explanations only. |
+| `factual_restraint` | 6.5573770% | 32 restraint behaviors with 4 materially different scenarios each, for 128 finite candidates. | Calibrated restraint without fabricated facts, unsafe disclosure, or unsupported high-stakes decisions. |
 
 Arithmetic has a declared capacity of 288 structurally distinct candidates.
 Token planning treats that as a ceiling rather than cycling through operand-only
 variants. Larger total-token requests therefore do not silently manufacture
 additional arithmetic rows from the same structures.
 
-`task_code` has a declared capacity of 24 distinct algorithms. Each algorithm
+`task_code` has a declared capacity of 200 distinct tasks. Each task
 appears once; field-name substitutions, threshold changes, and renamed copies
 are not treated as additional training data. The public task is deterministic
 from the validated local artifact, while the teacher supplies only its concise
 implementation plan.
 
-`educational_qa_mcq_math` has a declared capacity of 24 structurally distinct,
-locally verified questions. The provider cannot rewrite questions, choices, or
-answers; it supplies only a concise explanation of the verified calculation.
-Preflight rejects repeated source structures rather than padding the signal
-with number-only variants.
+`educational_qa_mcq_math` has a declared capacity of 264 locally verified
+questions: 24 mathematical relationships across 11 application contexts.
+Numbers and contextual facts change together; number-only copies are not
+counted. The provider cannot rewrite questions, choices, or answers and
+supplies only an explanation of the verified calculation.
 
-`educational_qa_mcq_general` has a declared capacity of 24 distinct reasoning
-families. Each family appears once; changing names, objects, locations, or
-numbers does not create another candidate. Evidence, questions, choices, and
-answers remain local, while the teacher supplies only the explanation.
+`educational_qa_mcq_general` has a declared capacity of 216 candidates. Each of
+24 reasoning families appears in nine meaningfully different evidence-document
+forms. Evidence, questions, choices, and answers remain local, while the
+teacher supplies only the explanation. Entity-only substitutions do not create
+additional document forms.
 
-`factual_restraint` has a declared capacity of 32 materially distinct
-scenarios. Each source question and behavior requirement is local; the teacher
-supplies only the user-facing answer. Changed names, dates, locations, amounts,
-or organization labels do not create additional candidates.
+`factual_restraint` has a declared capacity of 128 materially distinct
+scenarios: four applications of each of 32 restraint behaviors. Each source
+question and behavior requirement is local; the teacher supplies only the
+user-facing answer. The scenarios change the underlying case, not merely an
+entity, date, location, or amount.
 
 Implementation source of truth:
 
@@ -61,6 +63,7 @@ Implementation source of truth:
 configs/synthetic_template.yaml
 slm_synth/pretrain/artifacts/arithmetic.py
 slm_synth/pretrain/artifacts/task_code.py
+slm_synth/pretrain/artifacts/task_code_catalog.py
 slm_synth/pretrain/artifacts/educational_qa_mcq_math.py
 slm_synth/pretrain/artifacts/educational_qa_mcq_general.py
 slm_synth/pretrain/artifacts/factual_restraint.py

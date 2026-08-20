@@ -36,6 +36,10 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             token_target, requested_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
             uncapped_requested_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
             capacity = mix_cfg.get("max_unique_candidates")
+            avg_tokens_per_sample = int(
+                mix_cfg.get("avg_tokens_per_sample", cfg.get("generation", {}).get("avg_tokens_per_sample", 100))
+            )
+            estimated_capacity_tokens = int(capacity) * avg_tokens_per_sample if capacity is not None else None
             preflight_rows = int(capacity) if capacity is not None else rounded_rows
             factory = FACTORY_MAP[name]()
             families = Counter()
@@ -70,6 +74,8 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
                 "rounded_rows": rounded_rows,
                 "preflight_rows": preflight_rows,
                 "max_unique_candidates": mix_cfg.get("max_unique_candidates"),
+                "estimated_capacity_tokens": estimated_capacity_tokens,
+                "capacity_covers_target": estimated_capacity_tokens is None or estimated_capacity_tokens >= token_target,
                 "capacity_limited": requested_rows < uncapped_requested_rows,
                 "exact_duplicates": exact_duplicates,
                 "unique_structures": unique_structures,
@@ -106,6 +112,10 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
         )
     if any(row["exact_duplicates"] or row["quality_issue_count"] for row in reports):
         raise SystemExit("Preflight failed: artifact duplicates or quality issues were found.")
+    if any(not row["capacity_covers_target"] for row in reports):
+        raise SystemExit(
+            "Preflight failed: configured unique candidate inventory cannot cover the accepted-token target."
+        )
     return result
 
 

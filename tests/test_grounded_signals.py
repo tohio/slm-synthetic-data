@@ -18,6 +18,8 @@ from slm_synth.pretrain.artifacts.quality import (
     artifact_structure_fingerprint,
     validate_artifact,
 )
+from slm_synth.pretrain.dedup import NearDuplicateIndex, build_public_record
+from slm_synth.pretrain.curate import estimate_public_text_tokens
 
 
 class GroundedMockLLM:
@@ -155,8 +157,9 @@ def test_factual_restraint_catalog_has_distinct_scenarios_without_slot_variants(
     factory = FactualRestraintArtifactFactory()
     rows = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
 
-    assert factory.UNIQUE_CANDIDATE_CAPACITY == len(factory.FAMILIES) == 32
-    assert len({row.family for row in rows}) == len(rows)
+    assert factory.UNIQUE_CANDIDATE_CAPACITY == 128
+    assert len(factory.FAMILIES) == 32
+    assert Counter(row.family for row in rows) == Counter({family: 4 for family in factory.FAMILIES})
     assert len({artifact_fingerprint(row) for row in rows}) == len(rows)
     assert len({artifact_structure_fingerprint(row) for row in rows}) == len(rows)
     assert all(not validate_artifact(row) for row in rows)
@@ -180,12 +183,13 @@ def test_general_vocabulary_candidate_uses_an_adjective_compatible_subject():
     )
 
 
-def test_general_mcq_catalog_covers_material_reasoning_families_once():
+def test_general_mcq_catalog_covers_material_reasoning_families_across_document_forms():
     factory = EducationalQAMCQGeneralArtifactFactory()
     rows = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
 
-    assert len(rows) == len(factory.FAMILIES) == 24
-    assert Counter(row.family for row in rows) == Counter({family: 1 for family in factory.FAMILIES})
+    assert len(rows) == 216
+    assert len(factory.FAMILIES) == 24
+    assert Counter(row.family for row in rows) == Counter({family: 9 for family in factory.FAMILIES})
 
     new_families = {
         "final_location", "table_lookup", "threshold_rule", "temporal_order",
@@ -208,7 +212,7 @@ def test_general_mcq_choice_shuffle_is_deterministic_and_balanced():
     assert all(row.payload["choices"][row.payload["correct_index"]] == row.payload["answer"] for row in rows)
 
     distribution = Counter(row.payload["correct_index"] for row in rows)
-    assert distribution == Counter({0: 6, 1: 6, 2: 6, 3: 6})
+    assert distribution == Counter({0: 54, 1: 54, 2: 54, 3: 54})
 
 
 def test_all_grounded_generators_render_complete_batches():
@@ -390,12 +394,13 @@ def test_math_mcq_positive_quantity_families_have_nonnegative_plausible_choices(
         assert all(int(choice) >= 0 for choice in artifact.payload["choices"])
 
 
-def test_general_mcq_has_one_structurally_distinct_candidate_per_family():
+def test_general_mcq_candidates_are_structurally_distinct_across_document_forms():
     factory = EducationalQAMCQGeneralArtifactFactory()
     artifacts = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
 
-    assert factory.UNIQUE_CANDIDATE_CAPACITY == len(factory.FAMILIES) == 24
-    assert len({artifact.family for artifact in artifacts}) == len(artifacts)
+    assert factory.UNIQUE_CANDIDATE_CAPACITY == 216
+    assert len(factory.FAMILIES) == 24
+    assert Counter(artifact.family for artifact in artifacts) == Counter({family: 9 for family in factory.FAMILIES})
     assert len({artifact_structure_fingerprint(artifact) for artifact in artifacts}) == len(artifacts)
 
     renderer = GroundedSignalGenerator(
@@ -411,6 +416,56 @@ def test_general_mcq_has_one_structurally_distinct_candidate_per_family():
 
     with pytest.raises(ValueError, match="exceeds unique candidate capacity"):
         factory.build(factory.UNIQUE_CANDIDATE_CAPACITY)
+
+
+def test_math_mcq_catalog_has_verified_contextual_replacements():
+    factory = EducationalQAMCQMathArtifactFactory()
+    artifacts = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
+
+    assert factory.UNIQUE_CANDIDATE_CAPACITY == 264
+    assert len(factory.FAMILIES) == 24
+    assert Counter(artifact.family for artifact in artifacts) == Counter({family: 11 for family in factory.FAMILIES})
+    assert len({artifact_structure_fingerprint(artifact) for artifact in artifacts}) == len(artifacts)
+    assert all(not validate_artifact(artifact) for artifact in artifacts)
+
+    with pytest.raises(ValueError, match="exceeds unique candidate capacity"):
+        factory.build(factory.UNIQUE_CANDIDATE_CAPACITY)
+
+
+@pytest.mark.parametrize("factory_class,minimum_tokens", [
+    (EducationalQAMCQMathArtifactFactory, 14_755),
+    (EducationalQAMCQGeneralArtifactFactory, 24_591),
+    (FactualRestraintArtifactFactory, 6_558),
+])
+def test_expanded_grounded_catalogs_cover_100k_allocations_without_local_near_duplicates(factory_class, minimum_tokens):
+    factory = factory_class()
+    index = NearDuplicateIndex(threshold=0.80)
+    estimated_tokens = 0
+    for artifact_index in range(factory.UNIQUE_CANDIDATE_CAPACITY):
+        artifact = factory.build(artifact_index)
+        payload = artifact.payload
+        if artifact.signal == "educational_qa_mcq_math":
+            row = {
+                "question": payload["question"],
+                "choices": payload["choices"],
+                "correct_index": payload["correct_index"],
+                "explanation": f"Apply {payload['expression']} to obtain {payload['answer']}.",
+            }
+        elif artifact.signal == "educational_qa_mcq_general":
+            row = {
+                "evidence": payload["evidence"],
+                "question": payload["question"],
+                "choices": payload["choices"],
+                "correct_index": payload["correct_index"],
+                "explanation": "The documented evidence directly supports this choice.",
+            }
+        else:
+            row = {"question": payload["question"], "safe_answer": payload["behavior"]}
+        public = build_public_record(artifact.signal, row)
+        estimated_tokens += estimate_public_text_tokens(public["text"])
+        assert index.find(text=public["text"], signal=artifact.signal) is None
+        index.add(text=public["text"], record_id=public["id"], signal=artifact.signal)
+    assert estimated_tokens >= minimum_tokens
 
 
 def test_batch_store_persists_telemetry(tmp_path):

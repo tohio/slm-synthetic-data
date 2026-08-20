@@ -341,6 +341,11 @@ shortfall. It never repeats or lightly renames records to fill the target.
 Publishing also stops before creating a Hugging Face commit if a duplicate or
 invalid public row remains.
 
+Preflight scans the full finite inventory, ignores family labels when computing
+structure fingerprints, and rejects a configuration whose estimated inventory
+cannot cover its accepted-token allocation. Reporting and publishing separately
+verify zero deficit for every configured signal.
+
 ## Validation Checklist
 
 For each run, inspect:

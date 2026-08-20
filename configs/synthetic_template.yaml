@@ -53,9 +53,10 @@ backend:
 #   educational_qa_mcq_math     112.5M (14.7540984%)
 #   factual_restraint            50.0M ( 6.5573770%)
 # For smaller test TOKENS values, the same shares are used to derive estimated record counts.
-# Calibrated from the corrected grounded_quality_smoke deduped output:
-#   arithmetic=57, task_code=197, educational_qa_mcq_math=62,
-#   educational_qa_mcq_general=108, factual_restraint=92.
+# Candidate planning estimates combine the corrected grounded smoke lengths
+# with the expanded local artifact text:
+#   arithmetic=57, task_code=197, educational_qa_mcq_math=65,
+#   educational_qa_mcq_general=132, factual_restraint=54.
 # Re-run report-lengths after a larger validation run before final production execution.
 mix:
   arithmetic:
@@ -79,30 +80,30 @@ mix:
   educational_qa_mcq_math:
     architecture: "grounded"
     share: 0.14754098360655737
-    # Finite catalog of distinct verified relationships; the teacher explains but cannot rewrite questions.
-    max_unique_candidates: 24
+    # Eleven grounded contexts for each verified relationship provide replacement headroom.
+    max_unique_candidates: 264
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 62
+    avg_tokens_per_sample: 65
   educational_qa_mcq_general:
     architecture: "grounded"
     share: 0.24590163934426230
-    # One locally grounded candidate per distinct reasoning family; do not pad with slot substitutions.
-    max_unique_candidates: 24
+    # Nine evidence-document forms for each reasoning family; every candidate remains locally answerable.
+    max_unique_candidates: 216
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 108
+    avg_tokens_per_sample: 132
   factual_restraint:
     architecture: "grounded"
     share: 0.06557377049180328
-    # Finite catalog of materially different uncertainty, privacy, rumor, and high-stakes scenarios.
-    max_unique_candidates: 32
+    # Four materially different scenarios for each restraint behavior.
+    max_unique_candidates: 128
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 92
+    avg_tokens_per_sample: 54
 
 validation:
   schema: true

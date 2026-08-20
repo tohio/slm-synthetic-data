@@ -20,6 +20,7 @@ from slm_synth.pretrain.dedup import (
     audit_public_records,
 )
 from slm_synth.pretrain.report_diversity import DEFAULT_NEAR_DUPLICATE_THRESHOLD
+from slm_synth.pretrain.curate import verify_completion_report
 
 
 def require_complete_accepted_token_report(path: Path) -> dict[str, Any]:
@@ -126,9 +127,7 @@ def main(
         raise ValueError("pretraining HF repo must use the form owner/name")
     target_private = configured_private if private is None else private
     dedup_cfg = cfg.get("dedup", {}) or {}
-    require_complete_accepted_token_report(
-        output_dir / "manifests" / "accepted_token_report.json"
-    )
+    verify_completion_report(output_dir, list(cfg.get("mix", {})))
     api = HfApi(token=get_hf_token())
     return push_consolidated_dataset(
         api=api,

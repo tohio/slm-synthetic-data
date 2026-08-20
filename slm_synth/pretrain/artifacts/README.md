@@ -12,6 +12,7 @@ It does not call providers or write datasets directly.
 artifacts/
 ├── arithmetic.py                    # verified integer arithmetic artifacts
 ├── task_code.py                     # Python task/code artifacts
+├── task_code_catalog.py             # consolidated curated Python task catalog
 ├── educational_qa_mcq_math.py       # math multiple-choice artifacts
 ├── educational_qa_mcq_general.py    # general educational MCQ artifacts
 ├── factual_restraint.py             # restraint and uncertainty artifacts

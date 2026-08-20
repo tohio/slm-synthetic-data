@@ -72,6 +72,8 @@ concentration, and cross-signal exact-template overlap. It is diagnostic and
 does not mutate rows. The deduped-stage report fails if repetition remains,
 and `pretrain-push` repeats a full-file exact/near-duplicate audit before any
 remote commit.
+It fails before reporting if `accepted_token_report.json` is missing, incomplete,
+or contains a nonzero deficit for any configured signal.
 
 ## SFT
 

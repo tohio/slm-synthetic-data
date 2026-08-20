@@ -140,3 +140,25 @@ mix:
     assert report["stop_reason"] == "unique_candidate_inventory_exhausted"
     assert report["accepted_tokens"] == 5
     assert report["token_deficit"] == 15
+
+
+def test_verify_completion_requires_zero_deficit_for_every_signal(tmp_path):
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    path = manifest_dir / curate.REPORT_FILENAME
+    path.write_text(json.dumps({
+        "status": "complete",
+        "publish_ready": True,
+        "signals": {
+            "arithmetic": {"token_deficit": 0},
+            "task_code": {"token_deficit": 4},
+        },
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="every accepted-token allocation"):
+        curate.verify_completion_report(tmp_path, ["arithmetic", "task_code"])
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["signals"]["task_code"]["token_deficit"] = 0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert curate.verify_completion_report(tmp_path, ["arithmetic", "task_code"])["status"] == "complete"

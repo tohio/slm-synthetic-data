@@ -15,7 +15,19 @@ class EducationalQAMCQGeneralArtifactFactory:
         "comparison_claim", "category_rule", "cause_inference", "schedule_availability", "inventory_shortage", "source_attribution",
         "procedure_step", "exception_rule", "trend_interpretation", "revision_tracking",
     )
-    UNIQUE_CANDIDATE_CAPACITY = len(FAMILIES)
+    EVIDENCE_FORMATS = (
+        "{evidence}",
+        "Verified case note\nObservation: {evidence}\nReview method: identify every stated condition, test each option against all conditions, and use no facts outside this case note.",
+        "Reference memo\nSubject: evidence review\nRecorded detail: {evidence}\nNo outside assumptions are needed.",
+        "Evidence card\n- Supplied fact: {evidence}\n- Scope: answer only from the supplied fact.",
+        "Review transcript\nRecorder: I will read the relevant entry.\nEntry: {evidence}\nReviewer: Treat that entry as authoritative for the question.",
+        "Filed record\nBEGIN VERIFIED CONTENT\n{evidence}\nEND VERIFIED CONTENT\nThe question concerns only this filed content.",
+        "Analyst worksheet\nKnown information: {evidence}\nDecision rule: select the choice directly supported by the known information.",
+        "Source extract\nDocumented statement: {evidence}\nReading instruction: distinguish the documented statement from the alternatives.",
+        "Audit packet\nEvidence item 1: {evidence}\nCoverage note: this item contains every fact required to answer.",
+    )
+    VARIANTS_PER_FAMILY = len(EVIDENCE_FORMATS)
+    UNIQUE_CANDIDATE_CAPACITY = len(FAMILIES) * VARIANTS_PER_FAMILY
     PLACES = ("blue drawer", "green cabinet", "front desk", "storage shelf", "toolbox", "library cart", "archive bin", "side locker", "supply room", "service counter", "upper cabinet", "lower tray")
     OBJECTS = ("spare key", "signed forms", "visitor badge", "survey folder", "repair manual", "supply list", "delivery slip", "permit copy", "tool record", "inventory sheet", "registration card", "inspection note")
     ADVERBS = ("quietly", "carefully", "quickly", "patiently", "neatly", "calmly", "slowly", "briefly", "softly", "promptly")
@@ -77,8 +89,10 @@ class EducationalQAMCQGeneralArtifactFactory:
                 f"educational_qa_mcq_general index {index} exceeds unique candidate capacity "
                 f"{self.UNIQUE_CANDIDATE_CAPACITY}"
             )
-        family = self.FAMILIES[index]
+        family = self.FAMILIES[index % len(self.FAMILIES)]
+        format_index = index // len(self.FAMILIES)
         payload = getattr(self, f"_build_{family}")(index)
+        payload["evidence"] = self.EVIDENCE_FORMATS[format_index].format(evidence=payload["evidence"])
         self._shuffle_choices(payload, index)
         return GroundedArtifact("educational_qa_mcq_general", family, f"educational_qa_mcq_general_{family}_{index + 1:09d}", payload)
 

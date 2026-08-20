@@ -57,7 +57,9 @@ def artifact_structure_fingerprint(artifact: GroundedArtifact) -> str:
     if artifact.signal == "task_code":
         canonical = re.sub(r"def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(", "def FUNCTION(", canonical)
     canonical = re.sub(r"\b\d+\b", "N", canonical)
-    return hashlib.sha256(f"{artifact.signal}:{artifact.family}:{canonical}".encode("utf-8")).hexdigest()
+    # Family labels are metadata, not evidence of structural diversity. Keeping
+    # them out prevents renamed or relabeled templates from passing preflight.
+    return hashlib.sha256(f"{artifact.signal}:{canonical}".encode("utf-8")).hexdigest()
 
 
 def validate_artifact(artifact: GroundedArtifact) -> list[str]:

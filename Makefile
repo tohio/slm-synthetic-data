@@ -282,6 +282,7 @@ pretrain-generate:
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_TARGET_RUN)
 
 pretrain-report:
+> $(PYTHON) -m slm_synth.pretrain.curate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG) --verify-only
 > $(PYTHON) -m slm_synth.pretrain.manifest \
 >   --config $(CONFIG_FILE) \
 >   --generation-run $(PRETRAIN_REPORT_RUN)
