@@ -11,7 +11,9 @@ from slm_synth.paths import load_yaml_config, resolve_output_dir
 
 
 def estimated_tokens(record: dict, chars_per_token: float) -> int:
-    text = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    text = record.get("text")
+    if not isinstance(text, str):
+        text = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return max(1, math.ceil(len(text) / chars_per_token))
 
 
@@ -47,7 +49,7 @@ def main(config: str, stage: str, chars_per_token: float) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps({"stage": stage, "chars_per_token": chars_per_token, "signals": reports}, indent=2), encoding="utf-8")
     print(f"[lengths] Saved report: {output_path}")
-    print("[lengths] Estimates use serialized characters/chars_per_token; no downstream tokenizer is imported.")
+    print("[lengths] Public records use text characters/chars_per_token; structured stages use serialized records. No downstream tokenizer is imported.")
 
 
 if __name__ == "__main__":

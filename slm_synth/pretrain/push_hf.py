@@ -22,6 +22,18 @@ from slm_synth.pretrain.dedup import (
 from slm_synth.pretrain.report_diversity import DEFAULT_NEAR_DUPLICATE_THRESHOLD
 
 
+def require_complete_accepted_token_report(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(f"accepted-token completion report does not exist: {path}")
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if report.get("status") != "complete" or report.get("publish_ready") is not True:
+        raise ValueError(
+            "pretraining run has not reached its accepted-token target: "
+            f"status={report.get('status')!r} deficit={report.get('token_deficit')!r}"
+        )
+    return report
+
+
 def load_env_file(env_file: str | None = None) -> None:
     load_dotenv(env_file) if env_file else load_dotenv()
 
@@ -114,6 +126,9 @@ def main(
         raise ValueError("pretraining HF repo must use the form owner/name")
     target_private = configured_private if private is None else private
     dedup_cfg = cfg.get("dedup", {}) or {}
+    require_complete_accepted_token_report(
+        output_dir / "manifests" / "accepted_token_report.json"
+    )
     api = HfApi(token=get_hf_token())
     return push_consolidated_dataset(
         api=api,

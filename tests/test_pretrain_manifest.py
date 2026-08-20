@@ -78,6 +78,23 @@ def test_empty_duplicate_diagnostic_file_is_not_counted_as_a_signal(tmp_path):
     assert manifest["stages"]["rejected"]["files"]["duplicates.jsonl"]["signal"] is None
 
 
+def test_manifest_includes_accepted_token_completion_report(tmp_path):
+    output_dir = tmp_path / "runs" / "pretrain-smoke"
+    config_path = tmp_path / "synthetic.yaml"
+    config_path.write_text(
+        f'run_name: pretrain-smoke\noutput_dir: "{output_dir}"\ntarget_total_tokens: 1000\n',
+        encoding="utf-8",
+    )
+    report = {"status": "shortfall", "accepted_tokens": 900, "token_deficit": 100}
+    report_path = output_dir / "manifests" / "accepted_token_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    manifest = build_run_manifest(config_path=config_path)
+
+    assert manifest["metadata"]["accepted_token_completion"] == report
+
+
 def test_build_pretrain_run_manifest_includes_grounded_telemetry(tmp_path):
     output_dir = tmp_path / "runs" / "pretrain-smoke"
     config_path = tmp_path / "synthetic.yaml"

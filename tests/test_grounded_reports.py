@@ -21,6 +21,13 @@ def test_length_report_estimate_is_positive():
     assert estimated_tokens({"question": "What is 2 + 2?", "answer": "4"}, 4.0) > 0
 
 
+def test_public_length_estimate_counts_text_not_metadata():
+    short = {"id": "a", "text": "12345678", "metadata": {"signal": "arithmetic"}}
+    long_metadata = {"id": "a" * 1000, "text": "12345678", "metadata": {"signal": "arithmetic"}}
+    assert estimated_tokens(short, 4.0) == 2
+    assert estimated_tokens(long_metadata, 4.0) == 2
+
+
 def test_preflight_artifacts_scans_planned_rows_without_api_calls(tmp_path, monkeypatch):
     import yaml
     import slm_synth.pretrain.preflight_artifacts as preflight

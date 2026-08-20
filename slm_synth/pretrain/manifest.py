@@ -191,9 +191,15 @@ def _summarize_signals(stage_payloads: Mapping[str, Mapping[str, Any]]) -> dict[
 
 def _build_pretrain_metadata(output_dir: Path) -> dict[str, Any]:
     telemetry = _summarize_grounded_telemetry(output_dir)
-    if not telemetry:
-        return {}
-    return {"telemetry": telemetry}
+    metadata: dict[str, Any] = {}
+    if telemetry:
+        metadata["telemetry"] = telemetry
+    accepted_token_path = output_dir / "manifests" / "accepted_token_report.json"
+    if accepted_token_path.exists():
+        metadata["accepted_token_completion"] = json.loads(
+            accepted_token_path.read_text(encoding="utf-8")
+        )
+    return metadata
 
 
 def _summarize_grounded_telemetry(output_dir: Path) -> dict[str, Any]:

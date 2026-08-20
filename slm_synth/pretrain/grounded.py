@@ -442,8 +442,10 @@ class GroundedSignalGenerator:
                 "Question, choices, and verified answer remain local and must not be changed."
             ),
             "educational_qa_mcq_general": (
-                "For each artifact, generate only a concise explanation showing why the held answer follows from "
-                "the supplied evidence. Evidence, question, choices, and answer remain local and must not be changed."
+                "For each artifact, generate only a concise learner-facing explanation showing why the correct "
+                "choice follows from the supplied evidence. Evidence, question, choices, and answer remain local "
+                "and must not be changed. Do not mention an answer key, held answer, supplied answer, artifact, "
+                "prompt, or generation process."
             ),
             "factual_restraint": (
                 "For each artifact, generate a concise natural user-facing assistant answer to the supplied question. "

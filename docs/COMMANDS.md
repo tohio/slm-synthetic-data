@@ -45,6 +45,12 @@ PRETRAIN_TARGET_TOKENS=1000000 PRETRAIN_TARGET_CONCURRENCY=4 make pretrain-gener
 make pretrain-inspect PRETRAIN_INSPECT_RUN=pretrain-target-001
 ```
 
+`PRETRAIN_TOKENS` and `PRETRAIN_TARGET_TOKENS` are accepted public-text
+targets. Generation automatically replaces validation and deduplication losses
+with unused candidates. A run that exhausts its unique candidate inventory
+before reaching the target fails with an accepted-token shortfall report; it is
+not reported as complete.
+
 | Variable | Default | Purpose |
 |---|---:|---|
 | `PRETRAIN_RUN` | `pretrain-smoke-001` | Smoke run id. |

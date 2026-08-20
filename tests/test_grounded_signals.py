@@ -46,7 +46,7 @@ class GroundedMockLLM:
             elif signal == "educational_qa_mcq_math":
                 records.append({"artifact_id": item["artifact_id"], "explanation": f"The verified calculation gives {p['answer']}."})
             elif signal == "educational_qa_mcq_general":
-                records.append({"artifact_id": item["artifact_id"], "explanation": "The evidence directly supports the held correct choice."})
+                records.append({"artifact_id": item["artifact_id"], "explanation": "The evidence directly supports the correct choice."})
             else:
                 records.append({"artifact_id": item["artifact_id"], "safe_answer": "I can't determine or provide that from the supplied information; please use an appropriate reliable source or professional."})
         return {"records": records}
@@ -375,6 +375,12 @@ def test_grounded_artifacts_have_no_placeholder_quality_failures():
         rows = [factory().build(index) for index in range(min(512, capacity))]
         assert all(not validate_artifact(row) for row in rows)
         assert len({artifact_fingerprint(row) for row in rows}) == len(rows)
+
+
+def test_general_revision_tracking_does_not_duplicate_note_noun():
+    artifact = EducationalQAMCQGeneralArtifactFactory().build(23)
+    public_source = artifact.payload["evidence"] + " " + artifact.payload["question"]
+    assert "note note" not in public_source
 
 
 def test_math_mcq_positive_quantity_families_have_nonnegative_plausible_choices():

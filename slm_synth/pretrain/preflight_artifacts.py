@@ -35,11 +35,13 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             batch_size = int(mix_cfg.get("batch_size", cfg.get("generation", {}).get("batch_size", 32)))
             token_target, requested_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
             uncapped_requested_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
+            capacity = mix_cfg.get("max_unique_candidates")
+            preflight_rows = int(capacity) if capacity is not None else rounded_rows
             factory = FACTORY_MAP[name]()
             families = Counter()
             exact_duplicates = 0
             quality_issues = []
-            for index in range(rounded_rows):
+            for index in range(preflight_rows):
                 artifact = factory.build(index)
                 families[artifact.family] += 1
                 issues = validate_artifact(artifact)
@@ -66,6 +68,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
                 "requested_rows": uncapped_requested_rows,
                 "planned_rows": requested_rows,
                 "rounded_rows": rounded_rows,
+                "preflight_rows": preflight_rows,
                 "max_unique_candidates": mix_cfg.get("max_unique_candidates"),
                 "capacity_limited": requested_rows < uncapped_requested_rows,
                 "exact_duplicates": exact_duplicates,
@@ -76,7 +79,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             }
             reports.append(report)
             print(
-                f"[preflight-artifacts] {name}: rows={rounded_rows}, exact_duplicates={exact_duplicates}, "
+                f"[preflight-artifacts] {name}: planned_rows={rounded_rows}, preflight_rows={preflight_rows}, exact_duplicates={exact_duplicates}, "
                 f"structures={unique_structures}, quality_issues={len(quality_issues)}"
             )
     finally:
@@ -94,7 +97,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             "educational_qa_mcq_general",
             "factual_restraint",
         }
-        and row["unique_structures"] != row["rounded_rows"]
+        and row["unique_structures"] != row["preflight_rows"]
         for row in reports
     )
     if repaired_signal_structure_reuse:

@@ -324,9 +324,22 @@ artifacts and are not published as separate datasets.
 
 Exact and five-token-shingle near-duplicate checks run across the complete
 mixture, including across signal boundaries. Rejected duplicates are recorded
-under `rejected/duplicates.jsonl`. There is no backfill to restore a requested
-row count, and publishing stops before creating a Hugging Face commit if a
-duplicate or invalid public row remains.
+under `rejected/duplicates.jsonl`.
+
+Pretraining completion is accepted-token based, not generated-row based. Each
+round generates grounded candidates, validates them, rejects exact and
+normalized near-duplicates globally, then counts estimated tokens from public
+`text` only. Rejections create a token deficit and the next round consumes
+unused candidate indexes for the affected signal. Signal shares therefore
+apply to accepted text rather than attempted rows.
+
+The pipeline stops successfully only after every selected signal reaches its
+accepted-token target. If its genuinely distinct source inventory is exhausted,
+or `generation.max_cost_usd` is reached, it preserves the accepted corpus,
+writes `manifests/accepted_token_report.json`, and exits nonzero with the exact
+shortfall. It never repeats or lightly renames records to fill the target.
+Publishing also stops before creating a Hugging Face commit if a duplicate or
+invalid public row remains.
 
 ## Validation Checklist
 

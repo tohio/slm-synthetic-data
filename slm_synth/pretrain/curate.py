@@ -1,0 +1,241 @@
+"""Generate, validate, and deduplicate pretraining data to accepted-token targets."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import math
+from collections import Counter
+from pathlib import Path
+from typing import Any, Mapping
+
+from slm_synth.paths import load_yaml_config, resolve_output_dir
+from slm_synth.pretrain.dedup import run_from_config as deduplicate_from_config
+from slm_synth.pretrain.generate import (
+    _grounded_token_target,
+    _rounded_batch_target_rows,
+    run_signal,
+)
+from slm_synth.pretrain.grounded import GroundedBatchStore
+from slm_synth.pretrain.validate import validate_signal
+
+DEFAULT_CHARS_PER_TOKEN = 4.0
+REPORT_FILENAME = "accepted_token_report.json"
+
+
+def estimate_public_text_tokens(text: str, chars_per_token: float = DEFAULT_CHARS_PER_TOKEN) -> int:
+    """Estimate tokens from public training text only, excluding ids and metadata."""
+    if chars_per_token <= 0:
+        raise ValueError("chars_per_token must be positive")
+    return max(1, math.ceil(len(text) / chars_per_token))
+
+
+def accepted_counts(path: Path, *, chars_per_token: float) -> tuple[Counter[str], Counter[str]]:
+    rows: Counter[str] = Counter()
+    tokens: Counter[str] = Counter()
+    if not path.exists():
+        return rows, tokens
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        signal = record["metadata"]["signal"]
+        rows[signal] += 1
+        tokens[signal] += estimate_public_text_tokens(record["text"], chars_per_token)
+    return rows, tokens
+
+
+def _candidate_capacity(mix_cfg: Mapping[str, Any]) -> int | None:
+    value = mix_cfg.get("max_unique_candidates")
+    if value is None:
+        return None
+    capacity = int(value)
+    if capacity <= 0:
+        raise ValueError("max_unique_candidates must be positive")
+    return capacity
+
+
+def _initial_candidate_plan(cfg: Mapping[str, Any], signal: str) -> int:
+    mix_cfg = cfg["mix"][signal]
+    batch_size = int(mix_cfg.get("batch_size", cfg.get("generation", {}).get("batch_size", 32)))
+    return _rounded_batch_target_rows(dict(cfg), dict(mix_cfg), batch_size)[2]
+
+
+def next_candidate_plan(
+    *,
+    current: int,
+    accepted_tokens: int,
+    target_tokens: int,
+    avg_tokens_per_sample: int,
+    batch_size: int,
+    capacity: int | None,
+) -> int:
+    """Return a strictly larger candidate plan for an accepted-token deficit."""
+    if accepted_tokens >= target_tokens:
+        return current
+    if avg_tokens_per_sample <= 0 or batch_size <= 0:
+        raise ValueError("avg_tokens_per_sample and batch_size must be positive")
+    missing = target_tokens - accepted_tokens
+    additional = max(1, math.ceil(missing / avg_tokens_per_sample))
+    requested = current + additional
+    rounded = math.ceil(requested / batch_size) * batch_size
+    if capacity is not None:
+        rounded = min(rounded, capacity)
+    return max(current, rounded)
+
+
+def _total_cost(output_dir: Path, signals: list[str]) -> float:
+    return sum(
+        float(GroundedBatchStore(output_dir, signal).telemetry_summary().get("cost", 0.0) or 0.0)
+        for signal in signals
+    )
+
+
+def _write_report(
+    *,
+    output_dir: Path,
+    targets: Mapping[str, int],
+    accepted_rows: Mapping[str, int],
+    accepted_tokens: Mapping[str, int],
+    plans: Mapping[str, int],
+    capacities: Mapping[str, int | None],
+    chars_per_token: float,
+    cost: float,
+    status: str,
+    stop_reason: str,
+) -> dict[str, Any]:
+    signals: dict[str, Any] = {}
+    for signal, target in targets.items():
+        accepted = int(accepted_tokens.get(signal, 0))
+        capacity = capacities[signal]
+        signals[signal] = {
+            "target_accepted_tokens": target,
+            "accepted_tokens": accepted,
+            "token_deficit": max(0, target - accepted),
+            "accepted_rows": int(accepted_rows.get(signal, 0)),
+            "attempted_candidates": plans[signal],
+            "candidate_capacity": capacity,
+            "candidate_inventory_exhausted": capacity is not None and plans[signal] >= capacity,
+        }
+    report = {
+        "schema_version": 1,
+        "status": status,
+        "publish_ready": status == "complete",
+        "stop_reason": stop_reason,
+        "token_estimator": {"source": "public_text", "chars_per_token": chars_per_token},
+        "target_accepted_tokens": sum(targets.values()),
+        "accepted_tokens": sum(int(accepted_tokens.get(signal, 0)) for signal in targets),
+        "token_deficit": sum(max(0, target - int(accepted_tokens.get(signal, 0))) for signal, target in targets.items()),
+        "cost_usd": round(cost, 8),
+        "signals": signals,
+    }
+    path = output_dir / "manifests" / REPORT_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(
+        "[curate] "
+        f"status={status} accepted_tokens={report['accepted_tokens']}/{report['target_accepted_tokens']} "
+        f"deficit={report['token_deficit']} stop_reason={stop_reason} report={path}"
+    )
+    return report
+
+
+def curate_to_accepted_token_target(
+    config_path: str,
+    *,
+    signal_override: str | None = None,
+    allow_shortfall: bool = False,
+) -> dict[str, Any]:
+    """Run replacement rounds until accepted public text reaches every signal target."""
+    cfg = load_yaml_config(config_path)
+    output_dir = resolve_output_dir(cfg)
+    signals = [signal_override] if signal_override else list(cfg.get("mix", {}))
+    if not signals or any(signal not in cfg.get("mix", {}) for signal in signals):
+        raise ValueError(f"Unknown or empty pretraining signal selection: {signal_override!r}")
+
+    generation_cfg = cfg.get("generation", {}) or {}
+    chars_per_token = float(generation_cfg.get("chars_per_token", DEFAULT_CHARS_PER_TOKEN))
+    max_cost = generation_cfg.get("max_cost_usd")
+    max_cost = float(max_cost) if max_cost is not None else None
+    targets = {signal: _grounded_token_target(cfg, cfg["mix"][signal]) for signal in signals}
+    capacities = {signal: _candidate_capacity(cfg["mix"][signal]) for signal in signals}
+    plans = {signal: _initial_candidate_plan(cfg, signal) for signal in signals}
+
+    while True:
+        round_cfg = copy.deepcopy(cfg)
+        for signal in signals:
+            round_cfg["mix"][signal]["samples"] = plans[signal]
+            run_signal(signal, round_cfg, output_dir)
+
+        raw_dir = output_dir / "raw"
+        validated_dir = output_dir / "validated"
+        rejected_dir = output_dir / "rejected"
+        for signal in signals:
+            validate_signal(raw_dir, validated_dir, rejected_dir, signal)
+        deduplicate_from_config(config_path)
+
+        rows, tokens = accepted_counts(
+            output_dir / "deduped" / "pretrain.jsonl",
+            chars_per_token=chars_per_token,
+        )
+        cost = _total_cost(output_dir, signals)
+        if all(tokens.get(signal, 0) >= target for signal, target in targets.items()):
+            return _write_report(
+                output_dir=output_dir, targets=targets, accepted_rows=rows,
+                accepted_tokens=tokens, plans=plans, capacities=capacities,
+                chars_per_token=chars_per_token, cost=cost,
+                status="complete", stop_reason="accepted_token_target_reached",
+            )
+
+        if max_cost is not None and cost >= max_cost:
+            reason = "cost_limit_reached"
+        else:
+            next_plans: dict[str, int] = {}
+            for signal in signals:
+                mix_cfg = cfg["mix"][signal]
+                next_plans[signal] = next_candidate_plan(
+                    current=plans[signal],
+                    accepted_tokens=int(tokens.get(signal, 0)),
+                    target_tokens=targets[signal],
+                    avg_tokens_per_sample=int(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 100))),
+                    batch_size=int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 32))),
+                    capacity=capacities[signal],
+                )
+            if next_plans == plans:
+                reason = "unique_candidate_inventory_exhausted"
+            else:
+                plans = next_plans
+                continue
+
+        report = _write_report(
+            output_dir=output_dir, targets=targets, accepted_rows=rows,
+            accepted_tokens=tokens, plans=plans, capacities=capacities,
+            chars_per_token=chars_per_token, cost=cost,
+            status="shortfall", stop_reason=reason,
+        )
+        if not allow_shortfall:
+            raise SystemExit(
+                "Pretraining accepted-token target was not reached. "
+                f"deficit={report['token_deficit']} reason={reason}; see the accepted-token report."
+            )
+        return report
+
+
+def cli() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate replacement candidates until accepted public pretraining tokens reach target"
+    )
+    parser.add_argument("--config", default="configs/synthetic.yaml")
+    parser.add_argument("--signal", default=None)
+    parser.add_argument("--allow-shortfall", action="store_true")
+    args = parser.parse_args()
+    curate_to_accepted_token_target(
+        args.config,
+        signal_override=args.signal,
+        allow_shortfall=args.allow_shortfall,
+    )
+
+
+if __name__ == "__main__":
+    cli()

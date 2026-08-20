@@ -322,6 +322,6 @@ class EducationalQAMCQGeneralArtifactFactory:
         second = full_name((second_i + 3) % (len(FIRST_NAMES) * len(LAST_NAMES)))
         if first == second:
             second = full_name((second_i + 4) % (len(FIRST_NAMES) * len(LAST_NAMES)))
-        evidence = f"Revision history: Version 1 of the {obj} note was created by {first}. Version 2 corrected the storage location to the {place} and was approved by {second}."
+        evidence = f"Revision history: Version 1 of the {obj} was created by {first}. Version 2 corrected the storage location to the {place} and was approved by {second}."
         choices = [first, second, "the records office", "the storage team"]
-        return self._record(evidence, f"Who approved the corrected version of the {obj} note stored in the {place}?", choices, second)
+        return self._record(evidence, f"Who approved the corrected version of the {obj} stored in the {place}?", choices, second)

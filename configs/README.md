@@ -25,7 +25,17 @@ All profiles use the qualified DeepSeek renderer; profile differences affect run
 
 ## Target sizing
 
-`target_total_tokens` is an estimated corpus-size planning target. It is divided by each signal's `avg_tokens_per_sample` estimate to derive target row counts, then rounded to complete 32-record request batches.
+`target_total_tokens` is the accepted public-text target. The first candidate
+round uses each signal's share and `avg_tokens_per_sample` estimate. After every
+round, the pipeline validates and globally deduplicates the records, counts only
+accepted public `text`, and requests unused replacement candidates for any
+remaining per-signal token deficit.
+
+IDs and metadata do not count toward the target. Token counts use the configured
+`generation.chars_per_token` estimate because downstream tokenization belongs to
+the training repository. If a genuine candidate inventory or an optional cost
+ceiling is exhausted first, generation writes `accepted_token_report.json` and
+exits nonzero rather than silently treating a short corpus as complete.
 
 After a clean smoke run, update the `avg_tokens_per_sample` values using:
 
@@ -33,4 +43,4 @@ After a clean smoke run, update the `avg_tokens_per_sample` values using:
 python -m slm_synth.pretrain.report_lengths --config configs/synthetic.yaml --stage deduped
 ```
 
-No downstream tokenizer is required by this repository.
+This repository deliberately does not import a downstream model tokenizer.

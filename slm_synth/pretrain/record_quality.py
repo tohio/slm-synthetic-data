@@ -45,6 +45,17 @@ MCQ_MATH_META_EXPLANATION_MARKERS = (
     "seems to be an error",
 )
 
+MCQ_GENERAL_META_EXPLANATION_MARKERS = (
+    "held answer",
+    "held correct choice",
+    "supplied answer",
+    "provided answer",
+    "answer key",
+    "matching the held",
+    "question generation",
+    "generation process",
+)
+
 GENERATED_PLACEHOLDER_MARKERS = ("lalala", "lala lala", "example person", "placeholder", "company x")
 
 
@@ -355,6 +366,9 @@ def validate_educational_qa_mcq_general(row: dict[str, Any]) -> ValidationResult
     evidence = strip_text(row.get("evidence"))
     if not evidence:
         issues.append("empty_evidence")
+    normalized_explanation = normalize_space(explanation)
+    if any(marker in normalized_explanation for marker in MCQ_GENERAL_META_EXPLANATION_MARKERS):
+        issues.append("mcq_general_meta_commentary")
     if issues or choices is None or idx is None:
         return ValidationResult(False, None, issues)
     return ValidationResult(True, {

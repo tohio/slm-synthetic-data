@@ -38,7 +38,14 @@ Pretraining outputs are consumed downstream as synthetic text records for contin
 
 ## Conventions
 
-Pretraining signals are grounded in deterministic local artifacts before provider calls. `grounded.py` renders artifacts into structured provider prompts, validates rendered records, and persists batch manifests for resume/reporting. Deduplication is global across every signal and writes one public `deduped/pretrain.jsonl` file with `id`, `text`, and `metadata.signal`. Exact or structural near-duplicates are rejected; accepted rows are not padded back to a quota.
+Pretraining signals are grounded in deterministic local artifacts before provider calls. `grounded.py` renders artifacts into structured provider prompts, validates rendered records, and persists batch manifests for resume/reporting. Deduplication is global across every signal and writes one public `deduped/pretrain.jsonl` file with `id`, `text`, and `metadata.signal`. Exact or structural near-duplicates are rejected.
+
+`curate.py` owns completion accounting. It counts estimated tokens only from
+validated, globally unique public text. Rejected candidates never count. A
+deficit causes another round using unused candidate indexes while preserving the
+configured signal shares. The run completes only when every signal reaches its
+accepted-token target; candidate-inventory or cost exhaustion produces an
+explicit shortfall report and a nonzero exit.
 
 Arithmetic preflight additionally requires every planned source artifact to
 have a distinct structure before rendering. Arithmetic questions preserve

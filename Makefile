@@ -262,10 +262,8 @@ pretrain-smoke:
 >   --run $(PRETRAIN_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.curate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.pretrain.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_RUN)
 
 pretrain-generate:
@@ -279,10 +277,8 @@ pretrain-generate:
 >   --run $(PRETRAIN_TARGET_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.generate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.curate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.pretrain.validate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(PYTHON) -m slm_synth.pretrain.dedup --config $(CONFIG_FILE)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_TARGET_RUN)
 
 pretrain-report:

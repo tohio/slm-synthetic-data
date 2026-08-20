@@ -47,6 +47,20 @@ def test_general_mcq_uses_regular_mcq_schema_without_verification():
     assert result.ok
 
 
+def test_general_mcq_rejects_internal_answer_commentary():
+    row = {
+        "type": "educational_qa_mcq_general",
+        "evidence": "Rule: Never share a password.",
+        "question": "Which action follows the rule?",
+        "choices": ["Email it", "Post it", "Keep it private", "Text it"],
+        "correct_index": 2,
+        "explanation": "Keeping it private matches the held answer.",
+    }
+    result = validate_record("educational_qa_mcq_general", row)
+    assert not result.ok
+    assert "mcq_general_meta_commentary" in result.issues
+
+
 def test_math_mcq_rejects_meta_commentary_in_explanation():
     raw = {
         "type": "educational_qa_mcq_math",
