@@ -219,8 +219,9 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
                 "--families",
                 "factual_accuracy",
                 "instruction_adherence",
-                "--count-per-family",
-                "2",
+                "--candidate-counts",
+                "factual_accuracy=2",
+                "instruction_adherence=2",
                 "--batch-size",
                 "1",
                 "--output-dir",
@@ -239,7 +240,6 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
                 "custom.manifest.json",
                 "--concurrency",
                 "2",
-                "--resume",
             ]
         )
         == 0
@@ -248,8 +248,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
     assert calls == [
         {
             "families": ["factual_accuracy", "instruction_adherence"],
-            "count_per_family": 2,
-            "target_pairs": None,
+            "candidate_counts_by_dimension": {"factual_accuracy": 2, "instruction_adherence": 2},
             "batch_size": 1,
             "output_dir": str(tmp_path / "datasets"),
             "manifest_dir": str(tmp_path / "manifests"),
@@ -271,8 +270,6 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
             "adaptive_initial_batch_size": 4,
             "adaptive_batch_increase_successes": 4,
             "concurrency": 2,
-                "max_backfill_rounds": 2,
-                "resume": True,
                 "run_manifest_filename": "custom.manifest.json",
                 "holdout_registry": None,
         }
@@ -281,7 +278,7 @@ def test_dpo_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
     assert "generated 4 LLM-generated DPO row" in captured.out
 
 
-def test_dpo_generate_llm_run_cli_accepts_target_pairs(tmp_path, monkeypatch):
+def test_dpo_generate_llm_run_cli_accepts_explicit_dimension_counts(tmp_path, monkeypatch):
     calls = []
 
     def fake_generate_llm_run(**kwargs):
@@ -305,8 +302,9 @@ def test_dpo_generate_llm_run_cli_accepts_target_pairs(tmp_path, monkeypatch):
                 "--families",
                 "factual_accuracy",
                 "instruction_adherence",
-                "--target-pairs",
-                "3",
+                "--candidate-counts",
+                "factual_accuracy=2",
+                "instruction_adherence=1",
                 "--batch-size",
                 "1",
                 "--output-dir",
@@ -324,8 +322,10 @@ def test_dpo_generate_llm_run_cli_accepts_target_pairs(tmp_path, monkeypatch):
         == 0
     )
 
-    assert calls[0]["count_per_family"] is None
-    assert calls[0]["target_pairs"] == 3
+    assert calls[0]["candidate_counts_by_dimension"] == {
+        "factual_accuracy": 2,
+        "instruction_adherence": 1,
+    }
 
 
 def test_dpo_report_coverage_cli_prints_json(tmp_path, capsys):

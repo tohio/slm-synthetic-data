@@ -121,16 +121,19 @@ make dpo-inspect DPO_INSPECT_RUN=dpo-smoke-001
 Small candidate run:
 
 ```bash
-DPO_TARGET_PAIRS=100 DPO_TARGET_RUN=dpo-small-001 make dpo-generate
+DPO_FAMILIES="instruction_adherence" DPO_CANDIDATE_COUNTS="instruction_adherence=100" \
+DPO_GENERATION_RUN=dpo-small-001 make dpo-generate
 
 make dpo-inspect DPO_INSPECT_RUN=dpo-small-001
 make dpo-report DPO_REPORT_RUN=dpo-small-001
 ```
 
-Production target:
+Larger candidate run:
 
 ```bash
-DPO_TARGET_PAIRS=14000 DPO_TARGET_RUN=dpo-prod-001 make dpo-generate
+DPO_FAMILIES="helpfulness_and_completeness factual_accuracy instruction_adherence" \
+DPO_CANDIDATE_COUNTS="helpfulness_and_completeness=500 factual_accuracy=500 instruction_adherence=500" \
+DPO_GENERATION_RUN=dpo-prod-001 make dpo-generate
 
 make dpo-inspect DPO_INSPECT_RUN=dpo-prod-001
 make dpo-report DPO_REPORT_RUN=dpo-prod-001
@@ -146,9 +149,9 @@ make dpo-push \
 
 Public pairs are written under `data/dpo/runs/<run>/datasets/`, with one final JSONL file per family. Batch shards remain under the sibling `batches/` directory.
 
-### DPO acceptance and backfill
+### DPO candidate acceptance
 
-DPO accepts the first pair for each normalized ID, prompt, and complete `(prompt, chosen, rejected)` triple. Duplicate pairs and terminal local-validation failures do not count toward the target. Chosen/rejected similarity and repeated negative patterns are reported but remain diagnostic because controlled near-miss negatives can be intentional.
+DPO accepts the first pair for each normalized ID, prompt, and complete `(prompt, chosen, rejected)` triple. Duplicate pairs and terminal quality failures are recorded as outcomes of the explicit candidate inventory. Chosen/rejected similarity and repeated negative patterns remain diagnostic because controlled near-miss negatives can be intentional.
 
 Each row has one shared prompt and optional tool inventory. Chosen and rejected
 are explicit continuation branches and may contain multiple assistant/tool
@@ -156,29 +159,17 @@ messages. Both branches are validated independently against the same prompt and
 tools; nested replacement prompts, undeclared calls, unresolved call IDs, and
 malformed role sequences are rejected.
 
-Each generation round uses the next unused source indexes. If the run remains underfilled after its configured budget, generation preserves accepted public pairs, writes a failed run manifest, and exits nonzero. `DPO_MAX_BACKFILL_ROUNDS` is the total lifetime budget, including rounds recorded before resume.
-
-Resume a finalized underfilled run by keeping its run id and source plan, increasing the total budget, and enabling resume:
-
-```bash
-DPO_TARGET_PAIRS=14000 \
-DPO_TARGET_RUN=dpo-prod-001 \
-DPO_MAX_BACKFILL_ROUNDS=3 \
-DPO_RESUME=true \
-make dpo-generate
-```
-
-Resume validates the public files, content fingerprints, family allocation, batch manifests, accepted-target accounting, and next source indexes before making a request. A complete run resumes as a no-op.
+Generation attempts each declared candidate once. Adaptive splitting may isolate a failed multi-candidate provider response, but it does not add candidates or replace rejected pairs. Accepted pairs are the quality-filtered output.
 
 ### DPO reporting and publish blockers
 
-`make dpo-report` loads `configs/eval_holdouts.yaml` and writes `coverage.json`. The report includes aggregate and per-family metadata coverage, normalized ID/prompt/triple uniqueness, chosen/rejected similarity, negative-pattern distribution, holdout collisions, and attempted/accepted/rejected/duplicate/remaining counts.
+`make dpo-report` loads `configs/eval_holdouts.yaml` and writes `coverage.json`. The report includes aggregate and per-dimension metadata coverage, normalized ID/prompt/triple uniqueness, chosen/rejected similarity, negative-pattern distribution, holdout collisions, candidate/attempted/accepted/rejected/duplicate counts, and estimated accepted tokens.
 
 Publication is blocked when:
 
 - IDs, normalized prompts, or normalized preference triples repeat.
 - Holdouts were not checked or a collision exists.
-- Accepted-target accounting is missing, inconsistent, or underfilled.
+- Candidate/accepted accounting is inconsistent with the public files.
 - `coverage.json` is missing or stale relative to the public files.
 - The dataset card lacks the default or any required family configuration.
 

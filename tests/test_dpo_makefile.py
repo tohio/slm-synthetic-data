@@ -2,19 +2,20 @@ from pathlib import Path
 
 
 def _target_block(makefile: str, target: str, next_target: str) -> str:
-    return makefile.split(f"{target}:\n", 1)[1].split(f"\n{next_target}:", 1)[0]
+    return makefile.split(f"\n{target}:\n", 1)[1].split(f"\n{next_target}:", 1)[0]
 
 
-def test_dpo_generation_targets_support_explicit_resume():
+def test_dpo_generation_targets_require_explicit_candidate_plans_without_backfill():
     makefile = Path("Makefile").read_text(encoding="utf-8")
 
-    for target, next_target in (("dpo-smoke", "dpo-generate"), ("dpo-generate", "dpo-report")):
-        block = _target_block(makefile, target, next_target)
-        assert "--max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS)" in block
-        assert "$(DPO_RESUME_ARG)" in block
-
-    assert "DPO_RESUME ?= false" in makefile
-    assert "DPO_RESUME_ARG := $(if $(filter true yes 1,$(DPO_RESUME)),--resume,)" in makefile
+    smoke = _target_block(makefile, "dpo-smoke", "dpo-generate")
+    generate = _target_block(makefile, "dpo-generate", "dpo-report")
+    assert "--candidate-counts $(DPO_SMOKE_CANDIDATE_COUNTS_EFFECTIVE)" in smoke
+    assert "--candidate-counts $(DPO_CANDIDATE_COUNTS)" in generate
+    for removed in ("--target-pairs", "--count-per-family", "--max-backfill-rounds", "--resume"):
+        assert removed not in smoke + generate
+    assert not any(line.startswith("DPO_TARGET_PAIRS ?=") for line in makefile.splitlines())
+    assert not any(line.startswith("DPO_COUNT_PER_FAMILY ?=") for line in makefile.splitlines())
 
 
 def test_dpo_report_uses_configured_run_root_and_acceptance_inputs():

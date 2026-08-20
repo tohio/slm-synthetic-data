@@ -208,8 +208,8 @@ Generic SFT/DPO rows do not expose evaluation-family labels. Exact normalized pr
 
 ## Generation Budgets
 
-Generic SFT and distillation SFT use explicit candidate counts by family or
-signal. Candidate counts limit provider work; they are not accepted-row quotas.
+Generic SFT, generic DPO, and distillation SFT use explicit candidate counts by
+task family, preference dimension, or signal. Candidate counts limit provider work; they are not accepted-output quotas.
 Quality rejections and duplicates reduce the published row count and are not
 backfilled merely to reach a requested size.
 
@@ -218,9 +218,8 @@ duplicate, and token counts. Dataset selection, token budgets, mixtures,
 sequence lengths, epochs, and model-size-specific consumption belong to the
 downstream training repositories.
 
-DPO surfaces retain pair-count controls because one chosen/rejected comparison
-is the generation unit. Pair quality and uniqueness still take precedence over
-reaching a nominal count.
+Generic DPO does not backfill rejected candidates to reach a nominal pair count.
+Distillation planning remains separate pending its dedicated review.
 
 ## See Also
 

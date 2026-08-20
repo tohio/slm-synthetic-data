@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
-from slm_synth.planning import CountPlan, build_count_plan
+from slm_synth.alignment_tokens import estimate_sft_tokens
+from slm_synth.planning import CountPlan
 from slm_synth.sft.acceptance import partition_unique_sft_rows
 from slm_synth.sft.generation import (
     SFTBatchAcceptanceError,
@@ -56,8 +57,7 @@ def default_batch_output_dir(output_dir: str | Path) -> Path:
 def generate_llm_run(
     *,
     families: list[str] | tuple[str, ...] | None,
-    count_per_family: int | None = None,
-    candidate_counts_by_family: dict[str, int] | None = None,
+    candidate_counts_by_family: dict[str, int],
     batch_size: int = 1,
     output_dir: str | Path,
     manifest_dir: str | Path,
@@ -89,30 +89,18 @@ def generate_llm_run(
 ) -> SFTLLMRunResult:
     """Build specs and generate SFT datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
-    if candidate_counts_by_family is not None:
-        if count_per_family is not None:
-            raise ValueError("provide only one of count_per_family or candidate_counts_by_family")
-        normalized_counts = {
-            str(family).strip().lower(): count
-            for family, count in candidate_counts_by_family.items()
-        }
-        if set(normalized_counts) != set(resolved_families):
-            raise ValueError(
-                "candidate_counts_by_family must contain exactly the requested families"
-            )
-        for family, count in normalized_counts.items():
-            _validate_positive_int(count, f"candidate count for {family}")
-        count_plan = CountPlan(
-            planning_mode="candidate_counts_by_family",
-            counts_by_key={family: normalized_counts[family] for family in resolved_families},
-        )
-    else:
-        count_plan = build_count_plan(
-            keys=resolved_families,
-            count_per_key=count_per_family,
-            key_name="family",
-            count_per_key_name="count_per_family",
-        )
+    normalized_counts = {
+        str(family).strip().lower(): count
+        for family, count in candidate_counts_by_family.items()
+    }
+    if set(normalized_counts) != set(resolved_families):
+        raise ValueError("candidate_counts_by_family must contain exactly the requested families")
+    for family, count in normalized_counts.items():
+        _validate_positive_int(count, f"candidate count for {family}")
+    count_plan = CountPlan(
+        planning_mode="candidate_counts_by_family",
+        counts_by_key={family: normalized_counts[family] for family in resolved_families},
+    )
     _validate_openrouter_batch_size(batch_size)
     _validate_positive_int(start_index, "start_index")
     _validate_openrouter_concurrency(concurrency)
@@ -355,6 +343,10 @@ def generate_llm_run(
     attempted_rows = output_acceptance["attempted_rows"]
     duplicate_rows = output_acceptance["duplicate_rows"]
     rejected_rows = max(attempted_rows - accepted_rows - duplicate_rows, 0)
+    estimated_tokens_per_family = {
+        family: sum(estimate_sft_tokens(row) for row in accepted_rows_by_family[family])
+        for family in resolved_families
+    }
 
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
@@ -371,12 +363,14 @@ def generate_llm_run(
             "candidate_rows": candidate_rows,
             "attempted_rows": attempted_rows,
             "accepted_rows": accepted_rows,
+            "estimated_tokens": sum(estimated_tokens_per_family.values()),
             "rejected_rows": rejected_rows,
             "rejection_reason_counts": output_acceptance["rejection_reason_counts"],
             "duplicate_rows": duplicate_rows,
             "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],
             "attempted_rows_per_family": output_acceptance["attempted_rows_per_family"],
             "accepted_rows_per_family": output_acceptance["accepted_rows_per_family"],
+            "estimated_tokens_per_family": estimated_tokens_per_family,
             "rejected_rows_per_family": output_acceptance["rejected_rows_per_family"],
             "duplicate_rows_per_family": output_acceptance["duplicate_rows_per_family"],
             "next_start_index_per_family": next_source_indexes,
@@ -387,7 +381,6 @@ def generate_llm_run(
             "generation_status": "complete",
             "publish_ready": True,
             "candidate_rows_per_family": dict(count_plan.counts_by_key),
-            "count_per_family": count_per_family,
             "batch_size": batch_size,
             "concurrency": concurrency,
             "adaptive_maximum_in_flight": adaptive_maximum_in_flight,

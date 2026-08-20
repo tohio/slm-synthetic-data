@@ -219,8 +219,9 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
                 "--families",
                 "grounded_qa_and_reading",
                 "rewriting_and_editing",
-                "--count-per-family",
-                "2",
+                "--candidate-counts",
+                "grounded_qa_and_reading=2",
+                "rewriting_and_editing=2",
                 "--batch-size",
                 "1",
                 "--output-dir",
@@ -247,8 +248,7 @@ def test_sft_generate_llm_run_cli_calls_runner(tmp_path, monkeypatch, capsys):
     assert calls == [
         {
             "families": ["grounded_qa_and_reading", "rewriting_and_editing"],
-            "count_per_family": 2,
-            "candidate_counts_by_family": None,
+            "candidate_counts_by_family": {"grounded_qa_and_reading": 2, "rewriting_and_editing": 2},
             "batch_size": 1,
             "output_dir": str(tmp_path / "datasets"),
             "manifest_dir": str(tmp_path / "manifests"),
@@ -322,7 +322,6 @@ def test_sft_generate_llm_run_cli_accepts_explicit_candidate_counts(tmp_path, mo
         == 0
     )
 
-    assert calls[0]["count_per_family"] is None
     assert calls[0]["candidate_counts_by_family"] == {
         "grounded_qa_and_reading": 2,
         "rewriting_and_editing": 1,

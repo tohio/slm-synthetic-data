@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from slm_synth.cards import build_dataset_card
+from slm_synth.alignment_tokens import estimate_dpo_tokens
 from slm_synth.dpo.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_dpo_run
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
@@ -102,14 +103,13 @@ def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
         "families": families,
         "metadata": {
             "publish_ready": True,
-            "planned_pairs": 2,
+            "candidate_pairs": 2,
+            "attempted_pairs": 2,
             "accepted_pairs": 2,
+            "estimated_tokens": estimate_dpo_tokens(_dpo_row("dpo-1")) + estimate_dpo_tokens(ai_row),
             "rejected_pairs": 0,
             "duplicate_pairs": 0,
-            "accepted_target": {
-                "unit": "pairs", "target": 2, "accepted": 2,
-                "attempted": 2, "remaining": 0, "publish_ready": True,
-            },
+            "candidate_pairs_per_dimension": {"factual_accuracy": 1, "helpfulness_and_completeness": 1},
         },
     }), encoding="utf-8")
     coverage = build_coverage_report(
@@ -197,7 +197,10 @@ def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_p
         "families": ["factual_accuracy"],
         "metadata": {
             "publish_ready": True,
-            "accepted_target": {"target": 1, "accepted": 1, "attempted": 1, "remaining": 0},
+            "candidate_pairs": 1,
+            "attempted_pairs": 1,
+            "accepted_pairs": 1,
+            "estimated_tokens": estimate_dpo_tokens(_dpo_row()),
         },
     }), encoding="utf-8")
     monkeypatch.delenv("HF_TOKEN", raising=False)

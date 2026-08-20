@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This package generates generic teacher-backed DPO preference datasets. It owns source specifications, pair generation, output acceptance, replacement rounds, safe resume, coverage reporting, manifests, dataset cards, and Hugging Face publication.
+This package generates generic teacher-backed DPO preference datasets. It owns finite source specifications, pair generation, quality acceptance, coverage reporting, manifests, dataset cards, and Hugging Face publication.
 
 It does not produce SFT rows, distillation-specific pairs, pretraining records, or model-training artifacts.
 
@@ -16,7 +16,7 @@ dpo/
 ├── adjudication.py   # preference-quality and separation gate
 ├── generation.py     # teacher-backed batch generation
 ├── acceptance.py     # normalized uniqueness and pair-quality reporting
-├── runs.py           # multi-family generation, backfill, and resume
+├── runs.py           # candidate-budgeted multi-dimension generation
 ├── schema.py         # public row validation
 ├── manifest.py       # dataset and run manifests
 ├── report.py         # acceptance, holdout, and coverage reporting
@@ -48,8 +48,7 @@ an assistant response. Invalid roles are rejected without compatibility repair.
 dimension. It does not depend on SFT specs. The full 90-prompt catalog is
 checked for semantic-source uniqueness, near-duplicates, template
 concentration, and SFT prompt overlap before generation can construct a
-provider backend. Requested source ranges, including the configured replacement
-budget, are also validated. Model selection remains configurable through
+provider backend. Requested finite source ranges are also validated. Model selection remains configurable through
 `DPO_MODEL`; OpenRouter routing remains configurable through the shared routing
 variables.
 `DPO_ADJUDICATOR_MODEL` and `DPO_ADJUDICATOR_MAX_TOKENS` default to the renderer
@@ -57,13 +56,12 @@ settings and can be overridden. All three calls use the existing configurable
 OpenRouter routing, retry, backoff, and adaptive request controls; manifests
 retain aggregate and per-stage telemetry.
 
-## Acceptance and Resume
+## Candidate Planning and Acceptance
 
-Public output keeps the first pair for each normalized ID, prompt, and `(prompt, chosen, rejected)` triple. Duplicate or locally rejected pairs do not count toward the accepted target. Replacement rounds use new source indexes and preserve accepted pairs.
+Every selected preference dimension requires an explicit candidate count. Public output keeps the first pair for each normalized ID, prompt, and `(prompt, chosen, rejected)` triple. Duplicate or locally rejected candidates are not replaced merely to reach a nominal pair count.
 
-An exhausted run writes its accepted files and an underfilled manifest, then exits nonzero. Resume verifies the source plan, family allocation, accepted-file fingerprints, batch manifests, accounting, and next unused source indexes before generating replacements.
-
-Coverage reports include aggregate and per-family metadata, uniqueness, chosen/rejected similarity, negative-pattern distribution, holdout results, and attempted/accepted/rejected/duplicate/remaining counts. Similarity and repeated negative patterns are diagnostics; exact duplicates, holdout collisions, stale accounting, and underfilled targets are publication blockers.
+Coverage reports include aggregate and per-dimension metadata, uniqueness, chosen/rejected similarity, negative-pattern distribution, holdout results, candidate/attempted/accepted/rejected/duplicate counts, and estimated accepted tokens. Similarity and repeated negative patterns are diagnostics; exact duplicates, holdout collisions, empty output, and stale accounting are publication blockers. Downstream repositories decide consumption.
+Token estimates serialize the public prompt, chosen branch, rejected branch, and optional shared tools at four characters per token; the downstream tokenizer remains authoritative.
 
 ## Publication
 

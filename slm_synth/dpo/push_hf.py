@@ -157,9 +157,8 @@ def push_dpo_run(
     require_publish_ready_manifest(run_manifest, artifact_name="DPO")
     manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
     metadata = manifest_value.get("metadata", {}) if isinstance(manifest_value, dict) else {}
-    accepted_target = metadata.get("accepted_target") if isinstance(metadata, dict) else None
-    if not isinstance(accepted_target, dict):
-        raise ValueError("DPO run manifest is missing accepted-target accounting")
+    if not isinstance(metadata, dict):
+        raise ValueError("DPO run manifest is missing candidate accounting")
     files = discover_jsonl_files(dataset_root)
     manifest_families = manifest_value.get("families") if isinstance(manifest_value, dict) else None
     if not isinstance(manifest_families, list) or not all(
@@ -197,11 +196,11 @@ def push_dpo_run(
         raise ValueError("DPO acceptance report is stale for the current dataset files; rebuild dpo-report")
     acceptance = coverage["acceptance"]
     expected_counts = {
-        "attempted_pairs": accepted_target.get("attempted"),
-        "accepted_pairs": accepted_target.get("accepted"),
+        "attempted_pairs": metadata.get("attempted_pairs"),
+        "accepted_pairs": metadata.get("accepted_pairs"),
         "rejected_pairs": metadata.get("rejected_pairs", 0),
         "duplicate_pairs": metadata.get("duplicate_pairs", 0),
-        "remaining_pairs": accepted_target.get("remaining"),
+        "estimated_tokens": metadata.get("estimated_tokens"),
     }
     if any(acceptance.get(field) != value for field, value in expected_counts.items()):
         raise ValueError("DPO acceptance report does not match run-manifest accounting; rebuild dpo-report")

@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from slm_synth.alignment_tokens import estimate_dpo_tokens
 from slm_synth.dpo.acceptance import build_dpo_content_summary, partition_unique_dpo_rows
 from slm_synth.dpo.io import read_jsonl
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
@@ -31,26 +32,21 @@ def build_coverage_report(
     content = build_dpo_content_summary(rows)
     unique_rows, visible = partition_unique_dpo_rows(rows)
     metadata = _read_run_manifest_metadata(run_manifest)
-    target = metadata.get("accepted_target", {})
-    if not isinstance(target, dict):
-        target = {}
-    attempted = _non_negative_int(target.get("attempted"), metadata.get("attempted_pairs"), len(rows))
+    attempted = _non_negative_int(metadata.get("attempted_pairs"), len(rows))
+    candidate_pairs = _non_negative_int(metadata.get("candidate_pairs"), attempted)
     accepted = len(unique_rows)
     duplicates = max(_non_negative_int(metadata.get("duplicate_pairs"), 0), visible["duplicate_pairs"])
     rejected = _non_negative_int(metadata.get("rejected_pairs"), 0)
-    target_count = _non_negative_int(target.get("target"), metadata.get("planned_pairs"), attempted)
-    remaining = max(
-        _non_negative_int(target.get("remaining"), metadata.get("remaining_pairs"), 0),
-        target_count - accepted,
-    )
+    estimated_tokens = sum(estimate_dpo_tokens(row) for row in unique_rows)
     holdouts = _build_holdout_summary(rows, holdout_registry)
     blockers = _publish_blockers(
         content=content,
         holdouts=holdouts,
-        remaining_pairs=remaining,
         manifest_metadata=metadata,
         require_holdout_check=require_holdout_check,
     )
+    if not unique_rows:
+        blockers.append("empty_dataset")
     return {
         "dataset_type": "dpo",
         "row_count": len(rows),
@@ -67,12 +63,13 @@ def build_coverage_report(
         "holdouts": holdouts,
         "acceptance": {
             "attempted_pairs": attempted,
+            "candidate_pairs": candidate_pairs,
             "accepted_pairs": accepted,
+            "estimated_tokens": estimated_tokens,
             "rejected_pairs": rejected,
             "rejection_reason_counts": _count_mapping(metadata.get("rejection_reason_counts")),
             "duplicate_pairs": duplicates,
             "duplicate_reason_counts": _count_mapping(metadata.get("duplicate_reason_counts")),
-            "remaining_pairs": remaining,
             "publish_ready": not blockers,
             "publish_blockers": blockers,
         },
@@ -110,23 +107,27 @@ def _build_family_reports(
     require_holdout_check: bool,
 ) -> dict[str, Any]:
     reports: dict[str, Any] = {}
-    for family in sorted({row["metadata"]["preference_dimension"] for row in rows}):
+    configured = manifest_metadata.get("candidate_pairs_per_dimension", {})
+    family_names = {row["metadata"]["preference_dimension"] for row in rows}
+    if isinstance(configured, dict):
+        family_names.update(configured)
+    for family in sorted(family_names):
         family_rows = [row for row in rows if row["metadata"]["preference_dimension"] == family]
         content = build_dpo_content_summary(family_rows)
         unique_rows, visible = partition_unique_dpo_rows(family_rows)
-        attempted = _family_count(manifest_metadata, "attempted_pairs_per_family", family, len(family_rows))
+        attempted = _family_count(manifest_metadata, "attempted_pairs_per_dimension", family, len(family_rows))
+        candidates = _family_count(
+            manifest_metadata, "candidate_pairs_per_dimension", family, attempted
+        )
         duplicates = max(
-            _family_count(manifest_metadata, "duplicate_pairs_per_family", family, 0),
+            _family_count(manifest_metadata, "duplicate_pairs_per_dimension", family, 0),
             visible["duplicate_pairs"],
         )
-        rejected = _family_count(manifest_metadata, "rejected_pairs_per_family", family, 0)
-        target = _family_count(manifest_metadata, "pairs_per_family", family, attempted)
-        remaining = max(target - len(unique_rows), 0)
+        rejected = _family_count(manifest_metadata, "rejected_pairs_per_dimension", family, 0)
         holdouts = _build_holdout_summary(family_rows, holdout_registry)
         blockers = _publish_blockers(
             content=content,
             holdouts=holdouts,
-            remaining_pairs=remaining,
             manifest_metadata={},
             require_holdout_check=require_holdout_check,
         )
@@ -143,10 +144,11 @@ def _build_family_reports(
             "holdouts": holdouts,
             "acceptance": {
                 "attempted_pairs": attempted,
+                "candidate_pairs": candidates,
                 "accepted_pairs": len(unique_rows),
+                "estimated_tokens": sum(estimate_dpo_tokens(row) for row in unique_rows),
                 "rejected_pairs": rejected,
                 "duplicate_pairs": duplicates,
-                "remaining_pairs": remaining,
                 "publish_ready": not blockers,
                 "publish_blockers": blockers,
             },
@@ -166,7 +168,7 @@ def _build_holdout_summary(rows: list[dict[str, Any]], registry: HoldoutRegistry
 
 
 def _publish_blockers(
-    *, content: dict[str, Any], holdouts: dict[str, Any], remaining_pairs: int,
+    *, content: dict[str, Any], holdouts: dict[str, Any],
     manifest_metadata: dict[str, Any], require_holdout_check: bool,
 ) -> list[str]:
     blockers: list[str] = []
@@ -177,8 +179,6 @@ def _publish_blockers(
         blockers.append("eval_holdout_collisions")
     if require_holdout_check and holdouts["status"] != "checked":
         blockers.append("holdouts_not_checked")
-    if remaining_pairs:
-        blockers.append("accepted_target_underfilled")
     if manifest_metadata and manifest_metadata.get("publish_ready") is False:
         blockers.append("run_manifest_not_publish_ready")
     return blockers

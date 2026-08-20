@@ -17,7 +17,7 @@ def test_dpo_package_readme_describes_implemented_boundaries():
         assert module in readme
     for behavior in (
         "normalized ID, prompt, and `(prompt, chosen, rejected)` triple",
-        "exits nonzero",
+        "not replaced merely to reach a nominal pair count",
         "DPO_HF_REPO",
         "one complete run",
     ):
@@ -25,17 +25,17 @@ def test_dpo_package_readme_describes_implemented_boundaries():
     assert "distillation-specific pairs" in readme
 
 
-def test_dpo_command_reference_documents_resume_holdouts_and_one_repo():
+def test_dpo_command_reference_documents_candidates_holdouts_and_one_repo():
     commands = _read("docs/COMMANDS.md")
 
     for variable in (
-        "DPO_MAX_BACKFILL_ROUNDS",
-        "DPO_RESUME",
+        "DPO_CANDIDATE_COUNTS",
+        "DPO_GENERATION_RUN",
         "DPO_HOLDOUT_REGISTRY",
         "DPO_HF_REPO",
     ):
         assert f"`{variable}`" in commands
-    assert "DPO_RESUME=true" in commands
+    assert "dimension=count" in commands
     assert "one atomic version in `DPO_HF_REPO`" in commands
 
 
@@ -43,14 +43,14 @@ def test_dpo_workflow_documents_acceptance_and_consolidated_publication():
     workflow = _read("docs/GENERATION_WORKFLOW.md")
 
     for heading in (
-        "### DPO acceptance and backfill",
+        "### DPO candidate acceptance",
         "### DPO reporting and publish blockers",
         "### DPO consolidated publication",
     ):
         assert heading in workflow
     assert "DPO_HF_REPO=tohio/slm-synthetic-dpo" in workflow
     assert "Similarity and repeated negative patterns" not in workflow
-    assert "Chosen/rejected similarity and repeated negative patterns are reported" in workflow
+    assert "Chosen/rejected similarity and repeated negative patterns remain diagnostic" in workflow
 
 
 def test_documented_dpo_family_table_covers_every_supported_family():

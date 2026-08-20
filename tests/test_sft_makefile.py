@@ -16,8 +16,9 @@ def test_sft_generation_targets_enforce_holdouts_and_candidate_plans():
 
     for block in (smoke, generate):
         assert "--holdout-registry $(SFT_HOLDOUT_REGISTRY)" in block
-    assert "--count-per-family $(SFT_SMOKE_COUNT_PER_FAMILY)" in smoke
+    assert "--candidate-counts $(SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE)" in smoke
     assert "--candidate-counts $(SFT_CANDIDATE_COUNTS)" in generate
+    assert "--count-per-family" not in smoke + generate
 
 
 def test_sft_report_uses_run_manifest_and_required_holdout_registry():

@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from slm_synth.alignment_tokens import estimate_sft_tokens
 from slm_synth.sft.acceptance import build_sft_content_summary, partition_unique_sft_rows
 from slm_synth.sft.io import read_jsonl
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
@@ -42,6 +43,7 @@ def build_coverage_report(
     )
     rejected_rows = _non_negative_int(manifest_metadata.get("rejected_rows"), 0)
     accepted_rows = len(unique_rows)
+    estimated_tokens = sum(estimate_sft_tokens(row) for row in unique_rows)
     candidate_rows = _non_negative_int(manifest_metadata.get("candidate_rows"), attempted_rows)
 
     holdouts = _build_holdout_summary(rows, holdout_registry)
@@ -70,6 +72,7 @@ def build_coverage_report(
             "attempted_rows": attempted_rows,
             "candidate_rows": candidate_rows,
             "accepted_rows": accepted_rows,
+            "estimated_tokens": estimated_tokens,
             "rejected_rows": rejected_rows,
             "rejection_reason_counts": _count_mapping(
                 manifest_metadata.get("rejection_reason_counts")
@@ -150,7 +153,11 @@ def _build_family_reports(
     require_holdout_check: bool,
 ) -> dict[str, Any]:
     reports: dict[str, Any] = {}
-    for family in sorted({row["metadata"]["task_family"] for row in rows}):
+    configured = manifest_metadata.get("candidate_rows_per_family", {})
+    family_names = {row["metadata"]["task_family"] for row in rows}
+    if isinstance(configured, dict):
+        family_names.update(configured)
+    for family in sorted(family_names):
         family_rows = [row for row in rows if row["metadata"]["task_family"] == family]
         content = build_sft_content_summary(family_rows)
         unique_rows, visible_acceptance = partition_unique_sft_rows(family_rows)
@@ -191,6 +198,7 @@ def _build_family_reports(
                 "attempted_rows": attempted,
                 "candidate_rows": candidate_rows,
                 "accepted_rows": len(unique_rows),
+                "estimated_tokens": sum(estimate_sft_tokens(row) for row in unique_rows),
                 "rejected_rows": rejected,
                 "duplicate_rows": duplicates,
                 "publish_ready": not blockers,

@@ -40,6 +40,7 @@ than being normalized. Teacher/provider/run/cost/retry details stay in
 manifests.
 
 Production runs require explicit candidate counts for every selected family. Candidate counts limit generation work; accepted rows are the quality-filtered outcome and are not backfilled to reach a quota. The default Make paths enforce the configured holdout registry during generation and reporting.
+Manifests and coverage reports include accepted-row counts and a tokenizer-independent estimate of the public chat payload at four characters per token. Downstream tokenization remains authoritative.
 
 `source_catalog.py` declares six genuinely different briefs for each of the ten
 task families. `python -m slm_synth.alignment_preflight --kind sft` validates

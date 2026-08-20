@@ -105,10 +105,10 @@ def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
 
 
 def cmd_generate_llm_run(args: argparse.Namespace) -> int:
+    candidate_counts = _parse_named_counts(args.candidate_counts, name="preference dimension")
     result = generate_llm_run(
         families=args.families,
-        count_per_family=args.count_per_family,
-        target_pairs=args.target_pairs,
+        candidate_counts_by_dimension=candidate_counts,
         batch_size=args.batch_size,
         output_dir=args.output_dir,
         manifest_dir=args.manifest_dir,
@@ -130,8 +130,6 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         adaptive_initial_batch_size=args.adaptive_initial_batch_size,
         adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
         concurrency=args.concurrency,
-        max_backfill_rounds=args.max_backfill_rounds,
-        resume=args.resume,
         run_manifest_filename=args.run_manifest_filename,
         holdout_registry=_load_holdout_registry(args.holdout_registry),
         **_openrouter_routing_kwargs(args),
@@ -200,9 +198,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["all", *sorted(DPO_PREFERENCE_DIMENSIONS)],
         help="DPO spec families to generate, or 'all'.",
     )
-    planning_group = generate_run_parser.add_mutually_exclusive_group(required=True)
-    planning_group.add_argument("--count-per-family", type=int)
-    planning_group.add_argument("--target-pairs", type=int)
+    generate_run_parser.add_argument(
+        "--candidate-counts",
+        required=True,
+        nargs="+",
+        metavar="DIMENSION=COUNT",
+        help="Explicit candidate count for every requested preference dimension.",
+    )
     generate_run_parser.add_argument("--batch-size", required=True, type=int)
     generate_run_parser.add_argument("--output-dir", required=True)
     generate_run_parser.add_argument("--manifest-dir", required=True)
@@ -224,8 +226,6 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE)
     generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES)
     generate_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
-    generate_run_parser.add_argument("--max-backfill-rounds", type=int, default=2)
-    generate_run_parser.add_argument("--resume", action="store_true")
     generate_run_parser.add_argument("--run-manifest-filename", default=None)
     generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
     generate_run_parser.add_argument("--openrouter-provider", default=None)
@@ -245,6 +245,25 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.set_defaults(func=cmd_report_coverage)
 
     return parser
+
+
+def _parse_named_counts(values: list[str], *, name: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key, separator, raw_count = value.partition("=")
+        key = key.strip().lower()
+        if not separator or not key:
+            raise ValueError(f"invalid {name} candidate count '{value}'; expected DIMENSION=COUNT")
+        if key in counts:
+            raise ValueError(f"duplicate candidate count for {name} '{key}'")
+        try:
+            count = int(raw_count)
+        except ValueError as exc:
+            raise ValueError(f"candidate count for {name} '{key}' must be an integer") from exc
+        if count < 1:
+            raise ValueError(f"candidate count for {name} '{key}' must be positive")
+        counts[key] = count
+    return counts
 
 
 def _load_holdout_registry(path: str | None) -> HoldoutRegistry | None:

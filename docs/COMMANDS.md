@@ -110,7 +110,7 @@ replaced to fill a quota.
 | `SFT_GENERATION_RUN` | `sft-candidate-001` | Candidate generation run id. |
 | `SFT_SMOKE_FAMILIES` | `grounded_qa_and_reading` | Smoke task-family list. |
 | `SFT_FAMILIES` | `all` | Target family list. |
-| `SFT_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
+| `SFT_SMOKE_CANDIDATE_COUNTS` | `grounded_qa_and_reading=2` | Explicit smoke candidate plan. |
 | `SFT_CANDIDATE_COUNTS` | unset | Required `family=count` candidate plan for `sft-generate`. |
 | `SFT_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum specs per teacher request. |
 | `SFT_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests. |
@@ -130,40 +130,30 @@ make dpo-inspect
 ```
 
 ```bash
-DPO_TARGET_PAIRS=14000 DPO_TARGET_RUN=dpo-target-001 make dpo-generate
-make dpo-inspect DPO_INSPECT_RUN=dpo-target-001
+DPO_FAMILIES="helpfulness_and_completeness instruction_adherence" \
+DPO_CANDIDATE_COUNTS="helpfulness_and_completeness=40 instruction_adherence=40" \
+DPO_GENERATION_RUN=dpo-candidate-001 make dpo-generate
+make dpo-inspect DPO_INSPECT_RUN=dpo-candidate-001
 ```
 
-Resume a finalized underfilled run with a higher total backfill budget:
-
-```bash
-DPO_TARGET_PAIRS=14000 \
-DPO_TARGET_RUN=dpo-target-001 \
-DPO_MAX_BACKFILL_ROUNDS=3 \
-DPO_RESUME=true \
-make dpo-generate
-```
-
-The run id, target, selected families, start index, teacher model, and provider must match the existing run manifest.
+Candidate counts bound paid work. Rejected and duplicate candidates are not
+replaced. Accepted pairs and estimated tokens are the run outcome.
 
 | Variable | Default | Purpose |
 |---|---:|---|
 | `DPO_RUN` | `dpo-smoke-001` | Smoke run id. |
-| `DPO_TARGET_RUN` | `dpo-target-001` | Target run id. |
+| `DPO_GENERATION_RUN` | `dpo-candidate-001` | Candidate generation run id. |
 | `DPO_SMOKE_FAMILIES` | `instruction_adherence` | Smoke preference-dimension list. |
 | `DPO_FAMILIES` | `all` | Target family list. |
-| `DPO_SMOKE_COUNT_PER_FAMILY` | `2` | Smoke rows per family. |
-| `DPO_TARGET_PAIRS` | `14000` | Target pairs across selected families. |
-| `DPO_COUNT_PER_FAMILY` | `1000` | Explicit lower-level pairs-per-family override. |
+| `DPO_SMOKE_CANDIDATE_COUNTS` | `instruction_adherence=2` | Explicit smoke candidate plan. |
+| `DPO_CANDIDATE_COUNTS` | unset | Required `dimension=count` candidate plan. |
 | `DPO_BATCH_SIZE` | `$(PRETRAIN_BATCH_SIZE)` | Maximum specs per teacher request. |
 | `DPO_CONCURRENCY` | `$(PRETRAIN_CONCURRENCY)` | Smoke parallel teacher requests. |
-| `DPO_TARGET_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Target parallel teacher requests. |
+| `DPO_GENERATION_CONCURRENCY` | `$(PRETRAIN_TARGET_CONCURRENCY)` | Candidate-run parallel requests. |
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root. |
 | `DPO_MODEL` | `$(MODEL)` | Teacher model. |
 | `DPO_ADJUDICATOR_MODEL` | `$(DPO_MODEL)` | Independent preference adjudicator model. |
 | `DPO_ADJUDICATOR_MAX_TOKENS` | `$(DPO_MAX_TOKENS)` | Maximum adjudication completion tokens. |
-| `DPO_MAX_BACKFILL_ROUNDS` | `2` | Accepted-target backfill budget. |
-| `DPO_RESUME` | `false` | Resume a finalized underfilled run using its next unused source indexes. |
 | `DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
 | `DPO_HF_REPO` | `<HF_NAMESPACE>/slm-synthetic-dpo` | One consolidated generic DPO dataset repository. |
 

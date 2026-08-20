@@ -10,11 +10,11 @@ Use this file when planning run targets, interpreting coverage reports, or choos
 |---|---|---|---|
 | Pretraining | `PRETRAIN_SIGNAL` | No value means all configured pretraining signals from `configs/synthetic_template.yaml`. | Token target is split by configured signal shares. |
 | SFT | `SFT_FAMILIES` | `all` means all supported SFT spec families, sorted by name. | `SFT_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected family. |
-| DPO | `DPO_FAMILIES` | `all` means all supported DPO spec families, sorted by name. | Pair target is split evenly across families; remainder goes to earlier sorted families. |
+| DPO | `DPO_FAMILIES` | `all` means all supported DPO preference dimensions, sorted by name. | `DPO_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected dimension. |
 | Distillation SFT | `DISTILLATION_SFT_SIGNALS` | Empty or `all` means all supported distillation SFT signals, sorted by name. | `DISTILLATION_SFT_CANDIDATE_COUNTS` must explicitly assign a candidate count to every selected signal. |
 | Distillation DPO | `DISTILLATION_DPO_FAMILIES` | `all` means all supported distillation DPO families, sorted by name. | Pair target is split evenly across families; remainder goes to earlier sorted families. |
 
-For SFT and distillation SFT, accepted rows are outcomes: rejected or duplicate candidates are not replaced to fill a quota. DPO pair planning remains separate.
+For generic SFT, generic DPO, and distillation SFT, accepted outputs are outcomes: rejected or duplicate candidates are not replaced to fill a quota.
 
 ## Pretraining Signals and Artifact Families
 
@@ -129,17 +129,16 @@ Every DPO preference dimension has a unique source capacity of nine
 independently authored prompts, for 90 declared candidates. DPO does not
 import, rename, or transform SFT source specs.
 Generation preflights the full DPO inventory, its separation from SFT, and the
-initial target plus configured replacement budget before constructing a
-provider backend. Accepted output must have unique normalized prompts and
-complete preference triples; replacements use later source indexes and retain
-the same preference-dimension allocation.
+explicit candidate range before constructing a provider backend. Accepted
+output must have unique normalized prompts and complete preference triples;
+quality-rejected candidates are not replaced.
 
 `make alignment-preflight` audits both complete inventories without contacting
 a provider. It rejects duplicate semantic keys, exact or near-duplicate source
 content, number-only variants, numbered variants, template concentration,
 missing axis coverage, invalid metadata, and DPO prompts copied from SFT.
 
-Failure-mode coverage, chosen/rejected similarity, and repeated negative constructions are reported at aggregate and per-family levels. They are inspection signals rather than automatic rejection thresholds. Exact duplicates, holdout collisions, inconsistent accounting, and underfilled accepted targets block publication.
+Failure-mode coverage, chosen/rejected similarity, and repeated negative constructions are reported at aggregate and per-dimension levels. They are inspection signals rather than automatic rejection thresholds. Exact duplicates, holdout collisions, empty output, and inconsistent accounting block publication.
 
 ## Distillation SFT Signals
 

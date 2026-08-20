@@ -151,10 +151,10 @@ def test_dpo_report_blocks_normalized_duplicates_and_holdout_collisions(tmp_path
     assert report["content_quality"]["prompts"]["duplicate_count"] == 1
     assert report["content_quality"]["triples"]["duplicate_count"] == 1
     assert report["acceptance"]["duplicate_pairs"] == 1
-    assert report["acceptance"]["remaining_pairs"] == 1
+    assert report["acceptance"]["estimated_tokens"] > 0
     assert report["holdouts"]["collision_ids"] == ["one", "two"]
     assert report["acceptance"]["publish_blockers"] == [
-        "duplicate_prompts", "duplicate_triples", "eval_holdout_collisions", "accepted_target_underfilled",
+        "duplicate_prompts", "duplicate_triples", "eval_holdout_collisions",
     ]
 
 
@@ -169,12 +169,12 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
     manifest_path = tmp_path / "run.manifest.json"
     manifest_path.write_text(json.dumps({"metadata": {
         "publish_ready": True,
-        "planned_pairs": 1,
+        "candidate_pairs": 2,
         "attempted_pairs": 2,
-        "accepted_target": {"target": 1, "accepted": 1, "attempted": 2, "remaining": 0},
+        "accepted_pairs": 1,
         "duplicate_pairs": 1,
         "duplicate_reason_counts": {"duplicate_prompt": 1},
-        "pairs_per_family": {"factual_accuracy": 1},
+        "candidate_pairs_per_dimension": {"factual_accuracy": 2},
     }}), encoding="utf-8")
 
     report = build_coverage_report(
@@ -184,6 +184,7 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
     assert report["acceptance"]["attempted_pairs"] == 2
     assert report["acceptance"]["accepted_pairs"] == 1
     assert report["acceptance"]["duplicate_pairs"] == 1
-    assert report["acceptance"]["remaining_pairs"] == 0
+    assert report["acceptance"]["candidate_pairs"] == 2
+    assert report["acceptance"]["estimated_tokens"] > 0
     assert report["acceptance"]["publish_ready"] is True
     require_publish_ready_report(report)

@@ -65,7 +65,7 @@ def generate(tmp_path, backend, **planning):
 
 
 def test_generate_sft_llm_run_writes_candidate_manifest(tmp_path):
-    result = generate(tmp_path, FakeSFTBackend(), count_per_family=3)
+    result = generate(tmp_path, FakeSFTBackend(), candidate_counts_by_family={"grounded_qa_and_reading": 3})
     manifest = json.loads(result.manifest_path.read_text())
     assert result.row_count == 3
     assert manifest["metadata"]["candidate_rows"] == 3
@@ -88,7 +88,7 @@ def test_generate_sft_llm_run_supports_explicit_candidate_counts(tmp_path):
 
 
 def test_generate_sft_llm_run_does_not_replace_duplicate_candidates(tmp_path):
-    result = generate(tmp_path, DuplicatePromptSFTBackend(), count_per_family=2)
+    result = generate(tmp_path, DuplicatePromptSFTBackend(), candidate_counts_by_family={"grounded_qa_and_reading": 2})
     manifest = json.loads(result.manifest_path.read_text())
     assert result.row_count == 1
     assert manifest["metadata"]["candidate_rows"] == 2
@@ -98,7 +98,7 @@ def test_generate_sft_llm_run_does_not_replace_duplicate_candidates(tmp_path):
 
 
 def test_generate_sft_llm_run_does_not_replace_rejected_candidates(tmp_path):
-    result = generate(tmp_path, RejectSecondSFTBackend(), count_per_family=2)
+    result = generate(tmp_path, RejectSecondSFTBackend(), candidate_counts_by_family={"grounded_qa_and_reading": 2})
     manifest = json.loads(result.manifest_path.read_text())
     assert result.row_count == 1
     assert manifest["metadata"]["attempted_rows"] == 2
@@ -108,14 +108,14 @@ def test_generate_sft_llm_run_does_not_replace_rejected_candidates(tmp_path):
 
 def test_generate_sft_llm_run_reduces_batch_size_after_failure(tmp_path):
     backend = SplitOnLargeSFTBackend()
-    result = generate(tmp_path, backend, count_per_family=3, batch_size=3)
+    result = generate(tmp_path, backend, candidate_counts_by_family={"grounded_qa_and_reading": 3}, batch_size=3)
     assert result.row_count == 3
     assert backend.calls == [3, 1, 1, 1]
 
 
-def test_generate_sft_llm_run_rejects_multiple_planning_strategies(tmp_path):
-    with pytest.raises(ValueError, match="provide only one"):
-        generate(tmp_path, FakeSFTBackend(), count_per_family=1, candidate_counts_by_family={"grounded_qa_and_reading": 1})
+def test_generate_sft_llm_run_requires_exact_candidate_mapping(tmp_path):
+    with pytest.raises(ValueError, match="exactly the requested"):
+        generate(tmp_path, FakeSFTBackend(), families=["grounded_qa_and_reading", "summarization"], candidate_counts_by_family={"grounded_qa_and_reading": 1})
 
 
 def test_generate_sft_llm_run_checks_capacity_before_backend_construction(tmp_path, monkeypatch):
@@ -123,7 +123,7 @@ def test_generate_sft_llm_run_checks_capacity_before_backend_construction(tmp_pa
     monkeypatch.setattr("slm_synth.sft.runs.build_openrouter_backend", lambda **kwargs: calls.append(kwargs))
     with pytest.raises(ValueError, match="finite source capacity"):
         generate_llm_run(
-            families=["summarization"], count_per_family=2, batch_size=1,
+            families=["summarization"], candidate_counts_by_family={"summarization": 2}, batch_size=1,
             output_dir=tmp_path / "datasets", manifest_dir=tmp_path / "manifests",
             teacher_model="teacher/model", generation_run="too-large", max_tokens=100,
             start_index=unique_capacity("summarization"), concurrency=1,

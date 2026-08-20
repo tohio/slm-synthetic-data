@@ -159,6 +159,7 @@ def _print_chat_run_summary(*, label: str, manifest: Mapping[str, Any]) -> None:
     print(
         f"[generate] Completed {label} run: "
         f"rows={int(manifest.get('total_rows', 0) or 0)}, "
+        f"estimated_tokens={int(metadata.get('estimated_tokens', 0) or 0)}, "
         f"families={len(families)}, "
         f"batch_size={metadata.get('batch_size', 'n/a')}, "
         f"concurrency={metadata.get('concurrency', 'n/a')}, "

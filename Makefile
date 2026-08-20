@@ -104,7 +104,7 @@ SFT_INSPECT_RUN ?= $(SFT_REPORT_RUN)
 SFT_FAMILIES ?= all
 SFT_SMOKE_FAMILIES ?= grounded_qa_and_reading
 SFT_CANDIDATE_COUNTS ?=
-SFT_SMOKE_COUNT_PER_FAMILY ?= 2
+SFT_SMOKE_CANDIDATE_COUNTS ?= grounded_qa_and_reading=2
 SFT_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 SFT_SMOKE_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 SFT_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
@@ -122,30 +122,27 @@ SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-sft,))
 SFT_LEGACY_HF_PREFIX ?= slm-synthetic-sft
 SFT_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin SFT_FAMILIES)),$(SFT_FAMILIES),$(SFT_SMOKE_FAMILIES))
+SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE := $(if $(filter command line,$(origin SFT_CANDIDATE_COUNTS)),$(SFT_CANDIDATE_COUNTS),$(SFT_SMOKE_CANDIDATE_COUNTS))
 
 # DPO
 DPO_RUN ?= dpo-smoke-001
-DPO_TARGET_RUN ?= dpo-target-001
+DPO_GENERATION_RUN ?= dpo-candidate-001
 DPO_REPORT_RUN ?= $(DPO_RUN)
 DPO_INSPECT_RUN ?= $(DPO_REPORT_RUN)
 DPO_FAMILIES ?= all
 DPO_SMOKE_FAMILIES ?= instruction_adherence
-DPO_TARGET_PAIRS ?= 14000
-DPO_COUNT_PER_FAMILY ?= 1000
-DPO_SMOKE_COUNT_PER_FAMILY ?= 2
+DPO_CANDIDATE_COUNTS ?=
+DPO_SMOKE_CANDIDATE_COUNTS ?= instruction_adherence=2
 DPO_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 DPO_SMOKE_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 DPO_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
-DPO_TARGET_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
+DPO_GENERATION_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
 DPO_RUN_ROOT ?= data/dpo/runs
 DPO_MODEL ?= $(MODEL)
 DPO_ADJUDICATOR_MODEL ?= $(DPO_MODEL)
 DPO_INITIAL_CONCURRENCY ?= 8
 DPO_INITIAL_BATCH_SIZE ?= 4
 DPO_BATCH_INCREASE_SUCCESSES ?= 4
-DPO_MAX_BACKFILL_ROUNDS ?= 2
-DPO_RESUME ?= false
-DPO_RESUME_ARG := $(if $(filter true yes 1,$(DPO_RESUME)),--resume,)
 DPO_MAX_TOKENS ?= 4096
 DPO_ADJUDICATOR_MAX_TOKENS ?= $(DPO_MAX_TOKENS)
 DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
@@ -153,6 +150,7 @@ DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-dpo,))
 DPO_HF_PREFIX ?= slm-synthetic-dpo
 DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin DPO_FAMILIES)),$(DPO_FAMILIES),$(DPO_SMOKE_FAMILIES))
+DPO_SMOKE_CANDIDATE_COUNTS_EFFECTIVE := $(if $(filter command line,$(origin DPO_CANDIDATE_COUNTS)),$(DPO_CANDIDATE_COUNTS),$(DPO_SMOKE_CANDIDATE_COUNTS))
 
 # Hugging Face dataset deletion
 HF_DELETE_NAMESPACE ?= $(HF_NAMESPACE)
@@ -247,8 +245,7 @@ help:
 > @echo "  DISTILLATION_DPO_HF_REPO=$(DISTILLATION_DPO_HF_REPO)"
 > @echo "  SFT_CANDIDATE_COUNTS=$(SFT_CANDIDATE_COUNTS)"
 > @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
-> @echo "  DPO_TARGET_PAIRS=$(DPO_TARGET_PAIRS)"
-> @echo "  DPO_COUNT_PER_FAMILY=$(DPO_COUNT_PER_FAMILY)"
+> @echo "  DPO_CANDIDATE_COUNTS=$(DPO_CANDIDATE_COUNTS)"
 > @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
 > @echo "  DPO_HF_PREFIX=$(DPO_HF_PREFIX)"
 > @echo "  HF_DELETE_NAMESPACE=$(HF_DELETE_NAMESPACE)"
@@ -453,7 +450,7 @@ dpo-preflight:
 sft-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_SMOKE_FAMILIES_EFFECTIVE) \
->   --count-per-family $(SFT_SMOKE_COUNT_PER_FAMILY) \
+>   --candidate-counts $(SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE) \
 >   --batch-size $(SFT_SMOKE_BATCH_SIZE) \
 >   --output-dir $(SFT_RUN_ROOT)/$(SFT_RUN)/datasets \
 >   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_RUN)/manifests \
@@ -516,7 +513,7 @@ sft-push:
 dpo-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
 >   --families $(DPO_SMOKE_FAMILIES_EFFECTIVE) \
->   --count-per-family $(DPO_SMOKE_COUNT_PER_FAMILY) \
+>   --candidate-counts $(DPO_SMOKE_CANDIDATE_COUNTS_EFFECTIVE) \
 >   --batch-size $(DPO_SMOKE_BATCH_SIZE) \
 >   --output-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/datasets \
 >   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/manifests \
@@ -530,32 +527,29 @@ dpo-smoke:
 >   --concurrency $(DPO_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS) \
->   $(DPO_RESUME_ARG)
+>   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_RUN)
 
 dpo-generate:
+> @test -n "$(strip $(DPO_CANDIDATE_COUNTS))" || (echo "DPO_CANDIDATE_COUNTS is required (dimension=count ...)" >&2; exit 2)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
 >   --families $(DPO_FAMILIES) \
->   --target-pairs $(DPO_TARGET_PAIRS) \
+>   --candidate-counts $(DPO_CANDIDATE_COUNTS) \
 >   --batch-size $(DPO_BATCH_SIZE) \
->   --output-dir $(DPO_RUN_ROOT)/$(DPO_TARGET_RUN)/datasets \
->   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_TARGET_RUN)/manifests \
+>   --output-dir $(DPO_RUN_ROOT)/$(DPO_GENERATION_RUN)/datasets \
+>   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_GENERATION_RUN)/manifests \
 >   --teacher-model $(DPO_MODEL) \
->   --generation-run $(DPO_TARGET_RUN) \
+>   --generation-run $(DPO_GENERATION_RUN) \
 >   --max-tokens $(DPO_MAX_TOKENS) \
 >   --adjudicator-model $(DPO_ADJUDICATOR_MODEL) \
 >   --adjudicator-max-tokens $(DPO_ADJUDICATOR_MAX_TOKENS) \
 >   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   $(OPENROUTER_ROUTING_ARGS) \
->   --concurrency $(DPO_TARGET_CONCURRENCY) \
+>   --concurrency $(DPO_GENERATION_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
 >   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES) \
->   --max-backfill-rounds $(DPO_MAX_BACKFILL_ROUNDS) \
->   $(DPO_RESUME_ARG)
-> $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_TARGET_RUN)
+>   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
+> $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_GENERATION_RUN)
 
 dpo-report:
 > $(PYTHON) -m slm_synth.dpo.cli report-coverage \

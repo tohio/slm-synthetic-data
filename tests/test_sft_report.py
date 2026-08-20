@@ -83,7 +83,8 @@ def test_build_sft_coverage_report_counts_metadata_across_files(tmp_path):
     assert report["difficulty_counts"] == {"1": 3}
     assert report["families"]["grounded_qa_and_reading"]["acceptance"] == {
         "attempted_rows": 2,
-        "accepted_rows": 2,
+            "accepted_rows": 2,
+            "estimated_tokens": 68,
         "rejected_rows": 0,
         "duplicate_rows": 0,
         "candidate_rows": 2,

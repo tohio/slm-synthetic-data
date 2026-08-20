@@ -7,13 +7,12 @@ from collections import Counter, deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from slm_synth.accepted_target import accepted_target_metadata, raise_for_underfilled_manifest
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
-from slm_synth.planning import build_count_plan
+from slm_synth.alignment_tokens import estimate_dpo_tokens
+from slm_synth.planning import CountPlan
 from slm_synth.dpo.generation import (
     DPOBatchAcceptanceError,
     StructuredTeacherBackend,
@@ -57,8 +56,7 @@ def default_batch_output_dir(output_dir: str | Path) -> Path:
 def generate_llm_run(
     *,
     families: list[str] | tuple[str, ...] | None,
-    count_per_family: int | None = None,
-    target_pairs: int | None = None,
+    candidate_counts_by_dimension: dict[str, int],
     batch_size: int = 1,
     output_dir: str | Path,
     manifest_dir: str | Path,
@@ -82,8 +80,6 @@ def generate_llm_run(
     adaptive_initial_batch_size: int = DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
     adaptive_batch_increase_successes: int = DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
     concurrency: int = DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
-    max_backfill_rounds: int = 2,
-    resume: bool = False,
     run_manifest_filename: str | None = None,
     metadata: dict[str, Any] | None = None,
     holdout_registry: HoldoutRegistry | None = None,
@@ -92,73 +88,34 @@ def generate_llm_run(
 ) -> DPOLLMRunResult:
     """Build specs and generate DPO datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
-    count_plan = build_count_plan(
-        keys=resolved_families,
-        count_per_key=count_per_family,
-        target_count=target_pairs,
-        key_name="family",
-        count_per_key_name="count_per_family",
-        target_count_name="target_pairs",
-        target_mode="target_pairs",
+    normalized_counts = {
+        str(dimension).strip().lower(): count
+        for dimension, count in candidate_counts_by_dimension.items()
+    }
+    if set(normalized_counts) != set(resolved_families):
+        raise ValueError(
+            "candidate_counts_by_dimension must contain exactly the requested preference dimensions"
+        )
+    for dimension, count in normalized_counts.items():
+        _validate_positive_int(count, f"candidate count for {dimension}")
+    count_plan = CountPlan(
+        planning_mode="candidate_counts_by_dimension",
+        counts_by_key={dimension: normalized_counts[dimension] for dimension in resolved_families},
     )
     _validate_openrouter_batch_size(batch_size)
     _validate_positive_int(start_index, "start_index")
     _validate_openrouter_concurrency(concurrency)
-    _validate_non_negative_int(max_backfill_rounds, "max_backfill_rounds")
     _validate_positive_int(adaptive_initial_batch_size, "adaptive_initial_batch_size")
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
     adaptive_maximum_in_flight = concurrency
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
-    resume_state = _load_resume_state(
-        resume=resume,
-        manifest_path=run_manifest_path,
-        output_dir=output_dir,
-        generation_run=generation_run,
-        families=resolved_families,
-        target_pairs_per_family=dict(count_plan.counts_by_key),
-        start_index=start_index,
-        teacher_model=teacher_model,
-        teacher_provider=teacher_provider,
-        adjudicator_model=adjudicator_model if adjudicator_model is not None else teacher_model,
-        adjudicator_max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
-    )
-    if resume_state["complete"]:
-        return DPOLLMRunResult(
-            results=(),
-            row_count=resume_state["accepted_pairs"],
-            families=resolved_families,
-            generation_run=generation_run,
-            manifest_path=run_manifest_path,
+    for family in resolved_families:
+        validate_spec_range(
+            family=family,
+            count=count_plan.counts_by_key[family],
+            start_index=start_index,
         )
-    if resume and max_backfill_rounds < resume_state["backfill_rounds"]:
-        raise ValueError(
-            "max_backfill_rounds cannot be lower than rounds already recorded by the resumed DPO run"
-        )
-
-    # Validate the complete worst-case source range before credentials are read
-    # or a provider backend is constructed.
-    if resume:
-        remaining_for_resume = _remaining_pairs_by_family(
-            targets=dict(count_plan.counts_by_key),
-            accepted_rows_by_family=resume_state["accepted_rows_by_family"],
-        )
-        remaining_rounds = max(max_backfill_rounds - resume_state["backfill_rounds"], 0)
-        for family in resolved_families:
-            possible_attempts = remaining_for_resume[family] * remaining_rounds
-            if possible_attempts:
-                validate_spec_range(
-                    family=family,
-                    count=possible_attempts,
-                    start_index=resume_state["next_source_indexes"][family],
-                )
-    else:
-        for family in resolved_families:
-            validate_spec_range(
-                family=family,
-                count=count_plan.counts_by_key[family] * (max_backfill_rounds + 1),
-                start_index=start_index,
-            )
 
     # Preflight every DPO source and its separation from SFT before credentials
     # are read or a provider backend can be constructed.
@@ -231,8 +188,6 @@ def generate_llm_run(
                 "batch_number": job["batch_number"],
                 "batch_start_index": job["batch_start_index"],
                 "batch_size": len(job["specs"]),
-                "backfill_round": job["backfill_round"],
-                "is_backfill": job["backfill_round"] > 0,
                 **job.get("adaptive_batch_size", {}),
                 **dict(metadata or {}),
             },
@@ -249,15 +204,15 @@ def generate_llm_run(
         initial=adaptive_initial_batch_size,
         increase_successes=adaptive_batch_increase_successes,
     )
-    next_batch_numbers = dict(resume_state["next_batch_numbers"])
-    next_source_indexes = dict(resume_state["next_source_indexes"])
-    accepted_rows_by_family = dict(resume_state["accepted_rows_by_family"])
-    datasets = list(resume_state["datasets"])
-    output_acceptance = dict(resume_state["acceptance"])
-    backfill_rounds = resume_state["backfill_rounds"]
+    initial_state = _empty_run_state(families=resolved_families, start_index=start_index)
+    next_batch_numbers = dict(initial_state["next_batch_numbers"])
+    next_source_indexes = dict(initial_state["next_source_indexes"])
+    accepted_rows_by_family = dict(initial_state["accepted_rows_by_family"])
+    datasets = list(initial_state["datasets"])
+    output_acceptance = dict(initial_state["acceptance"])
 
-    def run_generation_round(
-        request_counts: dict[str, int], *, round_number: int
+    def run_generation(
+        request_counts: dict[str, int],
     ) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
         round_jobs: list[dict[str, Any]] = []
         rejected_pairs_per_family = {family: 0 for family in resolved_families}
@@ -272,7 +227,7 @@ def generate_llm_run(
             next_source_indexes[family] += requested_pairs
             print(
                 "[generate] Starting DPO family: "
-                f"{family} (round={round_number}, requested_pairs={len(specs)}, batch_size={batch_size}, "
+                f"{family} (candidate_pairs={len(specs)}, batch_size={batch_size}, "
                 f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
                 flush=True,
             )
@@ -286,7 +241,6 @@ def generate_llm_run(
                     "family": family,
                     "batch_number": batch_number,
                     "batch_start_index": batch_start_index,
-                    "backfill_round": round_number,
                     "specs": batch_specs,
                     "dataset_path": default_batch_output_dir(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
                     "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
@@ -360,7 +314,7 @@ def generate_llm_run(
                         submit_available(executor)
             print(
                 "[generate] Completed DPO family: "
-                f"{family} round={round_number} pairs={family_pairs_done}, requested_pairs={len(specs)}, "
+                f"{family} rendered_pairs={family_pairs_done}, candidate_pairs={len(specs)}, "
                 f"batch_size={batch_size}, min_batch_size=1, parallel_requests={concurrency}, "
                 f"adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
                 f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "
@@ -372,14 +326,9 @@ def generate_llm_run(
         round_jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
         return round_jobs, rejected_pairs_per_family, dict(rejection_reason_counts)
 
-    initial_counts = {
-        family: 0 if resume else count_plan.counts_by_key[family]
-        for family in resolved_families
-    }
+    initial_counts = dict(count_plan.counts_by_key)
     if any(initial_counts.values()):
-        initial_jobs, initial_rejected, initial_rejection_reasons = run_generation_round(
-            initial_counts, round_number=0
-        )
+        initial_jobs, initial_rejected, initial_rejection_reasons = run_generation(initial_counts)
         datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
             jobs=initial_jobs,
             output_dir=output_dir,
@@ -391,35 +340,15 @@ def generate_llm_run(
             new_rejection_reason_counts=initial_rejection_reasons,
         )
 
-    remaining_by_family = _remaining_pairs_by_family(
-        targets=dict(count_plan.counts_by_key),
-        accepted_rows_by_family=accepted_rows_by_family,
-    )
-    while any(remaining_by_family.values()) and backfill_rounds < max_backfill_rounds:
-        backfill_rounds += 1
-        backfill_jobs, backfill_rejected, backfill_rejection_reasons = run_generation_round(
-            remaining_by_family, round_number=backfill_rounds
-        )
-        datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
-            jobs=backfill_jobs,
-            output_dir=output_dir,
-            families=resolved_families,
-            accepted_rows_by_family=accepted_rows_by_family,
-            prior_datasets=datasets,
-            prior_acceptance=output_acceptance,
-            new_rejected_pairs_per_family=backfill_rejected,
-            new_rejection_reason_counts=backfill_rejection_reasons,
-        )
-        remaining_by_family = _remaining_pairs_by_family(
-            targets=dict(count_plan.counts_by_key),
-            accepted_rows_by_family=accepted_rows_by_family,
-        )
-
-    planned_pairs = count_plan.planned_count
+    candidate_pairs = count_plan.planned_count
     accepted_pairs = sum(dataset["row_count"] for dataset in datasets)
     attempted_pairs = output_acceptance["attempted_pairs"]
     duplicate_pairs = output_acceptance["duplicate_pairs"]
     rejected_pairs = max(attempted_pairs - accepted_pairs - duplicate_pairs, 0)
+    estimated_tokens_per_dimension = {
+        family: sum(estimate_dpo_tokens(row) for row in accepted_rows_by_family[family])
+        for family in resolved_families
+    }
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
         generation_run=generation_run,
@@ -432,35 +361,23 @@ def generate_llm_run(
             "planning_mode": count_plan.planning_mode,
             "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
             "adjudicator_max_tokens": adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
-            "target_pairs": target_pairs,
-            "planned_pairs": planned_pairs,
+            "candidate_pairs": candidate_pairs,
             "accepted_pairs": accepted_pairs,
+            "estimated_tokens": sum(estimated_tokens_per_dimension.values()),
             "rejected_pairs": rejected_pairs,
             "rejection_reason_counts": output_acceptance["rejection_reason_counts"],
             "attempted_pairs": attempted_pairs,
             "duplicate_pairs": duplicate_pairs,
             "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],
-            "attempted_pairs_per_family": output_acceptance["attempted_pairs_per_family"],
-            "accepted_pairs_per_family": output_acceptance["accepted_pairs_per_family"],
-            "rejected_pairs_per_family": output_acceptance["rejected_pairs_per_family"],
-            "duplicate_pairs_per_family": output_acceptance["duplicate_pairs_per_family"],
-            "max_backfill_rounds": max_backfill_rounds,
-            "backfill_rounds": backfill_rounds,
+            "attempted_pairs_per_dimension": output_acceptance["attempted_pairs_per_family"],
+            "accepted_pairs_per_dimension": output_acceptance["accepted_pairs_per_family"],
+            "estimated_tokens_per_dimension": estimated_tokens_per_dimension,
+            "rejected_pairs_per_dimension": output_acceptance["rejected_pairs_per_family"],
+            "duplicate_pairs_per_dimension": output_acceptance["duplicate_pairs_per_family"],
             "next_start_index_per_family": next_source_indexes,
-            "accepted_content_fingerprints_per_family": {
-                family: _rows_fingerprint(accepted_rows_by_family[family])
-                for family in resolved_families
-            },
-            **accepted_target_metadata(
-                unit="pairs",
-                target_count=planned_pairs,
-                accepted_count=accepted_pairs,
-                attempted_count=attempted_pairs,
-                max_backfill_rounds=max_backfill_rounds,
-                backfill_rounds=backfill_rounds,
-            ),
-            "pairs_per_family": dict(count_plan.counts_by_key),
-            "count_per_family": count_per_family,
+            "candidate_pairs_per_dimension": dict(count_plan.counts_by_key),
+            "generation_status": "complete",
+            "publish_ready": True,
             "batch_size": batch_size,
             "concurrency": concurrency,
             "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
@@ -472,7 +389,6 @@ def generate_llm_run(
                 [
                     telemetry
                     for telemetry in (
-                        resume_state["llm_telemetry"],
                         aggregate_llm_telemetry_from_manifests(
                             result.manifest_path for result in results
                         ),
@@ -485,8 +401,6 @@ def generate_llm_run(
             **dict(metadata or {}),
         },
     )
-    raise_for_underfilled_manifest(run_manifest_path, artifact_name="DPO")
-
     return DPOLLMRunResult(
         results=tuple(results),
         row_count=accepted_pairs,
@@ -656,171 +570,9 @@ def _write_public_family_files(
     return datasets, acceptance, current_rows_by_family
 
 
-def _remaining_pairs_by_family(
-    *, targets: dict[str, int], accepted_rows_by_family: dict[str, list[dict[str, Any]]]
-) -> dict[str, int]:
-    return {
-        family: max(target - len(accepted_rows_by_family.get(family, [])), 0)
-        for family, target in targets.items()
-    }
-
-
-def _load_resume_state(
-    *,
-    resume: bool,
-    manifest_path: Path,
-    output_dir: str | Path,
-    generation_run: str,
-    families: tuple[str, ...],
-    target_pairs_per_family: dict[str, int],
-    start_index: int,
-    teacher_model: str,
-    teacher_provider: str,
-    adjudicator_model: str,
-    adjudicator_max_tokens: int,
-) -> dict[str, Any]:
-    if not resume:
-        return _empty_resume_state(families=families, start_index=start_index)
-    if not manifest_path.is_file():
-        raise FileNotFoundError(f"cannot resume DPO run without run manifest: {manifest_path}")
-
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(manifest, dict):
-        raise ValueError(f"DPO resume manifest must contain a JSON object: {manifest_path}")
-    if manifest.get("dataset_type") != "dpo" or manifest.get("generation_run") != generation_run:
-        raise ValueError("DPO resume manifest does not match dataset type and generation run")
-    if tuple(manifest.get("families", [])) != families:
-        raise ValueError("DPO resume families do not match the existing run manifest")
-    if manifest.get("teacher_model") != teacher_model or manifest.get("teacher_provider") != teacher_provider:
-        raise ValueError("DPO resume teacher configuration does not match the existing run manifest")
-
-    metadata = manifest.get("metadata")
-    if not isinstance(metadata, dict):
-        raise ValueError("DPO resume manifest is missing metadata")
-    if (
-        metadata.get("adjudicator_model") != adjudicator_model
-        or metadata.get("adjudicator_max_tokens") != adjudicator_max_tokens
-    ):
-        raise ValueError("DPO resume adjudicator configuration does not match the existing run manifest")
-    if metadata.get("pairs_per_family") != target_pairs_per_family or metadata.get("start_index") != start_index:
-        raise ValueError("DPO resume source plan does not match the existing run manifest")
-    next_source_indexes = metadata.get("next_start_index_per_family")
-    if not isinstance(next_source_indexes, dict) or set(next_source_indexes) != set(families):
-        raise ValueError("DPO resume manifest is missing next source indexes")
-    for family, value in next_source_indexes.items():
-        _validate_positive_int(value, f"next_start_index_per_family[{family}]")
-
-    manifest_datasets = manifest.get("datasets")
-    if not isinstance(manifest_datasets, list):
-        raise ValueError("DPO resume manifest is missing datasets")
-    datasets_by_family = {
-        item.get("family"): item
-        for item in manifest_datasets
-        if isinstance(item, dict) and isinstance(item.get("family"), str)
-    }
-    content_fingerprints = metadata.get("accepted_content_fingerprints_per_family")
-    if not isinstance(content_fingerprints, dict) or set(content_fingerprints) != set(families):
-        raise ValueError("DPO resume manifest is missing accepted content fingerprints")
-
-    accepted_rows_by_family: dict[str, list[dict[str, Any]]] = {}
-    datasets: list[dict[str, Any]] = []
-    next_batch_numbers: dict[str, int] = {}
-    for family in families:
-        item = datasets_by_family.get(family)
-        if not isinstance(item, dict):
-            raise ValueError(f"DPO resume manifest is missing dataset entry for {family}")
-        dataset_path = Path(output_dir) / f"{family}.jsonl"
-        if not dataset_path.is_file():
-            raise FileNotFoundError(f"DPO resume dataset does not exist: {dataset_path}")
-        rows = read_jsonl(dataset_path)
-        if item.get("row_count") != len(rows):
-            raise ValueError(f"DPO resume dataset row count does not match manifest for {family}")
-        if any(row["metadata"]["preference_dimension"] != family for row in rows):
-            raise ValueError(f"DPO resume dataset contains the wrong family metadata for {family}")
-        if content_fingerprints.get(family) != _rows_fingerprint(rows):
-            raise ValueError(f"DPO resume dataset content fingerprint does not match manifest for {family}")
-        accepted_rows_by_family[family] = rows
-        raw_batch_manifests = item.get("batch_manifests")
-        if not isinstance(raw_batch_manifests, list):
-            raise ValueError(f"DPO resume batch manifests must be a list for {family}")
-        batch_manifests = [Path(path) for path in raw_batch_manifests]
-        if item.get("batch_count") != len(batch_manifests):
-            raise ValueError(f"DPO resume batch count does not match manifest list for {family}")
-        missing = [path for path in batch_manifests if not path.is_file()]
-        if missing:
-            raise FileNotFoundError(f"DPO resume batch manifest does not exist: {missing[0]}")
-        datasets.append(
-            {
-                "family": family,
-                "dataset_path": dataset_path,
-                "row_count": len(rows),
-                "batch_count": len(batch_manifests),
-                "batch_manifests": batch_manifests,
-            }
-        )
-        next_batch_numbers[family] = _next_batch_number(batch_manifests)
-
-    accepted_rows, unique_summary = partition_unique_dpo_rows(
-        row for family in families for row in accepted_rows_by_family[family]
-    )
-    if unique_summary["duplicate_pairs"]:
-        raise ValueError("DPO resume public datasets contain duplicate accepted content")
-    accepted_count = len(accepted_rows)
-    accepted_target = metadata.get("accepted_target")
-    expected_target = sum(target_pairs_per_family.values())
-    expected_remaining = expected_target - accepted_count
-    if (
-        not isinstance(accepted_target, dict)
-        or accepted_target.get("target") != expected_target
-        or accepted_target.get("accepted") != accepted_count
-        or accepted_target.get("remaining") != expected_remaining
-    ):
-        raise ValueError("DPO resume accepted count does not match public datasets")
-
-    acceptance = {
-        "attempted_pairs": metadata.get("attempted_pairs"),
-        "accepted_pairs": metadata.get("accepted_pairs"),
-        "duplicate_pairs": metadata.get("duplicate_pairs"),
-        "duplicate_reason_counts": metadata.get("duplicate_reason_counts", {}),
-        "rejection_reason_counts": metadata.get("rejection_reason_counts", {}),
-        "attempted_pairs_per_family": metadata.get("attempted_pairs_per_family"),
-        "accepted_pairs_per_family": metadata.get("accepted_pairs_per_family"),
-        "duplicate_pairs_per_family": metadata.get("duplicate_pairs_per_family"),
-        "rejected_pairs_per_family": metadata.get("rejected_pairs_per_family"),
-    }
-    _validate_resume_acceptance(acceptance, families=families, accepted_pairs=accepted_count)
-    llm_telemetry = metadata.get("llm_telemetry", {})
-    if not isinstance(llm_telemetry, dict):
-        raise ValueError("DPO resume manifest has invalid llm_telemetry")
-    backfill_rounds = metadata.get("backfill_rounds", 0)
-    _validate_non_negative_int(backfill_rounds, "backfill_rounds")
-    remaining = _remaining_pairs_by_family(
-        targets=target_pairs_per_family,
-        accepted_rows_by_family=accepted_rows_by_family,
-    )
-    complete = (
-        not any(remaining.values())
-        and metadata.get("publish_ready") is True
-        and accepted_target.get("publish_ready") is True
-    )
-    return {
-        "complete": complete,
-        "accepted_pairs": accepted_count,
-        "accepted_rows_by_family": accepted_rows_by_family,
-        "datasets": datasets,
-        "acceptance": acceptance,
-        "backfill_rounds": backfill_rounds,
-        "next_source_indexes": dict(next_source_indexes),
-        "next_batch_numbers": next_batch_numbers,
-        "llm_telemetry": dict(llm_telemetry),
-    }
-
-
-def _empty_resume_state(*, families: tuple[str, ...], start_index: int) -> dict[str, Any]:
+def _empty_run_state(*, families: tuple[str, ...], start_index: int) -> dict[str, Any]:
     empty_counts = {family: 0 for family in families}
     return {
-        "complete": False,
-        "accepted_pairs": 0,
         "accepted_rows_by_family": {family: [] for family in families},
         "datasets": [],
         "acceptance": {
@@ -834,80 +586,14 @@ def _empty_resume_state(*, families: tuple[str, ...], start_index: int) -> dict[
             "duplicate_pairs_per_family": dict(empty_counts),
             "rejected_pairs_per_family": dict(empty_counts),
         },
-        "backfill_rounds": 0,
         "next_source_indexes": {family: start_index for family in families},
         "next_batch_numbers": {family: 1 for family in families},
-        "llm_telemetry": {},
     }
-
-
-def _validate_resume_acceptance(
-    acceptance: dict[str, Any], *, families: tuple[str, ...], accepted_pairs: int
-) -> None:
-    for field in ("attempted_pairs", "accepted_pairs", "duplicate_pairs"):
-        _validate_non_negative_int(acceptance.get(field), field)
-    if acceptance["accepted_pairs"] != accepted_pairs:
-        raise ValueError("DPO resume accepted-pair accounting does not match public datasets")
-    for field in (
-        "attempted_pairs_per_family",
-        "accepted_pairs_per_family",
-        "duplicate_pairs_per_family",
-        "rejected_pairs_per_family",
-    ):
-        values = acceptance.get(field)
-        if not isinstance(values, dict) or set(values) != set(families):
-            raise ValueError(f"DPO resume manifest has invalid {field}")
-        for family, value in values.items():
-            _validate_non_negative_int(value, f"{field}[{family}]")
-    if sum(acceptance["accepted_pairs_per_family"].values()) != acceptance["accepted_pairs"]:
-        raise ValueError("DPO resume per-family accepted counts do not match aggregate accounting")
-    if sum(acceptance["attempted_pairs_per_family"].values()) != acceptance["attempted_pairs"]:
-        raise ValueError("DPO resume per-family attempted counts do not match aggregate accounting")
-    if sum(acceptance["duplicate_pairs_per_family"].values()) != acceptance["duplicate_pairs"]:
-        raise ValueError("DPO resume per-family duplicate counts do not match aggregate accounting")
-    for family in families:
-        if (
-            acceptance["accepted_pairs_per_family"][family]
-            + acceptance["duplicate_pairs_per_family"][family]
-            + acceptance["rejected_pairs_per_family"][family]
-            != acceptance["attempted_pairs_per_family"][family]
-        ):
-            raise ValueError(f"DPO resume accounting does not balance for {family}")
-    for field in ("duplicate_reason_counts", "rejection_reason_counts"):
-        reasons = acceptance.get(field)
-        if not isinstance(reasons, dict):
-            raise ValueError(f"DPO resume manifest has invalid {field}")
-        for reason, value in reasons.items():
-            if not isinstance(reason, str) or not reason:
-                raise ValueError(f"DPO resume manifest has invalid {field} key")
-            _validate_non_negative_int(value, f"{field}[{reason}]")
-
-
-def _next_batch_number(batch_manifests: list[Path]) -> int:
-    numbers: list[int] = []
-    for path in batch_manifests:
-        name = path.name
-        if ".batch" not in name:
-            continue
-        suffix = name.split(".batch", 1)[1].split(".", 1)[0]
-        if suffix.isdigit():
-            numbers.append(int(suffix))
-    return max(numbers, default=0) + 1
-
-
-def _rows_fingerprint(rows: list[dict[str, Any]]) -> str:
-    payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    return sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:
     if not isinstance(value, int) or value < 1:
         raise ValueError(f"{field_name} must be a positive integer")
-
-
-def _validate_non_negative_int(value: int, field_name: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        raise ValueError(f"{field_name} must be a non-negative integer")
 
 
 def _validate_openrouter_batch_size(value: int) -> None:
