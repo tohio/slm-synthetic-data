@@ -28,7 +28,14 @@ dpo/
 
 DPO is organized by ten preference dimensions. Each pair also carries the shared task, interaction, output, and context axes used by generic SFT. The chosen and rejected responses are generated semantically by the configured teacher; no eval-shaped family or deterministic answer-pair path remains.
 
-Requested source ranges, including the configured replacement budget, are validated before a provider backend is constructed. Model selection remains configurable through `DPO_MODEL`; OpenRouter routing remains configurable through the shared routing variables.
+`source_catalog.py` owns nine independently authored prompts per preference
+dimension. It does not depend on SFT specs. The full 90-prompt catalog is
+checked for semantic-source uniqueness, near-duplicates, template
+concentration, and SFT prompt overlap before generation can construct a
+provider backend. Requested source ranges, including the configured replacement
+budget, are also validated. Model selection remains configurable through
+`DPO_MODEL`; OpenRouter routing remains configurable through the shared routing
+variables.
 
 ## Acceptance and Resume
 

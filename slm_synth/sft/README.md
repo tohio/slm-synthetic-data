@@ -33,3 +33,9 @@ Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and `sft-
 Public SFT rows contain only `id`, `messages`, and public `metadata`. Teacher/provider/run/cost/retry details stay in manifests.
 
 Production runs require explicit candidate counts for every selected family. Candidate counts limit generation work; accepted rows are the quality-filtered outcome and are not backfilled to reach a quota. The default Make paths enforce the configured holdout registry during generation and reporting.
+
+`source_catalog.py` declares six genuinely different briefs for each of the ten
+task families. `python -m slm_synth.alignment_preflight --kind sft` validates
+the complete 60-source catalog, semantic-source uniqueness, near-duplicates,
+template concentration, and axis coverage. Run orchestration calls this gate
+before constructing a paid teacher backend.

@@ -86,6 +86,13 @@ Generic SFT uses ten broad task families rather than eval-shaped families:
 
 Coverage is also labeled by `interaction_modes`, `output_mode`, and `context_mode`. Generic DPO uses the same task axes plus one of ten preference dimensions: helpfulness and completeness, factual accuracy, instruction adherence, appropriate detail, organization, style and tone, tool-call correctness, groundedness, safe-refusal calibration, or code correctness. `eval_family` is not part of generic SFT/DPO specs or public artifacts.
 
+The SFT source inventory is finite and manually curated: six materially
+different briefs per task family, for 60 declared candidates. Each source has
+an internal semantic `source_key`; capacity is the actual catalog length, not
+a template multiplier. The inventory intentionally covers single-turn,
+multi-turn, system-conditioned, concise, structured, tabular, constrained,
+code, supplied-passage, multi-document, and long-document tasks.
+
 Implementation source of truth:
 
 ```text
@@ -115,7 +122,19 @@ Implementation source of truth:
 slm_synth/dpo/spec_builders.py
 ```
 
-Every DPO family declares a finite unique source capacity inherited from its SFT source family. Generation preflights the initial target plus the configured replacement budget before constructing a provider backend. Accepted output must have unique normalized prompts and complete preference triples; replacements use later source indexes and retain the same family allocation.
+Every DPO preference dimension has a unique source capacity of nine
+independently authored prompts, for 90 declared candidates. DPO does not
+import, rename, or transform SFT source specs.
+Generation preflights the full DPO inventory, its separation from SFT, and the
+initial target plus configured replacement budget before constructing a
+provider backend. Accepted output must have unique normalized prompts and
+complete preference triples; replacements use later source indexes and retain
+the same preference-dimension allocation.
+
+`make alignment-preflight` audits both complete inventories without contacting
+a provider. It rejects duplicate semantic keys, exact or near-duplicate source
+content, number-only variants, numbered variants, template concentration,
+missing axis coverage, invalid metadata, and DPO prompts copied from SFT.
 
 Failure-mode coverage, chosen/rejected similarity, and repeated negative constructions are reported at aggregate and per-family levels. They are inspection signals rather than automatic rejection thresholds. Exact duplicates, holdout collisions, inconsistent accounting, and underfilled accepted targets block publication.
 

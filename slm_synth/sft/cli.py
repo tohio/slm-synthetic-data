@@ -73,6 +73,9 @@ def cmd_materialize_llm_batch(args: argparse.Namespace) -> int:
 
 
 def cmd_generate_llm_batch(args: argparse.Namespace) -> int:
+    from slm_synth.alignment_preflight import preflight_sft_inventory
+
+    preflight_sft_inventory()
     result = generate_llm_batch_from_files(
         specs_path=args.specs,
         output_path=args.output,

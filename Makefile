@@ -165,6 +165,7 @@ HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_R
 	distillation-sft-report distillation-sft-inspect distillation-sft-adjudicate distillation-sft-push \
 	distillation-dpo-smoke distillation-dpo-generate \
 	distillation-dpo-report distillation-dpo-inspect distillation-dpo-push \
+	alignment-preflight sft-preflight dpo-preflight \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
 	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
 	hf-delete-datasets hf-delete-sft hf-delete-dpo hf-delete-distillation hf-delete-legacy-distillation-dpo \
@@ -178,6 +179,7 @@ help:
 > @echo "Generate datasets:"
 > @echo "  make pretrain-smoke      Small pretraining generation run"
 > @echo "  make pretrain-generate   Target pretraining generation run"
+> @echo "  make alignment-preflight Validate complete generic SFT and DPO source inventories"
 > @echo "  make distillation-sft-smoke       Small distillation SFT run"
 > @echo "  make distillation-sft-generate    Target distillation SFT run"
 > @echo "  make distillation-dpo-smoke       Small distillation DPO run"
@@ -434,6 +436,15 @@ distillation-dpo-push:
 >   --dataset-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_PUSH_RUN)/datasets \
 >   --run-dir $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_PUSH_RUN) \
 >   --repo-id $(DISTILLATION_DPO_HF_REPO) $(HF_PRIVATE_ARG)
+
+alignment-preflight:
+> $(PYTHON) -m slm_synth.alignment_preflight --kind all
+
+sft-preflight:
+> $(PYTHON) -m slm_synth.alignment_preflight --kind sft
+
+dpo-preflight:
+> $(PYTHON) -m slm_synth.alignment_preflight --kind dpo
 
 sft-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \

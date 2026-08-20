@@ -155,6 +155,12 @@ def generate_llm_run(
                 start_index=start_index,
             )
 
+    # Preflight every DPO source and its separation from SFT before credentials
+    # are read or a provider backend can be constructed.
+    from slm_synth.alignment_preflight import preflight_dpo_inventory
+
+    preflight_dpo_inventory()
+
     active_backend = backend
 
     def get_backend() -> StructuredTeacherBackend:

@@ -77,6 +77,16 @@ or contains a nonzero deficit for any configured signal.
 
 ## SFT
 
+Audit every generic SFT and DPO source before spending on teacher generation:
+
+```bash
+make alignment-preflight
+# or: make sft-preflight / make dpo-preflight
+```
+
+The same full-inventory gate runs inside the SFT and DPO generation entry
+points before an OpenRouter backend is constructed.
+
 ```bash
 make sft-smoke
 make sft-inspect

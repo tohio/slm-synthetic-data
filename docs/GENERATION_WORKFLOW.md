@@ -22,6 +22,11 @@ replaced to fill a quota. DPO pair planning remains separate.
 
 ## Generic SFT
 
+Before a smoke or production request, run `make alignment-preflight`. The gate
+loads all 60 SFT briefs and all 90 independently authored DPO prompts, even when
+the next run requests only one family. Generation invokes the same check before
+constructing its provider backend, so a bad catalog cannot consume paid calls.
+
 Smoke:
 
 ```bash

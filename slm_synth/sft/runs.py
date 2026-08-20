@@ -126,6 +126,13 @@ def generate_llm_run(
             start_index=start_index,
         )
 
+    # Validate the full finite inventory before credentials are read or a
+    # provider backend can be constructed. A clean requested slice cannot hide
+    # a defect elsewhere in the catalog.
+    from slm_synth.alignment_preflight import preflight_sft_inventory
+
+    preflight_sft_inventory()
+
     active_backend = backend
 
     def get_backend() -> StructuredTeacherBackend:

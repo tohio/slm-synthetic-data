@@ -300,7 +300,7 @@ def test_generate_dpo_llm_run_backfills_duplicates_with_new_source_indexes(tmp_p
             "dpo_helpfulness_and_completeness_planning_brainstorming_recommendations_000001",
             "dpo_helpfulness_and_completeness_planning_brainstorming_recommendations_000002",
         ],
-        ["dpo_helpfulness_and_completeness_planning_brainstorming_recommendations_000003"],
+        ["dpo_helpfulness_and_completeness_everyday_conversation_000003"],
     ]
     public_rows = [
         json.loads(line)
@@ -308,7 +308,7 @@ def test_generate_dpo_llm_run_backfills_duplicates_with_new_source_indexes(tmp_p
     ]
     assert [row["id"] for row in public_rows] == [
         "dpo_helpfulness_and_completeness_planning_brainstorming_recommendations_000001",
-        "dpo_helpfulness_and_completeness_planning_brainstorming_recommendations_000003",
+        "dpo_helpfulness_and_completeness_everyday_conversation_000003",
     ]
     manifest = json.loads(result.manifest_path.read_text())
     assert manifest["metadata"]["attempted_pairs"] == 3
@@ -384,7 +384,7 @@ def test_generate_dpo_llm_run_resumes_without_repeating_prior_indexes(tmp_path):
     )
 
     assert result.row_count == 2
-    assert resume_backend.calls == [["dpo_helpfulness_and_completeness_planning_brainstorming_recommendations_000003"]]
+    assert resume_backend.calls == [["dpo_helpfulness_and_completeness_everyday_conversation_000003"]]
     manifest = json.loads(result.manifest_path.read_text())
     assert manifest["metadata"]["attempted_pairs"] == 3
     assert manifest["metadata"]["duplicate_pairs"] == 1
