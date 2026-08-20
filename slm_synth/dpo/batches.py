@@ -69,8 +69,13 @@ def render_dpo_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "Generate one high-quality generic DPO preference row for each input spec. Return only JSON matching the schema.\n"
         "Preserve every id and metadata value exactly. The chosen response must be materially better on the named "
         "preference_dimension; the rejected response must be plausible and exhibit failure_mode. Do not expose variables, "
-        "constraints, holdout_key, fingerprints, provider data, or run data. Do not copy known evaluation prompts. Use exactly "
-        "one shared prompt and tools array. For tool use, each branch may contain assistant tool_calls, matching tool responses, "
+        "constraints, holdout_key, fingerprints, provider data, or run data. Do not copy known evaluation prompts. "
+        "Every message object must include content. System, user, tool, and ordinary assistant messages require non-empty "
+        "string content; only an assistant message containing tool_calls may use null content. The shared prompt must start "
+        "with a system message if and only if interaction_modes contains system_conditioned, contain exactly one user turn "
+        "for single_turn or at least two user turns for multi_turn, and end with a user message. Do not add tools, tool_calls, "
+        "or tool messages unless interaction_modes contains tool_mediated. Use exactly one shared prompt. For tool-mediated "
+        "items, use one shared tools array; each branch may contain assistant tool_calls, matching tool responses, "
         "and follow-up assistant messages; both branches must use only the shared tools. Never serialize tool arguments as strings.\n\n"
         f"Input specs:\n{request_json}"
     )
@@ -110,6 +115,11 @@ def render_dpo_chosen_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "Generate the shared prompt and one highest-quality chosen response for each grounded DPO brief. "
         "Return only JSON matching the schema. Do not generate a rejected response. Preserve id and metadata exactly. "
         "The chosen branch must be correct, complete, grounded in supplied material, and satisfy every source constraint. "
+        "Every message object must include content. System, user, tool, and ordinary assistant messages require non-empty "
+        "string content; only an assistant message containing tool_calls may use null content. The shared prompt must start "
+        "with a system message if and only if interaction_modes contains system_conditioned, contain exactly one user turn "
+        "for single_turn or at least two user turns for multi_turn, and end with a user message. Do not add tools or structured "
+        "tool activity unless interaction_modes contains tool_mediated. "
         "For tool-mediated tasks, return one shared tools array and valid structured tool activity.\n\n"
         f"Input specs:\n{request_json}"
     )
@@ -129,7 +139,8 @@ def render_dpo_rejected_prompt(
         "chosen candidate and introduce exactly one plausible controlled weakness: the requested failure_mode on the named "
         "preference_dimension. Preserve all unrelated strengths. Do not alter or repeat the shared prompt, tools, metadata, "
         "or chosen branch. Do not use a fabricated wrong-number shortcut unless the grounded brief explicitly requests a "
-        "numeric error. Tool branches may use only the supplied shared tools.\n\n"
+        "numeric error. Every branch message must include content; only an assistant message containing tool_calls may use "
+        "null content. Tool branches may use only the supplied shared tools.\n\n"
         f"Input specs and chosen candidates:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 

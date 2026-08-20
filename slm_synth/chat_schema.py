@@ -31,7 +31,7 @@ TOOL_CALL_JSON_SCHEMA: dict[str, Any] = {
 CHAT_MESSAGE_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["role"],
+    "required": ["role", "content"],
     "properties": {
         "role": {"type": "string", "enum": sorted(CHAT_ROLES)},
         "content": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},

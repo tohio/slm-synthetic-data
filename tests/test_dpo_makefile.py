@@ -19,6 +19,8 @@ def test_dpo_generation_targets_require_explicit_candidate_plans_without_backfil
         assert removed not in smoke + generate
     assert not any(line.startswith("DPO_TARGET_PAIRS ?=") for line in makefile.splitlines())
     assert not any(line.startswith("DPO_COUNT_PER_FAMILY ?=") for line in makefile.splitlines())
+    assert "$(if $(filter file,$(origin DPO_PREFERENCE_DIMENSIONS)),$(DPO_SMOKE_PREFERENCE_DIMENSIONS),$(DPO_PREFERENCE_DIMENSIONS))" in makefile
+    assert "$(if $(filter file,$(origin DPO_CANDIDATE_COUNTS)),$(DPO_SMOKE_CANDIDATE_COUNTS),$(DPO_CANDIDATE_COUNTS))" in makefile
 
 
 def test_dpo_report_uses_configured_run_root_and_acceptance_inputs():

@@ -19,6 +19,8 @@ def test_sft_generation_targets_enforce_holdouts_and_candidate_plans():
     assert "--candidate-counts $(SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE)" in smoke
     assert "--candidate-counts $(SFT_CANDIDATE_COUNTS)" in generate
     assert "--count-per-family" not in smoke + generate
+    assert "$(if $(filter file,$(origin SFT_FAMILIES)),$(SFT_SMOKE_FAMILIES),$(SFT_FAMILIES))" in makefile
+    assert "$(if $(filter file,$(origin SFT_CANDIDATE_COUNTS)),$(SFT_SMOKE_CANDIDATE_COUNTS),$(SFT_CANDIDATE_COUNTS))" in makefile
 
 
 def test_sft_report_uses_run_manifest_and_required_holdout_registry():
