@@ -145,7 +145,7 @@ def test_task_code_artifacts_are_valid_single_functions():
 def test_task_code_catalog_has_no_renamed_structural_variants():
     factory = TaskCodeArtifactFactory()
     rows = [factory.build(index) for index in range(factory.UNIQUE_CANDIDATE_CAPACITY)]
-    assert len(rows) == len(factory.FAMILIES) == 24
+    assert len(rows) == len(factory.FAMILIES) == 48
     assert len({artifact_structure_fingerprint(row) for row in rows}) == len(rows)
     with pytest.raises(ValueError, match="unique candidate capacity"):
         factory.build(factory.UNIQUE_CANDIDATE_CAPACITY)

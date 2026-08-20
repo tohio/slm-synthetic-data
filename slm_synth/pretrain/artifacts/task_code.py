@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from slm_synth.pretrain.artifacts.base import GroundedArtifact
+from slm_synth.pretrain.artifacts.task_code_advanced import ADVANCED_TASK_CODE_SPECS
 
 
 class TaskCodeArtifactFactory:
     """Create a finite catalog of distinct, valid Python algorithm records."""
 
-    SPECS = (
+    CORE_SPECS = (
         (
             "normalized_string_counts",
             "Write a Python function that strips and lowercases each string, ignores empty results, returns occurrence counts, and does not mutate the input.",
@@ -129,6 +130,7 @@ class TaskCodeArtifactFactory:
         ),
     )
 
+    SPECS = CORE_SPECS + ADVANCED_TASK_CODE_SPECS
     FAMILIES = tuple(spec[0] for spec in SPECS)
     UNIQUE_CANDIDATE_CAPACITY = len(SPECS)
 
