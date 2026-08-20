@@ -48,10 +48,11 @@ def test_sft_batch_rejects_metadata_drift(tmp_path):
         prompt="Input specs:\n" + json.dumps({"items": [spec]}), schema={}, schema_name="sft"
     )["data"]
     response["items"][0]["metadata"]["task_family"] = "summarization"
-    with pytest.raises(SFTBatchAcceptanceError, match="metadata does not match"):
+    with pytest.raises(SFTBatchAcceptanceError, match="metadata does not match") as error:
         generate_llm_batch(
             specs=[spec], output_path=tmp_path / "sft.jsonl", manifest_path=tmp_path / "manifest.json",
             teacher_model="teacher/model", generation_run="sft-001", max_tokens=1024,
             backend=type("DriftBackend", (), {"generate_structured_object_with_metadata": lambda self, **kwargs: {"data": response, "telemetry": {}}})(),
             adjudicator_backend=AcceptingAdjudicatorBackend(),
         )
+    assert error.value.failure_type == "render_validation_error"

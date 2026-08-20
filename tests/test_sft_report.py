@@ -92,6 +92,7 @@ def test_build_sft_coverage_report_counts_metadata_across_files(tmp_path):
         "accepted_rows": 2,
         "estimated_tokens": 90,
         "rejected_rows": 0,
+        "rejection_diagnostics": [],
         "duplicate_rows": 0,
         "candidate_rows": 2,
         "publish_ready": False,

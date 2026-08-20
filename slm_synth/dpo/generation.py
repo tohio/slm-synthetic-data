@@ -50,8 +50,15 @@ class StructuredTeacherBackend(Protocol):
 class DPOBatchAcceptanceError(ValueError):
     """Raised when a completed teacher response fails local DPO acceptance."""
 
-    def __init__(self, message: str, *, telemetry: Mapping[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_type: str = "batch_acceptance_error",
+        telemetry: Mapping[str, Any] | None = None,
+    ):
         super().__init__(message)
+        self.failure_type = failure_type
         self.telemetry = dict(telemetry or {})
 
 
@@ -190,6 +197,14 @@ def generate_llm_batch(
             error_prefix="DPO chosen renderer",
         )
         chosen_items = validate_dpo_chosen_stage(chosen_response, specs=validated_specs)
+    except (TypeError, ValueError) as exc:
+        raise DPOBatchAcceptanceError(
+            str(exc),
+            failure_type="chosen_render_error",
+            telemetry=locals().get("chosen_telemetry", {}),
+        ) from exc
+
+    try:
         rejected_response, rejected_telemetry = _generate_dpo_stage(
             backend=active_backend,
             prompt=render_dpo_rejected_prompt(validated_specs, chosen_items),
@@ -207,24 +222,42 @@ def generate_llm_batch(
             teacher_response=teacher_response,
             holdout_registry=holdout_registry,
         )
-        active_adjudicator = adjudicator_backend or build_openrouter_backend(
-            model=adjudicator_model if adjudicator_model is not None else teacher_model,
-            max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            request_timeout=request_timeout,
-            max_request_retries=max_request_retries,
-            max_retryable_request_attempts=max_retryable_request_attempts,
-            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-            adaptive_initial_in_flight=adaptive_initial_in_flight,
-            openrouter_routing_mode=openrouter_routing_mode,
-            openrouter_provider=openrouter_provider,
-        )
+    except (TypeError, ValueError) as exc:
+        raise DPOBatchAcceptanceError(
+            str(exc),
+            failure_type="rejected_render_error",
+            telemetry=combine_telemetry(
+                chosen_telemetry, locals().get("rejected_telemetry", {})
+            ),
+        ) from exc
+
+    active_adjudicator = adjudicator_backend or build_openrouter_backend(
+        model=adjudicator_model if adjudicator_model is not None else teacher_model,
+        max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
+    )
+    try:
         decisions, adjudication_telemetry = adjudicate_dpo_rows(
             specs=validated_specs, rows=rows, backend=active_adjudicator
         )
-        telemetry = combine_telemetry(chosen_telemetry, rejected_telemetry, adjudication_telemetry)
+    except (TypeError, ValueError) as exc:
+        raise DPOBatchAcceptanceError(
+            str(exc),
+            failure_type="semantic_adjudication_error",
+            telemetry=combine_telemetry(chosen_telemetry, rejected_telemetry),
+        ) from exc
+
+    telemetry = combine_telemetry(chosen_telemetry, rejected_telemetry, adjudication_telemetry)
+    try:
         return materialize_llm_batch(
             specs=validated_specs,
             teacher_response=teacher_response,
@@ -249,16 +282,17 @@ def generate_llm_batch(
             holdout_registry=holdout_registry,
         )
     except DPOBatchAcceptanceError as exc:
-        raise DPOBatchAcceptanceError(str(exc), telemetry=locals().get("telemetry", {})) from exc
+        raise DPOBatchAcceptanceError(
+            str(exc),
+            failure_type="materialization_validation_error",
+            telemetry=telemetry,
+        ) from exc
     except (TypeError, ValueError) as exc:
-        available = locals().get("telemetry")
-        if not isinstance(available, Mapping):
-            available = combine_telemetry(
-                locals().get("chosen_telemetry", {}),
-                locals().get("rejected_telemetry", {}),
-                locals().get("adjudication_telemetry", {}),
-            )
-        raise DPOBatchAcceptanceError(str(exc), telemetry=available) from exc
+        raise DPOBatchAcceptanceError(
+            str(exc),
+            failure_type="materialization_validation_error",
+            telemetry=telemetry,
+        ) from exc
 
 
 def materialize_llm_batch(

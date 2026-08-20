@@ -10,7 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from slm_synth.adaptive_batch import AdaptiveBatchSizeController
+from slm_synth.adaptive_batch import (
+    AdaptiveBatchSizeController,
+    aggregate_adaptive_batch_size_controllers,
+)
 from slm_synth.alignment_tokens import estimate_dpo_tokens
 from slm_synth.planning import CountPlan
 from slm_synth.dpo.generation import (
@@ -198,12 +201,8 @@ def generate_llm_run(
 
     results: list[Any] = []
     rejected_llm_telemetry: list[dict[str, Any]] = []
-    batch_controller = AdaptiveBatchSizeController(
-        maximum=batch_size,
-        minimum=1,
-        initial=adaptive_initial_batch_size,
-        increase_successes=adaptive_batch_increase_successes,
-    )
+    batch_controllers: list[AdaptiveBatchSizeController] = []
+    rejection_diagnostics: list[dict[str, Any]] = []
     initial_state = _empty_run_state(families=resolved_families, start_index=start_index)
     next_batch_numbers = dict(initial_state["next_batch_numbers"])
     next_source_indexes = dict(initial_state["next_source_indexes"])
@@ -225,6 +224,13 @@ def generate_llm_run(
             validate_spec_range(family=family, count=requested_pairs, start_index=round_start_index)
             specs = build_specs(family=family, count=requested_pairs, start_index=round_start_index)
             next_source_indexes[family] += requested_pairs
+            batch_controller = AdaptiveBatchSizeController(
+                maximum=batch_size,
+                minimum=1,
+                initial=adaptive_initial_batch_size,
+                increase_successes=adaptive_batch_increase_successes,
+            )
+            batch_controllers.append(batch_controller)
             print(
                 "[generate] Starting DPO family: "
                 f"{family} (candidate_pairs={len(specs)}, batch_size={batch_size}, "
@@ -285,7 +291,15 @@ def generate_llm_run(
                             if len(job["specs"]) <= batch_controller.minimum:
                                 if isinstance(exc, DPOBatchAcceptanceError):
                                     rejected_pairs_per_family[family] += 1
-                                    rejection_reason_counts["batch_acceptance_error"] += 1
+                                    rejection_reason_counts[exc.failure_type] += 1
+                                    rejection_diagnostics.append(
+                                        {
+                                            "id": job["specs"][0]["id"],
+                                            "preference_dimension": family,
+                                            "failure_type": exc.failure_type,
+                                            "reason": str(exc),
+                                        }
+                                    )
                                     submit_available(executor)
                                     continue
                                 raise
@@ -349,6 +363,9 @@ def generate_llm_run(
         family: sum(estimate_dpo_tokens(row) for row in accepted_rows_by_family[family])
         for family in resolved_families
     }
+    empty_preference_dimensions = sorted(
+        family for family in resolved_families if not accepted_rows_by_family[family]
+    )
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
         generation_run=generation_run,
@@ -366,6 +383,7 @@ def generate_llm_run(
             "estimated_tokens": sum(estimated_tokens_per_dimension.values()),
             "rejected_pairs": rejected_pairs,
             "rejection_reason_counts": output_acceptance["rejection_reason_counts"],
+            "rejection_diagnostics": rejection_diagnostics,
             "attempted_pairs": attempted_pairs,
             "duplicate_pairs": duplicate_pairs,
             "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],
@@ -377,14 +395,15 @@ def generate_llm_run(
             "next_start_index_per_family": next_source_indexes,
             "candidate_pairs_per_dimension": dict(count_plan.counts_by_key),
             "generation_status": "complete",
-            "publish_ready": True,
+            "publish_ready": not empty_preference_dimensions,
+            "empty_preference_dimensions": empty_preference_dimensions,
             "batch_size": batch_size,
             "concurrency": concurrency,
             "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
             "adaptive_initial_in_flight": adaptive_initial_in_flight,
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
-            **batch_controller.snapshot(),
+            **aggregate_adaptive_batch_size_controllers(batch_controllers),
             "llm_telemetry": aggregate_llm_telemetry(
                 [
                     telemetry

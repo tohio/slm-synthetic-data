@@ -43,12 +43,24 @@ def validate_spec_range(*, family: str, count: int, start_index: int = 1) -> Non
 
 def _build_spec(family: str, index: int) -> dict[str, Any]:
     source = SFT_SOURCE_CATALOG[family][index - 1]
+    context_mode = source["metadata"]["context_mode"]
+    constraints = [
+        "The public conversation must include every piece of source material needed to understand and answer the task; the assistant may not rely on hidden spec variables.",
+    ]
+    if context_mode == "self_contained":
+        constraints.append(
+            "Honor every supplied fact and explicit requirement. When the task requests creative, conversational, planning, or brainstorming content, appropriate invented details are allowed unless the brief prohibits them."
+        )
+    else:
+        constraints.append(
+            "Treat the supplied passage, document, transcript, code, or other context as the factual source of truth. Ordinary direct inference is allowed, but unsupported factual claims are not."
+        )
     result: dict[str, Any] = {
         "id": f"sft_{family}_{index:06d}",
         "instruction": source["instruction"],
         "metadata": {"task_family": family, **dict(source["metadata"])},
         "variables": dict(source["variables"]),
-        "constraints": ["Generate one materially specific, correct training example; do not add facts absent from supplied context."],
+        "constraints": constraints,
     }
     if "holdout_key" in source:
         result["holdout_key"] = dict(source["holdout_key"])

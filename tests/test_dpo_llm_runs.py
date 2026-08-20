@@ -37,6 +37,25 @@ class SplitOnLargeDPOBackend(FakeDPOBackend):
         return {"data": {"items": [_fake_row(spec) for spec in specs]}, "telemetry": {"usage": {"total_tokens": 12}}}
 
 
+class RejectAllDPOBackend(FakeDPOBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        rows = [_fake_row(spec) for spec in specs]
+        for row in rows:
+            row["metadata"] = {**row["metadata"], "preference_dimension": "groundedness"}
+        return {"data": {"items": rows}, "telemetry": {"usage": {"total_tokens": 12}}}
+
+
+class SplitFirstDimensionDPOBackend(FakeDPOBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        dimension = specs[0]["metadata"]["preference_dimension"]
+        self.calls.append((dimension, len(specs)))
+        if dimension == "helpfulness_and_completeness" and len(specs) > 1:
+            raise ValueError("split the first dimension")
+        return {"data": {"items": [_fake_row(spec) for spec in specs]}}
+
+
 def _backends(backend):
     return {"backend": StagedDPOBackend(backend), "adjudicator_backend": AcceptingAdjudicatorBackend()}
 
@@ -78,6 +97,36 @@ def test_generate_dpo_llm_run_does_not_replace_duplicate_candidates(tmp_path):
     assert manifest["metadata"]["accepted_pairs"] == 1
     assert manifest["metadata"]["duplicate_pairs"] == 1
     assert manifest["metadata"]["generation_status"] == "complete"
+
+
+def test_generate_dpo_llm_run_blocks_an_empty_requested_dimension(tmp_path):
+    result = _generate(
+        tmp_path,
+        RejectAllDPOBackend(),
+        counts={"helpfulness_and_completeness": 1},
+    )
+    manifest = json.loads(result.manifest_path.read_text())
+    assert result.row_count == 0
+    assert manifest["metadata"]["publish_ready"] is False
+    assert manifest["metadata"]["empty_preference_dimensions"] == [
+        "helpfulness_and_completeness"
+    ]
+    assert manifest["metadata"]["rejection_reason_counts"] == {
+        "chosen_render_error": 1
+    }
+
+
+def test_generate_dpo_llm_run_resets_adaptive_batch_size_per_dimension(tmp_path):
+    backend = SplitFirstDimensionDPOBackend()
+    result = _generate(
+        tmp_path,
+        backend,
+        preference_dimensions=["helpfulness_and_completeness", "factual_accuracy"],
+        counts={"helpfulness_and_completeness": 2, "factual_accuracy": 2},
+        batch_size=2,
+    )
+    assert result.row_count == 4
+    assert ("factual_accuracy", 2) in backend.calls
 
 
 def test_generate_dpo_llm_run_only_splits_failed_requests(tmp_path):

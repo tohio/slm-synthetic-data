@@ -38,6 +38,31 @@ CHAT_MESSAGE_JSON_SCHEMA: dict[str, Any] = {
         "tool_calls": {"type": "array", "minItems": 1, "items": TOOL_CALL_JSON_SCHEMA},
         "tool_call_id": {"type": "string", "minLength": 1},
     },
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "role": {"enum": ["system", "user", "tool"]},
+                },
+                "required": ["role"],
+            },
+            "then": {
+                "properties": {
+                    "content": {"type": "string", "minLength": 1},
+                },
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "role": {"const": "assistant"},
+                    "content": {"type": "null"},
+                },
+                "required": ["role", "content"],
+            },
+            "then": {"required": ["tool_calls"]},
+        },
+    ],
 }
 
 TOOL_DEFINITION_JSON_SCHEMA: dict[str, Any] = {

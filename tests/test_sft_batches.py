@@ -23,6 +23,7 @@ def test_sft_batch_schema_uses_new_metadata_only():
     assert "tools" in item_schema["properties"]
     assert "tool_calls" in item_schema["properties"]["messages"]["items"]["properties"]
     assert "content" in item_schema["properties"]["messages"]["items"]["required"]
+    assert item_schema["properties"]["messages"]["items"]["allOf"]
 
 
 def test_sft_teacher_request_hides_holdout_key():
@@ -39,6 +40,8 @@ def test_sft_prompt_contains_generation_contract():
     assert "structured assistant tool_calls" in prompt
     assert "if and only if interaction_modes contains system_conditioned" in prompt
     assert "exactly one user turn for single_turn" in prompt
+    assert "assistant must never answer from hidden input-spec fields" in prompt
+    assert "structured_json is only a parseable JSON" in prompt
 
 
 def test_validate_sft_batch_and_spec_metadata_binding():

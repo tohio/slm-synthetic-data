@@ -36,6 +36,15 @@ def test_sft_holdout_key_is_internal_and_not_part_of_source_fingerprint():
     assert "eval_family" not in json.dumps(spec)
 
 
+def test_sft_constraints_distinguish_self_contained_invention_from_supplied_context():
+    creative = build_specs(family="creative_writing", count=1)[0]
+    grounded = build_specs(family="grounded_qa_and_reading", count=1)[0]
+
+    assert any("appropriate invented details are allowed" in item for item in creative["constraints"])
+    assert any("factual source of truth" in item for item in grounded["constraints"])
+    assert all("do not add facts absent" not in item for item in creative["constraints"])
+
+
 def test_sft_specs_are_finite_and_materially_distinct():
     for family in SFT_SPEC_FAMILIES:
         specs = build_specs(family=family, count=unique_capacity(family))

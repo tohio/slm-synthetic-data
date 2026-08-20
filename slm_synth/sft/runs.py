@@ -11,7 +11,10 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from slm_synth.adaptive_batch import AdaptiveBatchSizeController
+from slm_synth.adaptive_batch import (
+    AdaptiveBatchSizeController,
+    aggregate_adaptive_batch_size_controllers,
+)
 from slm_synth.alignment_tokens import estimate_sft_tokens
 from slm_synth.planning import CountPlan
 from slm_synth.sft.acceptance import partition_unique_sft_rows
@@ -199,12 +202,8 @@ def generate_llm_run(
 
     results: list[Any] = []
     rejected_llm_telemetry: list[dict[str, Any]] = []
-    batch_controller = AdaptiveBatchSizeController(
-        maximum=batch_size,
-        minimum=1,
-        initial=adaptive_initial_batch_size,
-        increase_successes=adaptive_batch_increase_successes,
-    )
+    batch_controllers: list[AdaptiveBatchSizeController] = []
+    rejection_diagnostics: list[dict[str, Any]] = []
     next_batch_numbers = dict(initial_state["next_batch_numbers"])
     next_source_indexes = dict(initial_state["next_source_indexes"])
     accepted_rows_by_family = dict(initial_state["accepted_rows_by_family"])
@@ -223,6 +222,13 @@ def generate_llm_run(
             validate_spec_range(family=family, count=requested_rows, start_index=round_start_index)
             specs = build_specs(family=family, count=requested_rows, start_index=round_start_index)
             next_source_indexes[family] += requested_rows
+            batch_controller = AdaptiveBatchSizeController(
+                maximum=batch_size,
+                minimum=1,
+                initial=adaptive_initial_batch_size,
+                increase_successes=adaptive_batch_increase_successes,
+            )
+            batch_controllers.append(batch_controller)
             print(
                 "[generate] Starting SFT family: "
                 f"{family} (candidate_rows={len(specs)}, batch_size={batch_size}, "
@@ -283,7 +289,15 @@ def generate_llm_run(
                             if len(job["specs"]) <= batch_controller.minimum:
                                 if isinstance(exc, SFTBatchAcceptanceError):
                                     rejected_rows_per_family[family] += 1
-                                    rejection_reason_counts["batch_acceptance_error"] += 1
+                                    rejection_reason_counts[exc.failure_type] += 1
+                                    rejection_diagnostics.append(
+                                        {
+                                            "id": job["specs"][0]["id"],
+                                            "family": family,
+                                            "failure_type": exc.failure_type,
+                                            "reason": str(exc),
+                                        }
+                                    )
                                     submit_available(executor)
                                     continue
                                 raise
@@ -347,6 +361,9 @@ def generate_llm_run(
         family: sum(estimate_sft_tokens(row) for row in accepted_rows_by_family[family])
         for family in resolved_families
     }
+    empty_families = sorted(
+        family for family in resolved_families if not accepted_rows_by_family[family]
+    )
 
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
@@ -366,6 +383,7 @@ def generate_llm_run(
             "estimated_tokens": sum(estimated_tokens_per_family.values()),
             "rejected_rows": rejected_rows,
             "rejection_reason_counts": output_acceptance["rejection_reason_counts"],
+            "rejection_diagnostics": rejection_diagnostics,
             "duplicate_rows": duplicate_rows,
             "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],
             "attempted_rows_per_family": output_acceptance["attempted_rows_per_family"],
@@ -379,7 +397,8 @@ def generate_llm_run(
                 for family in resolved_families
             },
             "generation_status": "complete",
-            "publish_ready": True,
+            "publish_ready": not empty_families,
+            "empty_families": empty_families,
             "candidate_rows_per_family": dict(count_plan.counts_by_key),
             "batch_size": batch_size,
             "concurrency": concurrency,
@@ -387,7 +406,7 @@ def generate_llm_run(
             "adaptive_initial_in_flight": adaptive_initial_in_flight,
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
-            **batch_controller.snapshot(),
+            **aggregate_adaptive_batch_size_controllers(batch_controllers),
             "llm_telemetry": aggregate_llm_telemetry(
                 [
                     telemetry

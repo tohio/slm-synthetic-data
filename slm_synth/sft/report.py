@@ -102,6 +102,7 @@ def build_coverage_report(
             "rejection_reason_counts": _count_mapping(
                 manifest_metadata.get("rejection_reason_counts")
             ),
+            "rejection_diagnostics": _rejection_diagnostics(manifest_metadata),
             "duplicate_rows": duplicate_rows,
             "publish_ready": not blockers,
             "publish_blockers": blockers,
@@ -221,6 +222,8 @@ def _build_family_reports(
             require_holdout_check=require_holdout_check,
             require_semantic_adjudication=require_semantic_adjudication,
         )
+        if not unique_rows:
+            blockers.append("empty_family")
         reports[family] = {
             "row_count": len(family_rows),
             "interaction_modes": _count_list_metadata(family_rows, "interaction_modes"),
@@ -237,6 +240,9 @@ def _build_family_reports(
                 "accepted_rows": len(unique_rows),
                 "estimated_tokens": sum(estimate_sft_tokens(row) for row in unique_rows),
                 "rejected_rows": rejected,
+                "rejection_diagnostics": _rejection_diagnostics(
+                    manifest_metadata, family=family
+                ),
                 "duplicate_rows": duplicates,
                 "publish_ready": not blockers,
                 "publish_blockers": blockers,
@@ -313,6 +319,18 @@ def _publish_blockers(
     if manifest_metadata and manifest_metadata.get("publish_ready") is False:
         blockers.append("run_manifest_not_publish_ready")
     return blockers
+
+
+def _rejection_diagnostics(
+    metadata: dict[str, Any], *, family: str | None = None
+) -> list[dict[str, Any]]:
+    value = metadata.get("rejection_diagnostics", [])
+    if not isinstance(value, list):
+        return []
+    diagnostics = [dict(item) for item in value if isinstance(item, dict)]
+    if family is not None:
+        diagnostics = [item for item in diagnostics if item.get("family") == family]
+    return diagnostics
 
 
 def _read_jsonl_with_diagnostics(

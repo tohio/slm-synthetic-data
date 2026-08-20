@@ -68,6 +68,7 @@ def build_coverage_report(
             "estimated_tokens": estimated_tokens,
             "rejected_pairs": rejected,
             "rejection_reason_counts": _count_mapping(metadata.get("rejection_reason_counts")),
+            "rejection_diagnostics": _rejection_diagnostics(metadata),
             "duplicate_pairs": duplicates,
             "duplicate_reason_counts": _count_mapping(metadata.get("duplicate_reason_counts")),
             "publish_ready": not blockers,
@@ -144,6 +145,8 @@ def _build_dimension_reports(
             manifest_metadata={},
             require_holdout_check=require_holdout_check,
         )
+        if not unique_rows:
+            blockers.append("empty_preference_dimension")
         reports[dimension] = {
             "row_count": len(dimension_rows),
             "task_families": _count_metadata(dimension_rows, "task_family"),
@@ -163,6 +166,9 @@ def _build_dimension_reports(
                 "accepted_pairs": len(unique_rows),
                 "estimated_tokens": sum(estimate_dpo_tokens(row) for row in unique_rows),
                 "rejected_pairs": rejected,
+                "rejection_diagnostics": _rejection_diagnostics(
+                    manifest_metadata, preference_dimension=dimension
+                ),
                 "duplicate_pairs": duplicates,
                 "publish_ready": not blockers,
                 "publish_blockers": blockers,
@@ -197,6 +203,22 @@ def _publish_blockers(
     if manifest_metadata and manifest_metadata.get("publish_ready") is False:
         blockers.append("run_manifest_not_publish_ready")
     return blockers
+
+
+def _rejection_diagnostics(
+    metadata: dict[str, Any], *, preference_dimension: str | None = None
+) -> list[dict[str, Any]]:
+    value = metadata.get("rejection_diagnostics", [])
+    if not isinstance(value, list):
+        return []
+    diagnostics = [dict(item) for item in value if isinstance(item, dict)]
+    if preference_dimension is not None:
+        diagnostics = [
+            item
+            for item in diagnostics
+            if item.get("preference_dimension") == preference_dimension
+        ]
+    return diagnostics
 
 
 def _resolve_jsonl_paths(paths: list[str | Path]) -> list[Path]:

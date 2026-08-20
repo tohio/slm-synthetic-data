@@ -1,4 +1,7 @@
-from slm_synth.adaptive_batch import AdaptiveBatchSizeController
+from slm_synth.adaptive_batch import (
+    AdaptiveBatchSizeController,
+    aggregate_adaptive_batch_size_controllers,
+)
 
 
 def test_adaptive_batch_size_starts_small_halves_on_failure_and_recovers_slowly():
@@ -67,3 +70,23 @@ def test_adaptive_batch_size_can_start_aggressively_for_production_runs():
 def test_adaptive_batch_size_initial_is_capped_by_maximum_and_minimum():
     assert AdaptiveBatchSizeController(maximum=2).current == 2
     assert AdaptiveBatchSizeController(maximum=8, minimum=6).current == 6
+
+
+def test_aggregate_adaptive_batch_size_controllers_combines_independent_groups():
+    first = AdaptiveBatchSizeController(maximum=8, initial=4, increase_successes=1)
+    second = AdaptiveBatchSizeController(maximum=16, initial=8, increase_successes=2)
+    first.record_failure()
+    second.record_success()
+    second.record_success()
+
+    assert aggregate_adaptive_batch_size_controllers([first, second]) == {
+        "adaptive_batch_size_current": 16,
+        "adaptive_batch_size_maximum": 16,
+        "adaptive_batch_size_minimum": 1,
+        "adaptive_batch_size_observed_minimum": 2,
+        "adaptive_batch_size_observed_peak": 16,
+        "adaptive_batch_size_increases": 1,
+        "adaptive_batch_size_decreases": 1,
+        "adaptive_batch_size_successes": 2,
+        "adaptive_batch_size_failures": 1,
+    }

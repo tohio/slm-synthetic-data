@@ -31,6 +31,7 @@ def test_dpo_batch_schema_uses_new_metadata_only():
     assert "maxItems" not in item_schema["properties"]["chosen"]
     assert "maxItems" not in item_schema["properties"]["rejected"]
     assert "content" in item_schema["properties"]["prompt"]["items"]["required"]
+    assert item_schema["properties"]["prompt"]["items"]["allOf"]
 
 
 def test_dpo_teacher_request_hides_holdout_key():
@@ -51,6 +52,7 @@ def test_dpo_prompt_names_preference_contract_without_internal_fields():
     assert "items, use one shared tools array" in prompt
     assert "if and only if interaction_modes contains system_conditioned" in prompt
     assert "exactly one user turn for single_turn" in prompt
+    assert "neither branch may rely on hidden input-spec fields" in prompt
 
 
 def test_validate_dpo_batch_response_matches_spec_metadata():

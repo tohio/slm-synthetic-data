@@ -73,7 +73,12 @@ def adjudicate_dpo_rows(
         "high quality. The rejected response must be plausible and contain exactly the requested failure_mode on the named "
         "preference_dimension while preserving unrelated strengths. Reject arbitrary corruption, multiple weaknesses, copied "
         "branches, unsupported facts, or a numeric error not explicitly grounded in the brief. Score from 1 to 4 and accept "
-        "only when every score is at least 3 and every source constraint passes. Do not repair any row.\n\n"
+        "only when every score is at least 3 and every source constraint passes. Verify that the shared public prompt contains "
+        "all source material needed to evaluate both branches; reject pairs that rely on hidden spec variables. For supplied "
+        "context, permit ordinary linguistic entailment and direct inference but no unsupported factual claims. For "
+        "self-contained creative, conversational, planning, and brainstorming tasks, appropriate invented details are allowed "
+        "unless prohibited. Treat meaning-preserving edits as preserving uncertainty even when wording changes. Enforce the "
+        "declared output_mode and every explicit count, length, heading, and forbidden-term rule. Do not repair any row.\n\n"
         "Copy each source constraint into constraint_results exactly and in the original order.\n\n"
         f"Candidates:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )

@@ -45,8 +45,15 @@ class StructuredTeacherBackend(Protocol):
 class SFTBatchAcceptanceError(ValueError):
     """Raised when a completed teacher response fails local SFT acceptance."""
 
-    def __init__(self, message: str, *, telemetry: Mapping[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_type: str = "batch_acceptance_error",
+        telemetry: Mapping[str, Any] | None = None,
+    ):
         super().__init__(message)
+        self.failure_type = failure_type
         self.telemetry = dict(telemetry or {})
 
 
@@ -174,34 +181,55 @@ def generate_llm_batch(
         openrouter_routing_mode=openrouter_routing_mode,
         openrouter_provider=openrouter_provider,
     )
-    teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
-        specs=validated_specs,
-        backend=active_backend,
-    )
+    try:
+        teacher_response, telemetry = generate_teacher_batch_response_with_metadata(
+            specs=validated_specs,
+            backend=active_backend,
+        )
+    except (TypeError, ValueError) as exc:
+        raise SFTBatchAcceptanceError(
+            str(exc), failure_type="renderer_response_error"
+        ) from exc
+
     try:
         rows = _validate_candidate_rows(
             specs=validated_specs,
             teacher_response=teacher_response,
             holdout_registry=holdout_registry,
         )
-        active_adjudicator = adjudicator_backend or build_openrouter_backend(
-            model=adjudicator_model if adjudicator_model is not None else teacher_model,
-            max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            request_timeout=request_timeout,
-            max_request_retries=max_request_retries,
-            max_retryable_request_attempts=max_retryable_request_attempts,
-            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-            adaptive_initial_in_flight=adaptive_initial_in_flight,
-            openrouter_routing_mode=openrouter_routing_mode,
-            openrouter_provider=openrouter_provider,
-        )
+    except (TypeError, ValueError) as exc:
+        raise SFTBatchAcceptanceError(
+            str(exc), failure_type="render_validation_error", telemetry=telemetry
+        ) from exc
+
+    active_adjudicator = adjudicator_backend or build_openrouter_backend(
+        model=adjudicator_model if adjudicator_model is not None else teacher_model,
+        max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        request_timeout=request_timeout,
+        max_request_retries=max_request_retries,
+        max_retryable_request_attempts=max_retryable_request_attempts,
+        retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
+        openrouter_routing_mode=openrouter_routing_mode,
+        openrouter_provider=openrouter_provider,
+    )
+    try:
         decisions, adjudication_telemetry = adjudicate_sft_rows(
             specs=validated_specs, rows=rows, backend=active_adjudicator
         )
-        combined_telemetry = combine_telemetry(telemetry, adjudication_telemetry)
+    except (TypeError, ValueError) as exc:
+        adjudication_telemetry = getattr(exc, "telemetry", {})
+        raise SFTBatchAcceptanceError(
+            str(exc),
+            failure_type="semantic_adjudication_error",
+            telemetry=combine_telemetry(telemetry, adjudication_telemetry),
+        ) from exc
+
+    combined_telemetry = combine_telemetry(telemetry, adjudication_telemetry)
+    try:
         return materialize_llm_batch(
             specs=validated_specs,
             teacher_response=teacher_response,
@@ -225,9 +253,17 @@ def generate_llm_batch(
             holdout_registry=holdout_registry,
         )
     except SFTBatchAcceptanceError as exc:
-        raise SFTBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
+        raise SFTBatchAcceptanceError(
+            str(exc),
+            failure_type="materialization_validation_error",
+            telemetry=combined_telemetry,
+        ) from exc
     except (TypeError, ValueError) as exc:
-        raise SFTBatchAcceptanceError(str(exc), telemetry=telemetry) from exc
+        raise SFTBatchAcceptanceError(
+            str(exc),
+            failure_type="materialization_validation_error",
+            telemetry=combined_telemetry,
+        ) from exc
 
 
 def materialize_llm_batch(

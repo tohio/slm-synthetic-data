@@ -67,3 +67,36 @@ class AdaptiveBatchSizeController:
             "adaptive_batch_size_successes": self.successes,
             "adaptive_batch_size_failures": self.failures,
         }
+
+
+def aggregate_adaptive_batch_size_controllers(
+    controllers: list[AdaptiveBatchSizeController],
+) -> dict[str, int]:
+    """Aggregate independent per-group controllers into run-level telemetry."""
+    if not controllers:
+        return {
+            "adaptive_batch_size_current": 0,
+            "adaptive_batch_size_maximum": 0,
+            "adaptive_batch_size_minimum": 0,
+            "adaptive_batch_size_observed_minimum": 0,
+            "adaptive_batch_size_observed_peak": 0,
+            "adaptive_batch_size_increases": 0,
+            "adaptive_batch_size_decreases": 0,
+            "adaptive_batch_size_successes": 0,
+            "adaptive_batch_size_failures": 0,
+        }
+    return {
+        "adaptive_batch_size_current": controllers[-1].current,
+        "adaptive_batch_size_maximum": max(item.maximum for item in controllers),
+        "adaptive_batch_size_minimum": min(item.minimum for item in controllers),
+        "adaptive_batch_size_observed_minimum": min(
+            item.observed_minimum for item in controllers
+        ),
+        "adaptive_batch_size_observed_peak": max(
+            item.observed_peak for item in controllers
+        ),
+        "adaptive_batch_size_increases": sum(item.increases for item in controllers),
+        "adaptive_batch_size_decreases": sum(item.decreases for item in controllers),
+        "adaptive_batch_size_successes": sum(item.successes for item in controllers),
+        "adaptive_batch_size_failures": sum(item.failures for item in controllers),
+    }

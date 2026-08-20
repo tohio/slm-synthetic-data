@@ -49,6 +49,23 @@ class RejectSecondSFTBackend(FakeSFTBackend):
         return item
 
 
+class RejectAllSFTBackend(FakeSFTBackend):
+    def _item(self, spec):
+        item = super()._item(spec)
+        item["metadata"] = {**item["metadata"], "task_family": "summarization"}
+        return item
+
+
+class SplitFirstFamilySFTBackend(FakeSFTBackend):
+    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+        specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+        family = specs[0]["metadata"]["task_family"]
+        self.calls.append((family, len(specs)))
+        if family == "grounded_qa_and_reading" and len(specs) > 1:
+            raise ValueError("split the first family")
+        return {"data": {"items": [self._item(spec) for spec in specs]}}
+
+
 def generate(tmp_path, backend, **planning):
     return generate_llm_run(
         families=planning.pop("families", ["grounded_qa_and_reading"]),
@@ -104,6 +121,38 @@ def test_generate_sft_llm_run_does_not_replace_rejected_candidates(tmp_path):
     assert manifest["metadata"]["attempted_rows"] == 2
     assert manifest["metadata"]["accepted_rows"] == 1
     assert manifest["metadata"]["rejected_rows"] == 1
+    assert manifest["metadata"]["rejection_reason_counts"] == {
+        "render_validation_error": 1
+    }
+    assert manifest["metadata"]["rejection_diagnostics"][0]["id"].endswith("000002")
+
+
+def test_generate_sft_llm_run_blocks_an_empty_requested_family(tmp_path):
+    result = generate(
+        tmp_path,
+        RejectAllSFTBackend(),
+        candidate_counts_by_family={"grounded_qa_and_reading": 1},
+    )
+    manifest = json.loads(result.manifest_path.read_text())
+    assert result.row_count == 0
+    assert manifest["metadata"]["publish_ready"] is False
+    assert manifest["metadata"]["empty_families"] == ["grounded_qa_and_reading"]
+
+
+def test_generate_sft_llm_run_resets_adaptive_batch_size_per_family(tmp_path):
+    backend = SplitFirstFamilySFTBackend()
+    result = generate(
+        tmp_path,
+        backend,
+        families=["grounded_qa_and_reading", "rewriting_and_editing"],
+        candidate_counts_by_family={
+            "grounded_qa_and_reading": 2,
+            "rewriting_and_editing": 2,
+        },
+        batch_size=2,
+    )
+    assert result.row_count == 4
+    assert ("rewriting_and_editing", 2) in backend.calls
 
 
 def test_generate_sft_llm_run_reduces_batch_size_after_failure(tmp_path):
