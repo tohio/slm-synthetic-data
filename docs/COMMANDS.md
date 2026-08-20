@@ -122,6 +122,13 @@ replaced to fill a quota.
 | `SFT_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
 | `SFT_HF_REPO` | `<HF_NAMESPACE>/slm-synthetic-sft` | One consolidated generic SFT dataset repository. |
 
+`make sft-report` is a publication gate, not only a coverage summary. It
+blocks exact and `0.88` Jaccard near-duplicate prompts/conversations, repeated
+assistant responses, templates exceeding 40% of accepted rows, invalid public
+role/tool sequences, missing or failed semantic-adjudication evidence, and
+holdout collisions. `sft-push` rechecks every file-derived diagnostic against
+the current JSONL files before creating a remote commit.
+
 ## DPO
 
 ```bash

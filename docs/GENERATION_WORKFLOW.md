@@ -79,11 +79,27 @@ assistant message. Adjacent roles and malformed tool cycles are not repaired.
 
 ### SFT reporting and publish blockers
 
-`make sft-report` loads `configs/eval_holdouts.yaml` by default and writes `coverage.json`. The report includes aggregate and per-family metadata coverage, normalized ID/prompt/conversation uniqueness, response repetition, holdout collisions, and candidate/attempted/accepted/rejected/duplicate counts.
+`make sft-report` loads `configs/eval_holdouts.yaml` by default and writes
+`coverage.json`. The report includes aggregate and per-family metadata
+coverage, normalized ID/prompt/conversation uniqueness, exact and near
+duplicate clusters, repeated assistant-response clusters, template
+concentration, public-row validation, semantic-adjudication evidence, holdout
+collisions, and candidate/attempted/accepted/rejected/duplicate counts.
+
+Near duplicates use normalized token-set Jaccard similarity at `0.88`.
+Publication also rejects any template used by more than 40% of the accepted
+rows when it occurs more than once. These are fixed publication-quality rules,
+not sizing knobs.
 
 Publication is blocked when:
 
-- IDs, normalized prompts, or normalized conversations repeat.
+- IDs, normalized prompts, or normalized conversations repeat or form a
+  near-duplicate pair.
+- An assistant response repeats across accepted rows.
+- A template exceeds the concentration limit.
+- A public row has an invalid schema, role sequence, or tool-call lifecycle.
+- Any published row lacks passing semantic-adjudication evidence in the batch
+  manifests, or its recorded adjudication fails.
 - Holdouts were not checked or a holdout collision exists.
 - Candidate and acceptance accounting is inconsistent.
 - `coverage.json` is missing or stale relative to public files.

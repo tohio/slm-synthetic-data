@@ -187,7 +187,16 @@ def push_sft_run(
 
     live_report = build_coverage_report(files, require_holdout_check=False)
     require_publish_ready_report(live_report, artifact_name="SFT dataset files")
-    if coverage.get("row_count") != live_report["row_count"] or coverage.get("content_uniqueness") != live_report["content_uniqueness"]:
+    audited_fields = (
+        "row_count",
+        "valid_row_count",
+        "content_uniqueness",
+        "near_duplicates",
+        "assistant_response_clusters",
+        "template_concentration",
+        "validation",
+    )
+    if any(coverage.get(field) != live_report.get(field) for field in audited_fields):
         raise ValueError("SFT acceptance report is stale for the current dataset files; rebuild sft-report")
     acceptance = coverage["acceptance"]
     expected_counts = {

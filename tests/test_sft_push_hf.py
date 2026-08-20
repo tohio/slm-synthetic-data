@@ -14,7 +14,7 @@ def _sft_row(row_id="sft-1"):
         "id": row_id,
         "messages": [
             {"role": "user", "content": f"What is 2 + 2? Request {row_id}."},
-            {"role": "assistant", "content": "4"},
+            {"role": "assistant", "content": f"Answer for {row_id}."},
         ],
         "metadata": {
             "task_family": "grounded_qa_and_reading",
@@ -128,6 +128,11 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
     )
     ai_row = _sft_row("sft-2")
     ai_row["metadata"]["task_family"] = "creative_writing"
+    ai_row["metadata"]["template_family"] = "character_vignette"
+    ai_row["messages"] = [
+        {"role": "user", "content": "Write a quiet vignette about a lighthouse keeper finding a brass key."},
+        {"role": "assistant", "content": "At dawn, the keeper found a warm brass key beneath the silent lens."},
+    ]
     (dataset_dir / "creative_writing.jsonl").write_text(
         json.dumps(ai_row) + "\n",
         encoding="utf-8",
@@ -137,13 +142,49 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
         build_dataset_card("sft", total=2, signals=families),
         encoding="utf-8",
     )
+    grounded_batch_manifest = manifest_dir / "grounded_qa_and_reading.batch000001.sft-run.manifest.json"
+    creative_batch_manifest = manifest_dir / "creative_writing.batch000001.sft-run.manifest.json"
+    scores = {
+        "correctness": 4,
+        "grounding": 4,
+        "instruction_adherence": 4,
+        "completeness": 4,
+        "coherence": 4,
+    }
+    grounded_batch_manifest.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "quality_adjudication": {
+                        "sft-1": {"accepted": True, "scores": scores, "constraint_results": []}
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    creative_batch_manifest.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "quality_adjudication": {
+                        "sft-2": {"accepted": True, "scores": scores, "constraint_results": []}
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     run_manifest = manifest_dir / "sft-run.manifest.json"
     run_manifest.write_text(
         json.dumps(
             {
                 "dataset_type": "sft",
                 "families": families,
-                "datasets": [],
+                "datasets": [
+                    {"batch_manifests": [str(creative_batch_manifest)]},
+                    {"batch_manifests": [str(grounded_batch_manifest)]},
+                ],
                 "metadata": {
                     "generation_status": "complete",
                     "publish_ready": True,
@@ -163,8 +204,6 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
         run_manifest=run_manifest,
     )
     write_coverage_report(report=coverage, path=run_dir / "coverage.json")
-    (manifest_dir / "grounded_qa_and_reading.batch000001.sft-run.manifest.json").write_text("{}", encoding="utf-8")
-    (manifest_dir / "creative_writing.batch000001.sft-run.manifest.json").write_text("{}", encoding="utf-8")
 
     calls = []
 

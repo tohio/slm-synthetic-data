@@ -57,3 +57,12 @@ every constraint passes. `SFT_ADJUDICATOR_MODEL` and
 `SFT_ADJUDICATOR_MAX_TOKENS` default to the renderer settings but can be
 overridden; both roles retain the same routing, retry, backoff, and adaptive
 request controls.
+
+Publication re-audits the accepted public rows rather than trusting generation
+alone. It blocks exact or near-duplicate prompts and conversations, repeated
+assistant-response clusters, templates exceeding 40% of accepted rows,
+malformed role or tool sequences, and holdout collisions. When a run manifest
+is supplied, every public row ID must also map to a passing semantic decision
+in a referenced batch manifest; missing, malformed, or failed evidence blocks
+publication. The Hugging Face push repeats all file-derived checks against the
+live JSONL files so a stale clean report cannot bypass them.

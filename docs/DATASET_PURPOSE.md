@@ -206,6 +206,13 @@ Production distillation DPO pairs use teacher-quality chosen responses and contr
 
 Generic SFT/DPO rows do not expose evaluation-family labels. Exact normalized prompt fingerprints and matching structured `holdout_key` values are rejected locally; both controls remain internal and are never sent to teachers or published.
 
+Generic SFT publication additionally requires a clean accepted-row audit:
+there may be no exact or near-duplicate prompts/conversations, repeated
+assistant-response clusters, concentrated templates, invalid role/tool
+sequences, failed or missing semantic-adjudication evidence, or holdout
+collisions. Rejected candidates remain recorded outcomes; adjudication evidence
+is required for rows that survive into the public files.
+
 ## Generation Budgets
 
 Generic SFT, generic DPO, and distillation SFT use explicit candidate counts by
