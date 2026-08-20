@@ -5,6 +5,7 @@ from slm_synth.pretrain.artifacts.task_code_advanced import ADVANCED_TASK_CODE_S
 from slm_synth.pretrain.artifacts.task_code_advanced_2 import ADVANCED_TASK_CODE_SPECS_2
 from slm_synth.pretrain.artifacts.task_code_advanced_3 import ADVANCED_TASK_CODE_SPECS_3
 from slm_synth.pretrain.artifacts.task_code_advanced_4 import ADVANCED_TASK_CODE_SPECS_4
+from slm_synth.pretrain.artifacts.task_code_advanced_5 import ADVANCED_TASK_CODE_SPECS_5
 
 
 class TaskCodeArtifactFactory:
@@ -133,7 +134,7 @@ class TaskCodeArtifactFactory:
         ),
     )
 
-    SPECS = CORE_SPECS + ADVANCED_TASK_CODE_SPECS + ADVANCED_TASK_CODE_SPECS_2 + ADVANCED_TASK_CODE_SPECS_3 + ADVANCED_TASK_CODE_SPECS_4
+    SPECS = CORE_SPECS + ADVANCED_TASK_CODE_SPECS + ADVANCED_TASK_CODE_SPECS_2 + ADVANCED_TASK_CODE_SPECS_3 + ADVANCED_TASK_CODE_SPECS_4 + ADVANCED_TASK_CODE_SPECS_5
     FAMILIES = tuple(spec[0] for spec in SPECS)
     UNIQUE_CANDIDATE_CAPACITY = len(SPECS)
 
