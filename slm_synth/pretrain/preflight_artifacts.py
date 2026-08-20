@@ -9,7 +9,7 @@ from pathlib import Path
 
 from slm_synth.pretrain.artifacts.quality import artifact_fingerprint, artifact_structure_fingerprint, validate_artifact
 from slm_synth.pretrain.grounded import FACTORY_MAP
-from slm_synth.pretrain.generate import _rounded_batch_target_rows, _uncapped_grounded_target_rows
+from slm_synth.pretrain.generate import _planned_grounded_target_rows
 from slm_synth.paths import load_yaml_config, resolve_output_dir
 
 
@@ -32,15 +32,13 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             mix_cfg = cfg["mix"][name]
             if mix_cfg.get("architecture") != "grounded":
                 continue
-            batch_size = int(mix_cfg.get("batch_size", cfg.get("generation", {}).get("batch_size", 32)))
-            token_target, requested_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
-            uncapped_requested_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
+            token_target, requested_rows, planned_rows = _planned_grounded_target_rows(cfg, mix_cfg)
             capacity = mix_cfg.get("max_unique_candidates")
-            avg_tokens_per_sample = int(
+            avg_tokens_per_sample = float(
                 mix_cfg.get("avg_tokens_per_sample", cfg.get("generation", {}).get("avg_tokens_per_sample", 100))
             )
             estimated_capacity_tokens = int(capacity) * avg_tokens_per_sample if capacity is not None else None
-            preflight_rows = int(capacity) if capacity is not None else rounded_rows
+            preflight_rows = int(capacity) if capacity is not None else planned_rows
             factory = FACTORY_MAP[name]()
             families = Counter()
             exact_duplicates = 0
@@ -69,14 +67,13 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             report = {
                 "signal": name,
                 "target_tokens_estimate": token_target,
-                "requested_rows": uncapped_requested_rows,
-                "planned_rows": requested_rows,
-                "rounded_rows": rounded_rows,
+                "requested_rows": requested_rows,
+                "planned_rows": planned_rows,
                 "preflight_rows": preflight_rows,
                 "max_unique_candidates": mix_cfg.get("max_unique_candidates"),
                 "estimated_capacity_tokens": estimated_capacity_tokens,
                 "capacity_covers_target": estimated_capacity_tokens is None or estimated_capacity_tokens >= token_target,
-                "capacity_limited": requested_rows < uncapped_requested_rows,
+                "capacity_limited": planned_rows < requested_rows,
                 "exact_duplicates": exact_duplicates,
                 "unique_structures": unique_structures,
                 "family_counts": dict(sorted(families.items())),
@@ -85,7 +82,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             }
             reports.append(report)
             print(
-                f"[preflight-artifacts] {name}: planned_rows={rounded_rows}, preflight_rows={preflight_rows}, exact_duplicates={exact_duplicates}, "
+                f"[preflight-artifacts] {name}: planned_rows={planned_rows}, preflight_rows={preflight_rows}, exact_duplicates={exact_duplicates}, "
                 f"structures={unique_structures}, quality_issues={len(quality_issues)}"
             )
     finally:

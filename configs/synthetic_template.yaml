@@ -53,11 +53,10 @@ backend:
 #   educational_qa_mcq_math     112.5M (14.7540984%)
 #   factual_restraint            50.0M ( 6.5573770%)
 # For smaller test TOKENS values, the same shares are used to derive estimated record counts.
-# Candidate planning estimates combine the corrected grounded smoke lengths
-# with the expanded local artifact text:
-#   arithmetic=57, task_code=197, educational_qa_mcq_math=65,
-#   educational_qa_mcq_general=132, factual_restraint=54.
-# Re-run report-lengths after a larger validation run before final production execution.
+# Candidate planning estimates are calibrated from the 100,000 accepted-token
+# quality smoke. Fractional values avoid systematic row-count inflation:
+#   arithmetic=82.69, task_code=291.21, educational_qa_mcq_math=74.72,
+#   educational_qa_mcq_general=150.99, factual_restraint=61.45.
 mix:
   arithmetic:
     architecture: "grounded"
@@ -67,7 +66,7 @@ mix:
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 57
+    avg_tokens_per_sample: 82.69
   task_code:
     architecture: "grounded"
     share: 0.39344262295081966
@@ -76,7 +75,7 @@ mix:
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 197
+    avg_tokens_per_sample: 291.21
   educational_qa_mcq_math:
     architecture: "grounded"
     share: 0.14754098360655737
@@ -85,7 +84,7 @@ mix:
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 65
+    avg_tokens_per_sample: 74.72
   educational_qa_mcq_general:
     architecture: "grounded"
     share: 0.24590163934426230
@@ -94,7 +93,7 @@ mix:
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 132
+    avg_tokens_per_sample: 150.99
   factual_restraint:
     architecture: "grounded"
     share: 0.06557377049180328
@@ -103,7 +102,7 @@ mix:
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
-    avg_tokens_per_sample: 54
+    avg_tokens_per_sample: 61.45
 
 validation:
   schema: true

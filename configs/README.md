@@ -31,6 +31,12 @@ round, the pipeline validates and globally deduplicates the records, counts only
 accepted public `text`, and requests unused replacement candidates for any
 remaining per-signal token deficit.
 
+Candidate row totals are not rounded to the provider request batch size. The
+adaptive requester simply emits a smaller final request. Replacement rounds add
+only the estimated rows needed for the remaining deficit. Task Code candidates
+use a stable catalog-wide order so a partial plan samples across the full catalog
+instead of taking a historical prefix.
+
 IDs and metadata do not count toward the target. Token counts use the configured
 `generation.chars_per_token` estimate because downstream tokenization belongs to
 the training repository. If a genuine candidate inventory or an optional cost

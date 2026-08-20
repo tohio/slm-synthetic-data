@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import hashlib
+
 from slm_synth.pretrain.artifacts.base import GroundedArtifact
 from slm_synth.pretrain.artifacts.task_code_catalog import TASK_CODE_SPECS
+
+
+def _catalog_order(spec: tuple[str, str, str]) -> bytes:
+    """Return a stable order that samples across the whole catalog, not its source layout."""
+    return hashlib.sha256(f"task-code-candidate:{spec[0]}".encode("utf-8")).digest()
 
 
 class TaskCodeArtifactFactory:
     """Create a finite catalog of distinct, valid Python algorithm records."""
 
-    SPECS = TASK_CODE_SPECS
+    SPECS = tuple(sorted(TASK_CODE_SPECS, key=_catalog_order))
     FAMILIES = tuple(spec[0] for spec in SPECS)
     UNIQUE_CANDIDATE_CAPACITY = len(SPECS)
 

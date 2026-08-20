@@ -236,19 +236,28 @@ def test_batch_store_materializes_without_duplicates(tmp_path):
     assert len(store.raw_path.read_text().splitlines()) == 32
 
 
-def test_record_count_target_rounds_up_without_tokenizer():
+def test_record_count_target_does_not_round_to_request_batch_size():
     cfg = {"target_total_tokens": 5000, "generation": {"avg_tokens_per_sample": 80}}
-    token_target, target_rows, rounded_rows = generate._rounded_batch_target_rows(
-        cfg, {"target_tokens": 5000, "avg_tokens_per_sample": 60}, 32
+    token_target, requested_rows, planned_rows = generate._planned_grounded_target_rows(
+        cfg, {"target_tokens": 5000, "avg_tokens_per_sample": 60}
     )
     assert token_target == 5000
-    assert target_rows == 84
-    assert rounded_rows == 96
+    assert requested_rows == 84
+    assert planned_rows == 84
 
-    _, capped_rows, capped_rounded_rows = generate._rounded_batch_target_rows(
-        cfg, {"target_tokens": 5000, "avg_tokens_per_sample": 60, "max_unique_candidates": 64}, 32
+    _, capped_requested_rows, capped_planned_rows = generate._planned_grounded_target_rows(
+        cfg, {"target_tokens": 5000, "avg_tokens_per_sample": 60, "max_unique_candidates": 64}
     )
-    assert capped_rows == capped_rounded_rows == 64
+    assert capped_requested_rows == 84
+    assert capped_planned_rows == 64
+
+
+def test_record_count_target_preserves_fractional_length_estimates():
+    cfg = {"target_total_tokens": 1000}
+    _, requested_rows, planned_rows = generate._planned_grounded_target_rows(
+        cfg, {"target_tokens": 1000, "avg_tokens_per_sample": 82.69}
+    )
+    assert requested_rows == planned_rows == 13
 
 
 def test_run_signal_resumes_from_completed_grounded_batches(monkeypatch, tmp_path):
@@ -260,9 +269,9 @@ def test_run_signal_resumes_from_completed_grounded_batches(monkeypatch, tmp_pat
     }
     monkeypatch.setattr(generate, "build_llm", lambda *args, **kwargs: GroundedMockLLM())
     generate.run_signal("factual_restraint", cfg, tmp_path)
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 1
     generate.run_signal("factual_restraint", cfg, tmp_path)
-    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 32
+    assert len((tmp_path / "raw" / "factual_restraint.jsonl").read_text().splitlines()) == 1
 
 
 def test_run_signal_requeues_exhausted_retryable_provider_failure_and_continues(monkeypatch, tmp_path):

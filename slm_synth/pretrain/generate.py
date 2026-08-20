@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import math
 import os
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -120,22 +121,23 @@ def _uncapped_grounded_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any])
     if explicit_rows is not None:
         return int(explicit_rows)
     token_target = _grounded_token_target(cfg, mix_cfg)
-    avg_tokens = int(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 80)))
-    return max(1, (token_target + avg_tokens - 1) // avg_tokens)
+    avg_tokens = float(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 80)))
+    if avg_tokens <= 0:
+        raise ValueError("avg_tokens_per_sample must be positive")
+    return max(1, math.ceil(token_target / avg_tokens))
 
 
-def _rounded_batch_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any], batch_size: int) -> tuple[int, int, int]:
+def _planned_grounded_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any]) -> tuple[int, int, int]:
     token_target = _grounded_token_target(cfg, mix_cfg)
-    target_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
-    rounded_rows = ((target_rows + batch_size - 1) // batch_size) * batch_size
+    requested_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
+    planned_rows = requested_rows
     capacity = mix_cfg.get("max_unique_candidates")
     if capacity is not None:
         capacity = int(capacity)
         if capacity <= 0:
             raise ValueError("max_unique_candidates must be positive")
-        target_rows = min(target_rows, capacity)
-        rounded_rows = min(rounded_rows, capacity)
-    return token_target, target_rows, rounded_rows
+        planned_rows = min(planned_rows, capacity)
+    return token_target, requested_rows, planned_rows
 
 
 def _retry_grounded_batch_after_delay(
@@ -149,11 +151,11 @@ def _retry_grounded_batch_after_delay(
     return generator.generate_range(start_index, batch_size, batch_id=start_index)
 
 
-def _pending_grounded_ranges(rounded_rows: int, terminal_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _pending_grounded_ranges(planned_rows: int, terminal_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     covered: list[tuple[int, int]] = []
     for start, size in terminal_ranges:
-        end = min(rounded_rows, start + size)
-        if start < rounded_rows and end > start:
+        end = min(planned_rows, start + size)
+        if start < planned_rows and end > start:
             covered.append((start, end))
     covered.sort()
 
@@ -163,8 +165,8 @@ def _pending_grounded_ranges(rounded_rows: int, terminal_ranges: list[tuple[int,
         if start > cursor:
             pending.append((cursor, start - cursor))
         cursor = max(cursor, end)
-    if cursor < rounded_rows:
-        pending.append((cursor, rounded_rows - cursor))
+    if cursor < planned_rows:
+        pending.append((cursor, planned_rows - cursor))
     return pending
 
 
@@ -204,8 +206,7 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     if not MIN_GROUNDED_BATCH_SIZE <= min_batch_size <= batch_size:
         raise ValueError("Grounded generation min_batch_size must be between 1 and batch_size")
 
-    token_target, target_rows, rounded_rows = _rounded_batch_target_rows(cfg, mix_cfg, batch_size)
-    uncapped_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
+    token_target, requested_rows, planned_rows = _planned_grounded_target_rows(cfg, mix_cfg)
     candidate_capacity = mix_cfg.get("max_unique_candidates")
     parallel_requests = int(
         mix_cfg.get(
@@ -232,20 +233,20 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     store = GroundedBatchStore(output_dir, name)
     reject_writer = JSONLWriter(output_dir / "rejected" / f"{name}.jsonl")
 
-    pending_ranges = _pending_grounded_ranges(rounded_rows, store.terminal_ranges())
+    pending_ranges = _pending_grounded_ranges(planned_rows, store.terminal_ranges())
     existing_rows = store.materialize_raw()
     print(
         f"[generate] Starting grounded signal: {name} "
-        f"(target_tokens_estimate={token_target}, target_rows={target_rows}, "
-        f"rounded_rows={rounded_rows}, existing_rows={existing_rows}, "
-        f"uncapped_target_rows={uncapped_rows}, candidate_capacity={candidate_capacity or 'unbounded'}, "
+        f"(target_tokens_estimate={token_target}, requested_rows={requested_rows}, "
+        f"planned_rows={planned_rows}, existing_rows={existing_rows}, "
+        f"candidate_capacity={candidate_capacity or 'unbounded'}, "
         f"batch_size={batch_size}, min_batch_size={min_batch_size}, "
         f"parallel_requests={parallel_requests}, model={renderer.model})"
     )
     if not pending_ranges:
         metrics = store.telemetry_summary()
         print(
-            f"[generate] Completed grounded signal: {name} rows={existing_rows}, target_rows={rounded_rows}, "
+            f"[generate] Completed grounded signal: {name} rows={existing_rows}, target_rows={planned_rows}, "
             f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
             f"provider_retries={metrics['retryable_provider_retries']}, "
             f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "
@@ -302,7 +303,7 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
                         cost = float(usage.get("cost", 0.0) or 0.0)
                         print(
                             f"[generate] {name}: batch_start={start_index} batch_size={request_batch_size} "
-                            f"rows={existing_rows}/{rounded_rows} cost={cost:.8f}"
+                            f"rows={existing_rows}/{planned_rows} cost={cost:.8f}"
                         )
                     except GroundedTransientProviderBatchError as exc:
                         batch_controller.record_failure()
@@ -382,7 +383,7 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     metrics = store.telemetry_summary()
     print(
         f"[generate] Completed grounded signal: {name} rows={final_rows}, "
-        f"target_rows={rounded_rows}, batches={metrics['batches']}, "
+        f"target_rows={planned_rows}, batches={metrics['batches']}, "
         f"dropped_batches={metrics['dropped_batches']}, dropped_rows={metrics['dropped_rows']}, "
         f"provider_retries={metrics['retryable_provider_retries']}, "
         f"retry_sleep_seconds={metrics['retry_sleep_seconds']:.3f}, "

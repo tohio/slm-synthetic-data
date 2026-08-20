@@ -30,17 +30,15 @@ def test_next_candidate_plan_adds_replacements_and_respects_capacity():
         accepted_tokens=700,
         target_tokens=1000,
         avg_tokens_per_sample=100,
-        batch_size=32,
         capacity=96,
-    ) == 64
+    ) == 35
     assert curate.next_candidate_plan(
         current=64,
         accepted_tokens=700,
         target_tokens=1000,
         avg_tokens_per_sample=100,
-        batch_size=32,
         capacity=70,
-    ) == 70
+    ) == 67
 
 
 def test_curator_generates_replacements_until_accepted_target(monkeypatch, tmp_path):
@@ -91,7 +89,7 @@ mix:
 
     report = curate.curate_to_accepted_token_target(str(config))
 
-    assert requested == [2, 4]
+    assert requested == [2, 3]
     assert report["status"] == "complete"
     assert report["accepted_tokens"] == 12
 

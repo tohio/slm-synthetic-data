@@ -40,7 +40,8 @@ def test_preflight_artifacts_scans_planned_rows_without_api_calls(tmp_path, monk
         "mix": {"arithmetic": {"architecture": "grounded", "share": 1.0, "batch_size": 32, "avg_tokens_per_sample": 100}},
     }))
     result = preflight.scan_plan(str(config))
-    assert result["signals"][0]["rounded_rows"] == 32
+    assert result["signals"][0]["requested_rows"] == 10
+    assert result["signals"][0]["planned_rows"] == 10
     assert result["signals"][0]["exact_duplicates"] == 0
 
 

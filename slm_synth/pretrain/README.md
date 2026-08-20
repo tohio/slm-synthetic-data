@@ -47,6 +47,11 @@ configured signal shares. The run completes only when every signal reaches its
 accepted-token target; candidate-inventory or cost exhaustion produces an
 explicit shortfall report and a nonzero exit.
 
+Candidate counts are calculated from fractional observed lengths and are not
+rounded to request-batch boundaries. Adaptive batching remains a transport
+concern: the final provider request may be smaller than the configured batch
+ceiling without inflating the dataset.
+
 Arithmetic preflight additionally requires every planned source artifact to
 have a distinct structure before rendering. Arithmetic questions preserve
 their assigned reasoning family, semantic context, numeric facts, and verified

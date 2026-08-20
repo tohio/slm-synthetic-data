@@ -14,7 +14,7 @@ from slm_synth.paths import load_yaml_config, resolve_output_dir
 from slm_synth.pretrain.dedup import run_from_config as deduplicate_from_config
 from slm_synth.pretrain.generate import (
     _grounded_token_target,
-    _rounded_batch_target_rows,
+    _planned_grounded_target_rows,
     run_signal,
 )
 from slm_synth.pretrain.grounded import GroundedBatchStore
@@ -81,8 +81,7 @@ def _candidate_capacity(mix_cfg: Mapping[str, Any]) -> int | None:
 
 def _initial_candidate_plan(cfg: Mapping[str, Any], signal: str) -> int:
     mix_cfg = cfg["mix"][signal]
-    batch_size = int(mix_cfg.get("batch_size", cfg.get("generation", {}).get("batch_size", 32)))
-    return _rounded_batch_target_rows(dict(cfg), dict(mix_cfg), batch_size)[2]
+    return _planned_grounded_target_rows(dict(cfg), dict(mix_cfg))[2]
 
 
 def next_candidate_plan(
@@ -90,22 +89,20 @@ def next_candidate_plan(
     current: int,
     accepted_tokens: int,
     target_tokens: int,
-    avg_tokens_per_sample: int,
-    batch_size: int,
+    avg_tokens_per_sample: float,
     capacity: int | None,
 ) -> int:
     """Return a strictly larger candidate plan for an accepted-token deficit."""
     if accepted_tokens >= target_tokens:
         return current
-    if avg_tokens_per_sample <= 0 or batch_size <= 0:
-        raise ValueError("avg_tokens_per_sample and batch_size must be positive")
+    if avg_tokens_per_sample <= 0:
+        raise ValueError("avg_tokens_per_sample must be positive")
     missing = target_tokens - accepted_tokens
     additional = max(1, math.ceil(missing / avg_tokens_per_sample))
     requested = current + additional
-    rounded = math.ceil(requested / batch_size) * batch_size
     if capacity is not None:
-        rounded = min(rounded, capacity)
-    return max(current, rounded)
+        requested = min(requested, capacity)
+    return max(current, requested)
 
 
 def _total_cost(output_dir: Path, signals: list[str]) -> float:
@@ -221,8 +218,7 @@ def curate_to_accepted_token_target(
                     current=plans[signal],
                     accepted_tokens=int(tokens.get(signal, 0)),
                     target_tokens=targets[signal],
-                    avg_tokens_per_sample=int(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 100))),
-                    batch_size=int(mix_cfg.get("batch_size", generation_cfg.get("batch_size", 32))),
+                    avg_tokens_per_sample=float(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 100))),
                     capacity=capacities[signal],
                 )
             if next_plans == plans:
