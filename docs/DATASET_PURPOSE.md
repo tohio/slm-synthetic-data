@@ -50,9 +50,28 @@ Public SFT rows use this schema:
 {
   "id": "string",
   "messages": [
+    {"role": "system", "content": "string"},
     {"role": "user", "content": "string"},
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [{
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "lookup", "arguments": {"query": "string"}}
+      }]
+    },
+    {"role": "tool", "tool_call_id": "call_1", "content": "string"},
     {"role": "assistant", "content": "string"}
   ],
+  "tools": [{
+    "type": "function",
+    "function": {
+      "name": "lookup",
+      "description": "string",
+      "parameters": {"type": "object", "properties": {}}
+    }
+  }],
   "metadata": {
     "task_family": "string",
     "interaction_modes": ["string"],
@@ -64,7 +83,11 @@ Public SFT rows use this schema:
 }
 ```
 
-Task variables, `holdout_key`, teacher/provider details, retries, and cost stay out of public rows.
+`system` and `tools` are optional. Tool-mediated rows require declared tools,
+structured calls, matching tool responses, and a final assistant message.
+Ordinary and multi-turn rows use strict user/assistant alternation; malformed
+adjacent roles are rejected rather than merged. Task variables, `holdout_key`,
+teacher/provider details, retries, and cost stay out of public rows.
 
 ## DPO Data
 
@@ -74,8 +97,29 @@ Public DPO rows use this schema:
 {
   "id": "string",
   "prompt": [{"role": "user", "content": "string"}],
-  "chosen": [{"role": "assistant", "content": "string"}],
-  "rejected": [{"role": "assistant", "content": "string"}],
+  "chosen": [
+    {"role": "assistant", "content": null, "tool_calls": [{
+      "id": "call_1", "type": "function",
+      "function": {"name": "lookup", "arguments": {"query": "correct query"}}
+    }]},
+    {"role": "tool", "tool_call_id": "call_1", "content": "string"},
+    {"role": "assistant", "content": "string"}
+  ],
+  "rejected": [
+    {"role": "assistant", "content": null, "tool_calls": [{
+      "id": "call_2", "type": "function",
+      "function": {"name": "lookup", "arguments": {"query": "wrong query"}}
+    }]},
+    {"role": "tool", "tool_call_id": "call_2", "content": "string"},
+    {"role": "assistant", "content": "string"}
+  ],
+  "tools": [{
+    "type": "function",
+    "function": {
+      "name": "lookup", "description": "string",
+      "parameters": {"type": "object", "properties": {}}
+    }
+  }],
   "metadata": {
     "task_family": "string",
     "interaction_modes": ["string"],
@@ -89,7 +133,12 @@ Public DPO rows use this schema:
 }
 ```
 
-Chosen and rejected responses are public. Teacher/provider details, retries, cost, task variables, and `holdout_key` stay in manifests.
+`prompt` and `tools` occur once and are shared by both branches. Chosen and
+rejected may each contain a complete multi-message tool-use continuation, but
+may not embed a different prompt or tool inventory. Calls in both branches must
+reference the shared tools and resolve their own call IDs. Chosen and rejected
+responses are public. Teacher/provider details, retries, cost, task variables,
+and `holdout_key` stay in manifests.
 
 Published generic DPO data uses one repository containing one `data/<family>.jsonl` file per family. The default dataset configuration loads every family file; named configurations select one family. These configurations do not create train/validation/test splits or duplicate stored pairs.
 

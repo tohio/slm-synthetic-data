@@ -17,14 +17,43 @@ class Backend:
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         self.ids = [spec["id"] for spec in specs]
         return {
-            "data": {"items": [{
-                "id": spec["id"], "prompt": [{"role": "user", "content": spec["instruction"]}],
-                "chosen": [{"role": "assistant", "content": "A correct and complete response."}],
-                "rejected": [{"role": "assistant", "content": "A plausible but incomplete response."}],
-                "metadata": spec["metadata"],
-            } for spec in specs]},
+            "data": {"items": [self._row(spec) for spec in specs]},
             "telemetry": {"usage": {"total_tokens": 10}},
         }
+
+    @staticmethod
+    def _row(spec):
+        modes = spec["metadata"]["interaction_modes"]
+        prompt = [{"role": "user", "content": spec["instruction"]}]
+        if "system_conditioned" in modes:
+            prompt.insert(0, {"role": "system", "content": "Follow the requested constraints."})
+        if "multi_turn" in modes:
+            prompt.extend([
+                {"role": "assistant", "content": "What constraint matters most?"},
+                {"role": "user", "content": "Accuracy matters most."},
+            ])
+        row = {
+            "id": spec["id"], "prompt": prompt,
+            "chosen": [{"role": "assistant", "content": "A correct and complete response."}],
+            "rejected": [{"role": "assistant", "content": "A plausible but incomplete response."}],
+            "metadata": spec["metadata"],
+        }
+        if "tool_mediated" in modes:
+            row["tools"] = [{"type": "function", "function": {
+                "name": "lookup", "description": "Look up an approved record.",
+                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+            }}]
+            row["chosen"] = [
+                {"role": "assistant", "content": None, "tool_calls": [{"id": "chosen_call", "type": "function", "function": {"name": "lookup", "arguments": {"query": "correct"}}}]},
+                {"role": "tool", "tool_call_id": "chosen_call", "content": "verified result"},
+                {"role": "assistant", "content": "A correct and complete response."},
+            ]
+            row["rejected"] = [
+                {"role": "assistant", "content": None, "tool_calls": [{"id": "rejected_call", "type": "function", "function": {"name": "lookup", "arguments": {"query": "wrong"}}}]},
+                {"role": "tool", "tool_call_id": "rejected_call", "content": "irrelevant result"},
+                {"role": "assistant", "content": "A plausible but incorrect response."},
+            ]
+        return row
 
 
 def test_all_generic_dpo_specs_use_teacher_generation():

@@ -53,5 +53,86 @@ def test_validate_sft_row_rejects_eval_family_and_category():
 def test_validate_sft_row_rejects_adjacent_roles():
     row = _row()
     row["messages"].insert(1, {"role": "user", "content": "Second prompt"})
-    with pytest.raises(ValueError, match="alternate"):
+    with pytest.raises(ValueError, match="malformed role sequence"):
+        validate_sft_row(row)
+
+
+def _tools():
+    return [{
+        "type": "function",
+        "function": {
+            "name": "lookup_weather",
+            "description": "Return weather for a resolved city.",
+            "parameters": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+        },
+    }]
+
+
+def test_validate_sft_row_accepts_system_conditioned_tool_conversation():
+    row = _row()
+    row["tools"] = _tools()
+    row["messages"] = [
+        {"role": "system", "content": "Use tools when current data is needed."},
+        {"role": "user", "content": "What is the weather in Boston?"},
+        {"role": "assistant", "content": None, "tool_calls": [{
+            "id": "call_weather",
+            "type": "function",
+            "function": {"name": "lookup_weather", "arguments": {"city": "Boston"}},
+        }]},
+        {"role": "tool", "tool_call_id": "call_weather", "content": "Cloudy, 18 C"},
+        {"role": "assistant", "content": "Boston is cloudy and 18 C."},
+    ]
+    row["metadata"] = _metadata(
+        interaction_modes=["single_turn", "system_conditioned", "tool_mediated"],
+        output_mode="tool_call",
+    )
+    validated = validate_sft_row(row)
+    assert validated["messages"][2]["tool_calls"][0]["function"]["arguments"] == {"city": "Boston"}
+    assert validated["tools"] == _tools()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        (lambda row: row["messages"].pop(2), "unresolved tool_call"),
+        (lambda row: row["messages"][2].update(tool_call_id="unknown"), "unknown or duplicate"),
+        (lambda row: row["messages"][1]["tool_calls"][0]["function"].update(name="missing_tool"), "undeclared tool"),
+    ],
+)
+def test_validate_sft_row_rejects_malformed_tool_sequences(mutation, error):
+    row = {
+        "id": "sft_tool",
+        "tools": _tools(),
+        "messages": [
+            {"role": "user", "content": "Check Boston."},
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "call_weather", "type": "function",
+                "function": {"name": "lookup_weather", "arguments": {"city": "Boston"}},
+            }]},
+            {"role": "tool", "tool_call_id": "call_weather", "content": "Cloudy"},
+            {"role": "assistant", "content": "It is cloudy."},
+        ],
+        "metadata": _metadata(interaction_modes=["single_turn", "tool_mediated"], output_mode="tool_call"),
+    }
+    mutation(row)
+    with pytest.raises(ValueError, match=error):
+        validate_sft_row(row)
+
+
+def test_validate_sft_row_rejects_tool_activity_without_tool_mediated_label():
+    row = {
+        "id": "sft_tool", "tools": _tools(),
+        "messages": [
+            {"role": "user", "content": "Check Boston."},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "lookup_weather", "arguments": {"city": "Boston"}}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "Cloudy"},
+            {"role": "assistant", "content": "It is cloudy."},
+        ],
+        "metadata": _metadata(),
+    }
+    with pytest.raises(ValueError, match="tool_mediated"):
         validate_sft_row(row)

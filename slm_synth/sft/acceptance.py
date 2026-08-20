@@ -21,15 +21,16 @@ def normalize_sft_text(value: str) -> str:
 def sft_prompt_fingerprint(row: Mapping[str, Any]) -> str:
     """Return a normalized fingerprint of all non-assistant prompt messages."""
     validated = validate_sft_row(row)
-    return _messages_fingerprint(
-        message for message in validated["messages"] if message["role"] != "assistant"
+    return _row_fingerprint(
+        messages=(message for message in validated["messages"] if message["role"] != "assistant"),
+        tools=validated.get("tools"),
     )
 
 
 def sft_conversation_fingerprint(row: Mapping[str, Any]) -> str:
     """Return a normalized fingerprint of the complete conversation."""
     validated = validate_sft_row(row)
-    return _messages_fingerprint(validated["messages"])
+    return _row_fingerprint(messages=validated["messages"], tools=validated.get("tools"))
 
 
 def sft_response_fingerprint(row: Mapping[str, Any]) -> str:
@@ -96,12 +97,30 @@ def build_sft_content_summary(rows: Iterable[Mapping[str, Any]]) -> dict[str, An
     }
 
 
-def _messages_fingerprint(messages: Iterable[Mapping[str, str]]) -> str:
-    payload = [
-        {"role": message["role"], "content": normalize_sft_text(message["content"])}
-        for message in messages
-    ]
+def _messages_fingerprint(messages: Iterable[Mapping[str, Any]]) -> str:
+    payload = [_message_payload(message) for message in messages]
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _row_fingerprint(*, messages: Iterable[Mapping[str, Any]], tools: Any) -> str:
+    payload = {"messages": [_message_payload(message) for message in messages]}
+    if tools is not None:
+        payload["tools"] = _normalize_value(tools)
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _message_payload(message: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: _normalize_value(value) for key, value in message.items()}
+
+
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return normalize_sft_text(value)
+    if isinstance(value, Mapping):
+        return {key: _normalize_value(item) for key, item in sorted(value.items())}
+    if isinstance(value, list):
+        return [_normalize_value(item) for item in value]
+    return value
 
 
 def _uniqueness_summary(values: Iterable[str]) -> dict[str, Any]:

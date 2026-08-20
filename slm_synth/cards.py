@@ -61,9 +61,13 @@ CARD_SPECS: dict[str, dict[str, str]] = {
         "schema": """{
   "id": "string",
   "messages": [
+    {"role": "system", "content": "string"},
     {"role": "user", "content": "string"},
+    {"role": "assistant", "content": "string|null", "tool_calls": ["structured function calls"]},
+    {"role": "tool", "tool_call_id": "string", "content": "string"},
     {"role": "assistant", "content": "string"}
   ],
+  "tools": ["optional shared function definitions"],
   "metadata": {
     "task_family": "string",
     "interaction_modes": ["string"],
@@ -87,11 +91,12 @@ CARD_SPECS: dict[str, dict[str, str]] = {
     {"role": "user", "content": "string"}
   ],
   "chosen": [
-    {"role": "assistant", "content": "string"}
+    {"role": "assistant|tool", "content": "string|null"}
   ],
   "rejected": [
-    {"role": "assistant", "content": "string"}
+    {"role": "assistant|tool", "content": "string|null"}
   ],
+  "tools": ["optional shared function definitions"],
   "metadata": {
     "task_family": "string",
     "interaction_modes": ["string"],

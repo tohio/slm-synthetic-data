@@ -101,7 +101,10 @@ slm_synth/sft/spec_builders.py
 
 ## DPO Preference Dimensions
 
-Public pairs contain `prompt`, `chosen`, `rejected`, the shared SFT axes, one `preference_dimension`, and a concrete `failure_mode`.
+Public pairs contain one shared `prompt`, explicit multi-message `chosen` and
+`rejected` branches, optional shared `tools`, the shared SFT axes, one
+`preference_dimension`, and a concrete `failure_mode`. Tool-use branches are
+validated against the same prompt and tool inventory.
 
 | Preference dimension | Representative failure mode | Preference objective |
 |---|---|---|

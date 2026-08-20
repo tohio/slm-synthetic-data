@@ -75,6 +75,9 @@ def _validate_declared_sources(catalog: Mapping[str, tuple[dict[str, Any], ...]]
         if count / len(sources) > MAX_TEMPLATE_SHARE:
             raise ValueError(f"{kind} {group!r} is concentrated in template {template!r}: {count}/{len(sources)}")
         for source in sources:
+            metadata = source.get("metadata", {})
+            if metadata.get("output_mode") == "tool_call" and "tool_mediated" not in metadata.get("interaction_modes", []):
+                raise ValueError(f"{kind} source {source.get('source_key')!r} uses tool_call output without tool_mediated interaction")
             key = source.get("source_key")
             if not isinstance(key, str) or not key.strip():
                 raise ValueError(f"{kind} {group!r} contains a source without source_key")

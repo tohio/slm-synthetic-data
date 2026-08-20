@@ -10,8 +10,11 @@ from slm_synth.dpo.spec_builders import build_specs
 
 
 def _response(spec):
+    prompt = [{"role": "user", "content": "Please rewrite this note."}]
+    if "system_conditioned" in spec["metadata"]["interaction_modes"]:
+        prompt.insert(0, {"role": "system", "content": "Use a respectful professional tone."})
     return {"items": [{
-        "id": spec["id"], "prompt": [{"role": "user", "content": "Please rewrite this note."}],
+        "id": spec["id"], "prompt": prompt,
         "chosen": [{"role": "assistant", "content": "A clear professional rewrite."}],
         "rejected": [{"role": "assistant", "content": "A rude rewrite."}],
         "metadata": spec["metadata"],
@@ -23,6 +26,10 @@ def test_dpo_batch_schema_uses_new_metadata_only():
     assert {"task_family", "interaction_modes", "output_mode", "context_mode", "preference_dimension"} <= required
     assert "eval_family" not in json.dumps(DPO_BATCH_RESPONSE_SCHEMA)
     assert "category" not in DPO_METADATA_SCHEMA["properties"]
+    item_schema = DPO_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
+    assert "tools" in item_schema["properties"]
+    assert "maxItems" not in item_schema["properties"]["chosen"]
+    assert "maxItems" not in item_schema["properties"]["rejected"]
 
 
 def test_dpo_teacher_request_hides_holdout_key():
@@ -38,6 +45,7 @@ def test_dpo_prompt_names_preference_contract_without_internal_fields():
     assert "preference_dimension" in prompt
     assert "holdout_key" in prompt  # appears only in the prohibition rule
     assert json.dumps(spec.get("holdout_key")) not in prompt
+    assert "one shared prompt and tools array" in prompt
 
 
 def test_validate_dpo_batch_response_matches_spec_metadata():
@@ -52,3 +60,11 @@ def test_validate_dpo_batch_response_rejects_metadata_drift():
     response["items"][0]["metadata"] = dict(spec["metadata"], preference_dimension="organization")
     with pytest.raises(ValueError, match="metadata does not match"):
         validate_dpo_batch_response(response, expected_specs=[spec])
+
+
+def test_validate_dpo_batch_response_does_not_rewrite_branch_roles():
+    spec = build_specs(family="helpfulness_and_completeness", count=1)[0]
+    response = _response(spec)
+    response["items"][0]["chosen"][0]["role"] = "user"
+    with pytest.raises(ValueError, match="branch contains unsupported role"):
+        validate_dpo_batch_response(response)

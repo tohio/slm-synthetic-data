@@ -1,96 +1,88 @@
-"""Schema validation for synthetic SFT records."""
+"""Strict schema validation for generic SFT chat records."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
+from slm_synth.chat_schema import (
+    CHAT_ROLES,
+    conversation_has_tool_activity,
+    validate_conversation,
+    validate_message,
+    validate_tools,
+)
 from slm_synth.taxonomy import validate_alignment_metadata
 
-SFT_ALLOWED_ROLES = frozenset({"system", "user", "assistant"})
+SFT_ALLOWED_ROLES = CHAT_ROLES
 SFT_REQUIRED_FIELDS = frozenset({"id", "messages", "metadata"})
+SFT_OPTIONAL_FIELDS = frozenset({"tools"})
 
 
 def validate_sft_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Validate and normalize one SFT training row.
-
-    Required row shape:
-      - id: non-empty string
-      - messages: one user turn and one assistant turn, optionally prefixed by one system turn
-      - metadata: task and interaction coverage labels
-    """
+    """Validate a complete SFT conversation with optional shared tools."""
     if not isinstance(row, Mapping):
         raise TypeError("SFT row must be an object")
-
-    missing = sorted(field for field in SFT_REQUIRED_FIELDS if field not in row)
+    missing = sorted(SFT_REQUIRED_FIELDS - set(row))
+    extra = sorted(set(row) - SFT_REQUIRED_FIELDS - SFT_OPTIONAL_FIELDS)
     if missing:
         raise ValueError(f"SFT row missing required field(s): {missing}")
-
-    extra = sorted(field for field in row if field not in SFT_REQUIRED_FIELDS)
     if extra:
         raise ValueError(f"SFT row contains unsupported field(s): {extra}")
 
-    row_id = _require_non_empty_string(row["id"], "id")
-    messages = validate_messages(row["messages"])
+    tools = validate_tools(row["tools"]) if "tools" in row else None
+    messages = validate_conversation(
+        row["messages"],
+        tools=tools,
+        field_name="SFT messages",
+        require_final_assistant=True,
+    )
     metadata = validate_alignment_metadata(row["metadata"])
     _validate_interaction_contract(messages, metadata["interaction_modes"])
 
-    return {
-        "id": row_id,
+    validated: dict[str, Any] = {
+        "id": _require_non_empty_string(row["id"], "id"),
         "messages": messages,
         "metadata": metadata,
     }
-
-
-def validate_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
-    """Validate the SFT chat message sequence."""
-    if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)):
-        raise TypeError("messages must be a list")
-    if not messages:
-        raise ValueError("messages must contain at least one message")
-
-    validated = [validate_message(message) for message in messages]
-    roles = [message["role"] for message in validated]
-    conversational_roles = roles[1:] if roles[0] == "system" else roles
-    expected = ["user" if index % 2 == 0 else "assistant" for index in range(len(conversational_roles))]
-    if conversational_roles != expected or conversational_roles[-1] != "assistant":
-        raise ValueError("SFT messages must alternate user/assistant, optionally after one system message, and end with assistant")
-
+    if tools is not None:
+        validated["tools"] = tools
     return validated
 
 
-def _validate_interaction_contract(messages: list[dict[str, str]], modes: list[str]) -> None:
+def validate_messages(messages: Any, *, tools: Any = None) -> list[dict[str, Any]]:
+    """Validate a complete SFT message sequence."""
+    validated_tools = validate_tools(tools) if tools is not None else None
+    return validate_conversation(
+        messages,
+        tools=validated_tools,
+        field_name="SFT messages",
+        require_final_assistant=True,
+    )
+
+
+def _validate_interaction_contract(messages: list[dict[str, Any]], modes: list[str]) -> None:
     roles = [message["role"] for message in messages]
-    turn_count = sum(role == "user" for role in roles)
-    if ("multi_turn" in modes) != (turn_count > 1):
+    user_turns = roles.count("user")
+    if ("multi_turn" in modes) != (user_turns > 1):
         raise ValueError("interaction_modes single_turn/multi_turn must match the message sequence")
     if ("system_conditioned" in modes) != (roles[0] == "system"):
         raise ValueError("system_conditioned must match the presence of a leading system message")
-
-
-def validate_message(message: Mapping[str, Any]) -> dict[str, str]:
-    """Validate one chat message."""
-    if not isinstance(message, Mapping):
-        raise TypeError("message must be an object")
-
-    missing = sorted(field for field in ("role", "content") if field not in message)
-    if missing:
-        raise ValueError(f"message missing required field(s): {missing}")
-
-    extra = sorted(field for field in message if field not in {"role", "content"})
-    if extra:
-        raise ValueError(f"message contains unsupported field(s): {extra}")
-
-    role = _require_non_empty_string(message["role"], "role").lower()
-    if role not in SFT_ALLOWED_ROLES:
-        supported = ", ".join(sorted(SFT_ALLOWED_ROLES))
-        raise ValueError(f"unsupported message role '{role}'. Supported roles: {supported}")
-
-    content = _require_non_empty_string(message["content"], "content")
-    return {"role": role, "content": content}
+    if ("tool_mediated" in modes) != conversation_has_tool_activity(messages):
+        raise ValueError("tool_mediated must match structured tool activity in messages")
 
 
 def _require_non_empty_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     return value.strip()
+
+
+__all__ = [
+    "SFT_ALLOWED_ROLES",
+    "SFT_OPTIONAL_FIELDS",
+    "SFT_REQUIRED_FIELDS",
+    "validate_message",
+    "validate_messages",
+    "validate_sft_row",
+]

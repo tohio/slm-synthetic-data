@@ -30,7 +30,13 @@ Make targets `sft-smoke`, `sft-generate`, `sft-report`, `sft-inspect`, and `sft-
 
 ## Conventions
 
-Public SFT rows contain only `id`, `messages`, and public `metadata`. Teacher/provider/run/cost/retry details stay in manifests.
+Public SFT rows contain `id`, strict multi-turn `messages`, public `metadata`,
+and optional shared `tools`. A system message is permitted only at the start.
+Assistant tool calls use structured argument objects; tool responses must
+resolve every call ID before a final assistant response. Adjacent roles,
+undeclared tools, duplicate calls, and unresolved calls fail validation rather
+than being normalized. Teacher/provider/run/cost/retry details stay in
+manifests.
 
 Production runs require explicit candidate counts for every selected family. Candidate counts limit generation work; accepted rows are the quality-filtered outcome and are not backfilled to reach a quota. The default Make paths enforce the configured holdout registry during generation and reporting.
 

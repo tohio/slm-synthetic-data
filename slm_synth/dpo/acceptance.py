@@ -21,7 +21,8 @@ def normalize_dpo_text(value: str) -> str:
 
 
 def dpo_prompt_fingerprint(row: Mapping[str, Any]) -> str:
-    return _messages_fingerprint(validate_dpo_row(row)["prompt"])
+    validated = validate_dpo_row(row)
+    return _row_part_fingerprint(validated["prompt"], validated.get("tools"))
 
 
 def dpo_triple_fingerprint(row: Mapping[str, Any]) -> str:
@@ -31,6 +32,7 @@ def dpo_triple_fingerprint(row: Mapping[str, Any]) -> str:
             "prompt": _messages_payload(validated["prompt"]),
             "chosen": _messages_payload(validated["chosen"]),
             "rejected": _messages_payload(validated["rejected"]),
+            "tools": _normalize_value(validated.get("tools")),
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -108,14 +110,11 @@ def build_dpo_content_summary(rows: Iterable[Mapping[str, Any]]) -> dict[str, An
     }
 
 
-def _messages_payload(messages: Iterable[Mapping[str, str]]) -> list[dict[str, str]]:
-    return [
-        {"role": message["role"], "content": normalize_dpo_text(message["content"])}
-        for message in messages
-    ]
+def _messages_payload(messages: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: _normalize_value(value) for key, value in message.items()} for message in messages]
 
 
-def _messages_fingerprint(messages: Iterable[Mapping[str, str]]) -> str:
+def _messages_fingerprint(messages: Iterable[Mapping[str, Any]]) -> str:
     return json.dumps(
         _messages_payload(messages),
         ensure_ascii=False,
@@ -125,14 +124,16 @@ def _messages_fingerprint(messages: Iterable[Mapping[str, str]]) -> str:
 
 
 def _chosen_rejected_similarity(row: Mapping[str, Any]) -> float:
-    chosen = normalize_dpo_text(row["chosen"][0]["content"])
-    rejected = normalize_dpo_text(row["rejected"][0]["content"])
+    chosen = _branch_text(row["chosen"])
+    rejected = _branch_text(row["rejected"])
     return SequenceMatcher(None, chosen, rejected, autojunk=False).ratio()
 
 
 def _negative_pattern(row: Mapping[str, Any]) -> str:
-    chosen = normalize_dpo_text(row["chosen"][0]["content"])
-    rejected = normalize_dpo_text(row["rejected"][0]["content"])
+    if any(message.get("tool_calls") or message["role"] == "tool" for branch in (row["chosen"], row["rejected"]) for message in branch):
+        return "tool_use_branch"
+    chosen = _branch_text(row["chosen"])
+    rejected = _branch_text(row["rejected"])
     if chosen in rejected:
         return "chosen_verbatim_with_extra"
     if rejected in chosen:
@@ -144,6 +145,36 @@ def _negative_pattern(row: Mapping[str, Any]) -> str:
     if rejected.startswith(("i cannot", "i can't", "sorry", "as an ai")):
         return "refusal_or_disclaimer"
     return "other"
+
+
+def _row_part_fingerprint(messages: Iterable[Mapping[str, Any]], tools: Any) -> str:
+    return json.dumps(
+        {"messages": _messages_payload(messages), "tools": _normalize_value(tools)},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _branch_text(messages: Iterable[Mapping[str, Any]]) -> str:
+    parts: list[str] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+        if message.get("tool_calls"):
+            parts.append(json.dumps(message["tool_calls"], ensure_ascii=False, sort_keys=True))
+    return normalize_dpo_text(" ".join(parts))
+
+
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return normalize_dpo_text(value)
+    if isinstance(value, Mapping):
+        return {key: _normalize_value(item) for key, item in sorted(value.items())}
+    if isinstance(value, list):
+        return [_normalize_value(item) for item in value]
+    return value
 
 
 def _uniqueness_summary(values: Iterable[str]) -> dict[str, Any]:

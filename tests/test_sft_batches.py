@@ -19,6 +19,9 @@ def test_sft_batch_schema_uses_new_metadata_only():
     assert {"task_family", "interaction_modes", "output_mode", "context_mode"} <= required
     assert "eval_family" not in json.dumps(SFT_BATCH_RESPONSE_SCHEMA)
     assert "category" not in SFT_METADATA_SCHEMA["properties"]
+    item_schema = SFT_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
+    assert "tools" in item_schema["properties"]
+    assert "tool_calls" in item_schema["properties"]["messages"]["items"]["properties"]
 
 
 def test_sft_teacher_request_hides_holdout_key():
@@ -32,6 +35,7 @@ def test_sft_prompt_contains_generation_contract():
     prompt = render_sft_batch_prompt(build_specs(family="grounded_qa_and_reading", count=1))
     assert "high-quality generic SFT" in prompt
     assert "Preserve every id and metadata value exactly" in prompt
+    assert "structured assistant tool_calls" in prompt
 
 
 def test_validate_sft_batch_and_spec_metadata_binding():

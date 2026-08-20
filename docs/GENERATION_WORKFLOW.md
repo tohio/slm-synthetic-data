@@ -72,6 +72,11 @@ Public rows are written under `data/sft/runs/<run>/datasets/`, with one final JS
 
 SFT accepts the first row for each normalized ID, prompt, and complete conversation. Duplicate rows and terminal local-validation failures are rejected. Repeated assistant responses are reported but are not automatically rejected because distinct factual prompts can share an answer. Every selected family requires an explicit candidate count; generation never infers an equal allocation from a global row target.
 
+Conversation validation is strict. An optional system message may appear only
+first; ordinary turns alternate user and assistant; tool calls use declared
+shared tools and must be followed by matching tool responses and a final
+assistant message. Adjacent roles and malformed tool cycles are not repaired.
+
 ### SFT reporting and publish blockers
 
 `make sft-report` loads `configs/eval_holdouts.yaml` by default and writes `coverage.json`. The report includes aggregate and per-family metadata coverage, normalized ID/prompt/conversation uniqueness, response repetition, holdout collisions, and candidate/attempted/accepted/rejected/duplicate counts.
@@ -144,6 +149,12 @@ Public pairs are written under `data/dpo/runs/<run>/datasets/`, with one final J
 ### DPO acceptance and backfill
 
 DPO accepts the first pair for each normalized ID, prompt, and complete `(prompt, chosen, rejected)` triple. Duplicate pairs and terminal local-validation failures do not count toward the target. Chosen/rejected similarity and repeated negative patterns are reported but remain diagnostic because controlled near-miss negatives can be intentional.
+
+Each row has one shared prompt and optional tool inventory. Chosen and rejected
+are explicit continuation branches and may contain multiple assistant/tool
+messages. Both branches are validated independently against the same prompt and
+tools; nested replacement prompts, undeclared calls, unresolved call IDs, and
+malformed role sequences are rejected.
 
 Each generation round uses the next unused source indexes. If the run remains underfilled after its configured budget, generation preserves accepted public pairs, writes a failed run manifest, and exits nonzero. `DPO_MAX_BACKFILL_ROUNDS` is the total lifetime budget, including rounds recorded before resume.
 

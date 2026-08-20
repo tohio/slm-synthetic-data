@@ -6,18 +6,13 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from slm_synth.chat_schema import CHAT_MESSAGE_JSON_SCHEMA, TOOLS_JSON_SCHEMA
 from slm_synth.sft.schema import validate_sft_row
 from slm_synth.sft.specs import teacher_visible_sft_spec
 
 SFT_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
-CHAT_MESSAGE_SCHEMA: dict[str, Any] = {
-    "type": "object", "additionalProperties": False, "required": ["role", "content"],
-    "properties": {
-        "role": {"type": "string", "enum": ["system", "user", "assistant"]},
-        "content": {"type": "string", "minLength": 1},
-    },
-}
+CHAT_MESSAGE_SCHEMA = CHAT_MESSAGE_JSON_SCHEMA
 
 SFT_METADATA_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False,
@@ -46,6 +41,7 @@ SFT_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
         "properties": {
             "id": {"type": "string", "minLength": 1},
             "messages": {"type": "array", "minItems": 2, "items": CHAT_MESSAGE_SCHEMA},
+            "tools": TOOLS_JSON_SCHEMA,
             "metadata": SFT_METADATA_SCHEMA,
         },
     }}},
@@ -70,7 +66,9 @@ def render_sft_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
     return (
         "Generate one high-quality generic SFT row for each input spec. Return only JSON matching the supplied schema.\n"
         "Preserve every id and metadata value exactly. Materialize the requested interaction mode and do not expose "
-        "variables, constraints, holdout_key, fingerprints, provider data, or run data. Do not copy known evaluation prompts.\n\n"
+        "variables, constraints, holdout_key, fingerprints, provider data, or run data. Do not copy known evaluation prompts. "
+        "For tool-mediated tasks, emit one shared tools array, structured assistant tool_calls with object arguments, matching "
+        "tool responses, and a final assistant answer. Never serialize tool arguments as JSON strings.\n\n"
         f"Input specs:\n{request_json}"
     )
 

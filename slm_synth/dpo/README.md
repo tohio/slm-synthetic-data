@@ -28,6 +28,13 @@ dpo/
 
 DPO is organized by ten preference dimensions. Each pair also carries the shared task, interaction, output, and context axes used by generic SFT. The chosen and rejected responses are generated semantically by the configured teacher; no eval-shaped family or deterministic answer-pair path remains.
 
+Public rows preserve one explicit `prompt`, `chosen`, and `rejected`. Optional
+tool definitions occur once at row level and are shared by both branches.
+Chosen and rejected may contain independent multi-message assistant/tool
+continuations, but every call must reference the shared inventory, every tool
+response must resolve a call from its own branch, and both branches must end in
+an assistant response. Invalid roles are rejected without compatibility repair.
+
 `source_catalog.py` owns nine independently authored prompts per preference
 dimension. It does not depend on SFT specs. The full 90-prompt catalog is
 checked for semantic-source uniqueness, near-duplicates, template
