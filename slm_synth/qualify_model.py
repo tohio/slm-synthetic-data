@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.llm import LLMBackend
+from slm_synth.model_suitability import ModelSuitabilityError, get_reasoning_suitability
 from slm_synth.model_contract import (
     PlainOutputContractError,
     call_plain_parsed,
@@ -84,6 +85,43 @@ def _generator_passed(value: Any) -> bool:
 def qualify(
     *, model: str, roles: list[str], max_tokens: int, routing_mode: str | None
 ) -> dict[str, Any]:
+    try:
+        reasoning_suitability = get_reasoning_suitability(model)
+        reasoning_policy = reasoning_suitability.as_dict()
+    except ModelSuitabilityError as exc:
+        reasoning_policy = {
+            "model": model,
+            "reasoning_capable": None,
+            "reasoning_mandatory": None,
+            "reasoning_disable_supported": False,
+            "reasoning_policy_pass": False,
+            "source": "OpenRouter",
+            "error": str(exc),
+        }
+
+    if not reasoning_policy["reasoning_policy_pass"]:
+        results = {
+            role: {
+                "transport_compatible": None,
+                "contract_pass": False,
+                "behavioral_pass": False,
+                "reasoning_policy_pass": False,
+                "passed": False,
+                "error": reasoning_policy.get("error")
+                or "Model cannot run with reasoning disabled",
+            }
+            for role in roles
+        }
+        return {
+            "schema_version": 3,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "model": model,
+            "contract": "portable_plain_text_v1",
+            "reasoning_policy": reasoning_policy,
+            "roles": results,
+            "passed": False,
+        }
+
     backend = LLMBackend(
         provider="openrouter",
         model=model,
@@ -118,6 +156,7 @@ def qualify(
                 "transport_compatible": True,
                 "contract_pass": True,
                 "behavioral_pass": behavioral_pass,
+                "reasoning_policy_pass": True,
                 "passed": behavioral_pass,
                 "response": response["text"],
                 "telemetry": telemetry,
@@ -127,6 +166,7 @@ def qualify(
                 "transport_compatible": True,
                 "contract_pass": False,
                 "behavioral_pass": False,
+                "reasoning_policy_pass": True,
                 "passed": False,
                 "response": exc.response,
                 "telemetry": exc.telemetry,
@@ -137,14 +177,16 @@ def qualify(
                 "transport_compatible": False,
                 "contract_pass": False,
                 "behavioral_pass": False,
+                "reasoning_policy_pass": True,
                 "passed": False,
                 "error": str(exc),
             }
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "contract": "portable_plain_text_v1",
+        "reasoning_policy": reasoning_policy,
         "roles": results,
         "passed": all(result["passed"] for result in results.values()),
     }

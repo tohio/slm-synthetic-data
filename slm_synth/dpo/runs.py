@@ -37,6 +37,7 @@ from slm_synth.throughput_defaults import (
     MAX_OPENROUTER_CONCURRENCY,
 )
 from slm_synth.run_summary import print_batch_failure, print_batch_progress
+from slm_synth.quality_policy import summarize_judge_rejections
 
 
 @dataclass(frozen=True)
@@ -395,6 +396,9 @@ def generate_llm_run(
     empty_preference_dimensions = sorted(
         family for family in resolved_families if not accepted_rows_by_family[family]
     )
+    judge_rejection_policy = summarize_judge_rejections(
+        result.manifest_path for result in results
+    )
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
         generation_run=generation_run,
@@ -414,6 +418,7 @@ def generate_llm_run(
             "rejected_pairs": rejected_pairs,
             "rejection_reason_counts": output_acceptance["rejection_reason_counts"],
             "rejection_diagnostics": rejection_diagnostics,
+            **judge_rejection_policy,
             "attempted_pairs": attempted_pairs,
             "duplicate_pairs": duplicate_pairs,
             "duplicate_reason_counts": output_acceptance["duplicate_reason_counts"],

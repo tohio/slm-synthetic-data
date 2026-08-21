@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from slm_synth.model_suitability import require_reasoning_off_suitability
+
 load_dotenv()
 
 
@@ -462,6 +464,7 @@ class LLMBackend:
         )
         self.require_parameters = bool(require_parameters)
         self.allow_fallbacks = bool(allow_fallbacks)
+        self.reasoning_suitability = require_reasoning_off_suitability(self.model)
         self.openrouter_routing_policy = resolve_openrouter_routing_policy(
             mode=openrouter_routing_mode,
             provider=openrouter_provider,
@@ -578,9 +581,9 @@ class LLMBackend:
     def _plain_text_kwargs(self, *, system_prompt: str, prompt: str) -> Dict[str, Any]:
         """Build the smallest portable OpenAI-compatible chat request.
 
-        Generation roles intentionally do not require provider-side JSON schema,
-        tool calling, reasoning controls, or sampling controls.  Callers may opt
-        into temperature/top_p when qualifying a model, but both are omitted by
+        Generation roles intentionally do not require provider-side JSON schema
+        or tool calling. Repository policy disables reasoning for every
+        reasoning-capable model; optional sampling controls remain omitted by
         default.
         """
         kwargs: Dict[str, Any] = {
@@ -610,12 +613,15 @@ class LLMBackend:
         return content.strip()
 
     def _provider_extra_body(self) -> dict[str, Any]:
-        return {
+        body: dict[str, Any] = {
             "provider": self.openrouter_routing_policy.provider_preferences(
                 require_parameters=self.require_parameters,
                 allow_fallbacks=self.allow_fallbacks,
             )
         }
+        if self.reasoning_suitability.reasoning_capable:
+            body["reasoning"] = {"effort": "none"}
+        return body
 
     def _routing_metadata(self) -> dict[str, Any]:
         policy = getattr(self, "openrouter_routing_policy", None)
