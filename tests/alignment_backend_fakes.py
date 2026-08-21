@@ -33,8 +33,8 @@ class AcceptingAdjudicatorBackend:
             else:
                 raise AssertionError(schema_name)
             item["constraint_results"] = [
-                {"constraint": constraint, "passed": True, "reason": "satisfied"}
-                for constraint in constraints
+                {"constraint_index": index, "passed": True, "reason": "satisfied"}
+                for index, _constraint in enumerate(constraints)
             ]
             item["reasons"] = []
             items.append(item)

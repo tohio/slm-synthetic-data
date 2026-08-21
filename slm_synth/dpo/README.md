@@ -36,6 +36,8 @@ introduces exactly one plausible weakness matching `preference_dimension` and
 plausibility, weakness match, preference separation, collateral preservation,
 and every source constraint. No local correct-number/wrong-number fabrication
 or copied-branch repair remains.
+Adjudication evidence references source constraints by stable zero-based index
+instead of reproducing arbitrary constraint text.
 
 Public rows preserve one explicit `prompt`, `chosen`, and `rejected`. Optional
 tool definitions occur once at row level and are shared by both branches.

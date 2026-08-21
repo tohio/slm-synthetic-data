@@ -80,7 +80,10 @@ def render_sft_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "the final assistant content: structured_json is only a parseable JSON object or array with no surrounding prose; "
         "table is a Markdown table with a header and separator row; code contains the requested implementation in a fenced "
         "code block; concise remains brief; exact_constraints obeys every explicit count, length, heading, and forbidden-term "
-        "rule; free_text uses the form required by the instruction.\n\n"
+        "rule; free_text uses the form required by the instruction. Treat output_constraints as hard machine-checked "
+        "requirements. When both min_words and max_words are present, target their midpoint rather than either boundary and "
+        "count the final assistant words before returning. Verify every declared line count, item count, required term, "
+        "forbidden term, heading, and JSON key before returning.\n\n"
         f"Input specs:\n{request_json}"
     )
 

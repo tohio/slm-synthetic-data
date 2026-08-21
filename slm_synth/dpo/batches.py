@@ -81,7 +81,10 @@ def render_dpo_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "and follow-up assistant messages; both branches must use only the shared tools. Never serialize tool arguments as "
         "strings. Apply output_mode to the final content of both branches: structured_json is only parseable JSON; table is a "
         "Markdown table with a separator row; code uses a fenced code block; exact_constraints obeys every explicit surface "
-        "constraint; concise remains brief.\n\n"
+        "constraint; concise remains brief. Treat output_constraints as hard machine-checked requirements for the chosen "
+        "branch. When both min_words and max_words are present, target their midpoint rather than either boundary and count "
+        "the final chosen words before returning. The rejected branch may violate an output constraint only when that is the "
+        "requested failure_mode; otherwise it must preserve the chosen branch's output contract.\n\n"
         f"Input specs:\n{request_json}"
     )
 
@@ -129,7 +132,10 @@ def render_dpo_chosen_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "tool activity unless interaction_modes contains tool_mediated. "
         "For tool-mediated tasks, return one shared tools array and valid structured tool activity. Apply output_mode to the "
         "chosen branch's final content: structured_json is only parseable JSON; table is a Markdown table with a separator "
-        "row; code uses a fenced code block; exact_constraints obeys every explicit surface constraint; concise remains brief.\n\n"
+        "row; code uses a fenced code block; exact_constraints obeys every explicit surface constraint; concise remains brief. "
+        "Treat output_constraints as hard machine-checked requirements. When both min_words and max_words are present, "
+        "target their midpoint rather than either boundary and count the final chosen words before returning. Verify every "
+        "declared line count, item count, required term, forbidden term, heading, and JSON key before returning.\n\n"
         f"Input specs:\n{request_json}"
     )
 
@@ -149,7 +155,8 @@ def render_dpo_rejected_prompt(
         "preference_dimension. Preserve all unrelated strengths. Do not alter or repeat the shared prompt, tools, metadata, "
         "or chosen branch. Do not use a fabricated wrong-number shortcut unless the grounded brief explicitly requests a "
         "numeric error. Every branch message must include content; only an assistant message containing tool_calls may use "
-        "null content. Tool branches may use only the supplied shared tools.\n\n"
+        "null content. Tool branches may use only the supplied shared tools. Preserve the chosen branch's machine-checkable "
+        "output constraints unless violating one is exactly the requested failure_mode.\n\n"
         f"Input specs and chosen candidates:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 

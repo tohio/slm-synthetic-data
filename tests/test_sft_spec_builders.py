@@ -54,6 +54,15 @@ def test_sft_specs_declare_machine_checkable_exact_constraints():
     }
 
 
+def test_creative_source_requirements_are_explicit_in_public_instructions():
+    attic, lighthouse = build_specs(family="creative_writing", count=2)
+
+    assert "exactly two ink colors" in attic["instruction"]
+    assert "no additional ink color" in attic["instruction"]
+    assert "observant rather than sentimental" in lighthouse["instruction"]
+    assert "light and dust" in lighthouse["instruction"]
+
+
 def test_self_contained_programming_brief_has_accurate_context_mode():
     spec = build_specs(family="programming", count=1)[0]
     assert spec["metadata"]["context_mode"] == "self_contained"

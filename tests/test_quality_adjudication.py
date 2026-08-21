@@ -3,9 +3,13 @@ import json
 
 import pytest
 
+from slm_synth.dpo.adjudication import DPO_ADJUDICATION_SCHEMA, adjudicate_dpo_rows
 from slm_synth.dpo.generation import DPOBatchAcceptanceError, generate_llm_batch as generate_dpo_batch
 from slm_synth.dpo.spec_builders import build_specs as build_dpo_specs
-from slm_synth.quality_adjudication import validate_quality_adjudication
+from slm_synth.quality_adjudication import (
+    QUALITY_ADJUDICATION_SCHEMA, render_quality_adjudication_prompt,
+    validate_quality_adjudication,
+)
 from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPOBackend
 from tests.test_dpo_llm_generation import Backend as CompleteDPOBackend
 
@@ -23,12 +27,79 @@ def test_quality_adjudication_rejects_a_failed_source_constraint():
             "completeness": 4, "coherence": 4,
         },
         "constraint_results": [{
-            "constraint": "Use only supplied facts.", "passed": False, "reason": "Invented a date."
+            "constraint_index": 0, "passed": False, "reason": "Invented a date."
         }],
         "reasons": ["Invented a date."],
     }]}
     with pytest.raises(ValueError, match="semantic quality adjudication rejected"):
         validate_quality_adjudication(response, specs=[spec])
+
+
+def test_quality_adjudication_references_constraints_by_stable_index():
+    spec = {"id": "sft_example", "constraints": ["Use only supplied facts."]}
+    prompt = render_quality_adjudication_prompt(dataset_type="SFT", specs=[spec], rows=[{"id": "sft_example"}])
+    result_schema = QUALITY_ADJUDICATION_SCHEMA["properties"]["items"]["items"]["properties"][
+        "constraint_results"
+    ]["items"]
+
+    assert "constraint_index" in result_schema["required"]
+    assert "constraint" not in result_schema["properties"]
+    assert "Do not copy or paraphrase the constraint text" in prompt
+
+
+def test_quality_adjudication_rejects_missing_constraint_index_coverage():
+    spec = {"id": "sft_example", "constraints": ["First.", "Second."]}
+    response = {"items": [{
+        "id": "sft_example",
+        "accepted": True,
+        "scores": {
+            "correctness": 4, "grounding": 4, "instruction_adherence": 4,
+            "completeness": 4, "coherence": 4,
+        },
+        "constraint_results": [
+            {"constraint_index": 0, "passed": True, "reason": "satisfied"},
+            {"constraint_index": 0, "passed": True, "reason": "satisfied"},
+        ],
+        "reasons": [],
+    }]}
+    with pytest.raises(ValueError, match="constraint index coverage"):
+        validate_quality_adjudication(response, specs=[spec])
+
+
+def test_dpo_adjudication_uses_and_validates_stable_constraint_indexes():
+    result_schema = DPO_ADJUDICATION_SCHEMA["properties"]["items"]["items"]["properties"][
+        "constraint_results"
+    ]["items"]
+    assert "constraint_index" in result_schema["required"]
+    assert "constraint" not in result_schema["properties"]
+
+    spec = build_dpo_specs(family="factual_accuracy", count=1)[0]
+
+    class DuplicateIndexBackend:
+        def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+            assert "Do not copy or paraphrase the constraint text" in prompt
+            return {"data": {"items": [{
+                "id": spec["id"],
+                "accepted": True,
+                "preference_dimension": spec["metadata"]["preference_dimension"],
+                "failure_mode": spec["metadata"]["failure_mode"],
+                "observed_weakness": spec["metadata"]["failure_mode"],
+                "scores": {
+                    "chosen_quality": 4,
+                    "rejected_plausibility": 4,
+                    "weakness_match": 4,
+                    "preference_separation": 4,
+                    "collateral_preservation": 4,
+                },
+                "constraint_results": [
+                    {"constraint_index": 0, "passed": True, "reason": "satisfied"},
+                    {"constraint_index": 0, "passed": True, "reason": "satisfied"},
+                ],
+                "reasons": [],
+            }]}}
+
+    with pytest.raises(ValueError, match="constraint index coverage"):
+        adjudicate_dpo_rows(specs=[spec], rows=[{"id": spec["id"]}], backend=DuplicateIndexBackend())
 
 
 def test_dpo_live_generation_uses_chosen_rejected_adjudication_order(tmp_path):

@@ -4,7 +4,7 @@ import pytest
 
 from slm_synth.dpo.batches import (
     DPO_BATCH_RESPONSE_SCHEMA, DPO_METADATA_SCHEMA, build_dpo_teacher_request_items,
-    render_dpo_batch_prompt, validate_dpo_batch_response,
+    render_dpo_batch_prompt, render_dpo_chosen_prompt, validate_dpo_batch_response,
 )
 from slm_synth.dpo.spec_builders import build_specs
 
@@ -53,6 +53,12 @@ def test_dpo_prompt_names_preference_contract_without_internal_fields():
     assert "if and only if interaction_modes contains system_conditioned" in prompt
     assert "exactly one user turn for single_turn" in prompt
     assert "neither branch may rely on hidden input-spec fields" in prompt
+    assert "target their midpoint rather than either boundary" in prompt
+    assert "hard machine-checked requirements" in prompt
+
+    chosen_prompt = render_dpo_chosen_prompt([spec])
+    assert "target their midpoint rather than either boundary" in chosen_prompt
+    assert "hard machine-checked requirements" in chosen_prompt
 
 
 def test_validate_dpo_batch_response_matches_spec_metadata():

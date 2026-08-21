@@ -42,9 +42,9 @@ QUALITY_ADJUDICATION_SCHEMA: dict[str, Any] = {
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
-                            "required": ["constraint", "passed", "reason"],
+                            "required": ["constraint_index", "passed", "reason"],
                             "properties": {
-                                "constraint": {"type": "string", "minLength": 1},
+                                "constraint_index": {"type": "integer", "minimum": 0},
                                 "passed": {"type": "boolean"},
                                 "reason": {"type": "string", "minLength": 1},
                             },
@@ -84,7 +84,9 @@ def render_quality_adjudication_prompt(
         "the same calculation. A candidate passes only when it is correct, grounded, instruction-following, complete, "
         "coherent, and satisfies every stated constraint. Score each criterion from 1 (failed) to 4 (excellent). "
         "Set accepted=true only when every score is at least 3 and every constraint passes. Do not repair or rewrite rows.\n\n"
-        "Copy each source constraint into constraint_results exactly and in the original order.\n\n"
+        "Return one constraint_results entry for every source constraint. Identify each constraint by its zero-based "
+        "position in the source constraints array: return constraint_index values 0 through N-1 exactly once and in "
+        "ascending order. Do not copy or paraphrase the constraint text into constraint_results.\n\n"
         f"Candidates:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 
@@ -125,11 +127,21 @@ def validate_quality_adjudication(
         reasons = raw["reasons"]
         if not isinstance(constraint_results, list) or not isinstance(reasons, list):
             raise TypeError(f"quality adjudication lists are invalid for {item_id}")
+        normalized_results: list[dict[str, Any]] = []
+        for result in constraint_results:
+            if not isinstance(result, Mapping):
+                raise TypeError(f"quality adjudication constraint result is invalid for {item_id}")
+            if set(result) != {"constraint_index", "passed", "reason"}:
+                raise ValueError(f"quality adjudication constraint result fields are invalid for {item_id}")
+            constraint_index = result["constraint_index"]
+            if not isinstance(constraint_index, int) or isinstance(constraint_index, bool) or constraint_index < 0:
+                raise ValueError(f"quality adjudication constraint index is invalid for {item_id}")
+            normalized_results.append(dict(result))
         by_id[item_id] = {
             "id": item_id,
             "accepted": raw["accepted"] is True,
             "scores": normalized_scores,
-            "constraint_results": [dict(result) for result in constraint_results],
+            "constraint_results": normalized_results,
             "reasons": list(reasons),
         }
 
@@ -144,9 +156,9 @@ def validate_quality_adjudication(
         item = by_id[item_id]
         constraints = list(specs_by_id[item_id].get("constraints", []))
         results = item["constraint_results"]
-        result_constraints = [result.get("constraint") for result in results]
-        if result_constraints != constraints:
-            failures.append(f"{item_id}: constraint adjudication does not match the source brief")
+        result_indexes = [result["constraint_index"] for result in results]
+        if result_indexes != list(range(len(constraints))):
+            failures.append(f"{item_id}: constraint index coverage does not match the source brief")
             continue
         passed = all(result.get("passed") is True for result in results)
         scores_pass = all(score >= minimum_score for score in item["scores"].values())

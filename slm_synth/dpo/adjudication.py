@@ -40,9 +40,9 @@ DPO_ADJUDICATION_SCHEMA: dict[str, Any] = {
             },
             "constraint_results": {"type": "array", "items": {
                 "type": "object", "additionalProperties": False,
-                "required": ["constraint", "passed", "reason"],
+                "required": ["constraint_index", "passed", "reason"],
                 "properties": {
-                    "constraint": {"type": "string", "minLength": 1},
+                    "constraint_index": {"type": "integer", "minimum": 0},
                     "passed": {"type": "boolean"},
                     "reason": {"type": "string", "minLength": 1},
                 },
@@ -79,7 +79,9 @@ def adjudicate_dpo_rows(
         "self-contained creative, conversational, planning, and brainstorming tasks, appropriate invented details are allowed "
         "unless prohibited. Treat meaning-preserving edits as preserving uncertainty even when wording changes. Enforce the "
         "declared output_mode and every explicit count, length, heading, and forbidden-term rule. Do not repair any row.\n\n"
-        "Copy each source constraint into constraint_results exactly and in the original order.\n\n"
+        "Return one constraint_results entry for every source constraint. Identify each constraint by its zero-based "
+        "position in the source constraints array: return constraint_index values 0 through N-1 exactly once and in "
+        "ascending order. Do not copy or paraphrase the constraint text into constraint_results.\n\n"
         f"Candidates:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
     result = backend.generate_structured_object_with_metadata(
@@ -116,8 +118,20 @@ def adjudicate_dpo_rows(
         )
         results = item.get("constraint_results")
         constraints = list(spec.get("constraints", []))
-        if not isinstance(results, list) or [entry.get("constraint") for entry in results if isinstance(entry, Mapping)] != constraints:
-            failures.append(f"{item_id}: constraint adjudication does not match the source brief")
+        valid_results = (
+            isinstance(results, list)
+            and all(
+                isinstance(entry, Mapping)
+                and set(entry) == {"constraint_index", "passed", "reason"}
+                and isinstance(entry.get("constraint_index"), int)
+                and not isinstance(entry.get("constraint_index"), bool)
+                and entry.get("constraint_index", -1) >= 0
+                for entry in results
+            )
+        )
+        result_indexes = [entry["constraint_index"] for entry in results] if valid_results else []
+        if not valid_results or result_indexes != list(range(len(constraints))):
+            failures.append(f"{item_id}: constraint index coverage does not match the source brief")
         elif not all(entry.get("passed") is True for entry in results):
             failures.append(f"{item_id}: source constraint failed")
         if item.get("accepted") is not True or not scores_pass:

@@ -66,6 +66,8 @@ every constraint passes. `SFT_ADJUDICATOR_MODEL` and
 `SFT_ADJUDICATOR_MAX_TOKENS` default to the renderer settings but can be
 overridden; both roles retain the same routing, retry, backoff, and adaptive
 request controls.
+Adjudication evidence references source constraints by stable zero-based index
+instead of reproducing arbitrary constraint text.
 
 Publication re-audits the accepted public rows rather than trusting generation
 alone. It blocks exact or near-duplicate prompts and conversations, repeated

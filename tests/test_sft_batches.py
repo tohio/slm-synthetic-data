@@ -42,6 +42,8 @@ def test_sft_prompt_contains_generation_contract():
     assert "exactly one user turn for single_turn" in prompt
     assert "assistant must never answer from hidden input-spec fields" in prompt
     assert "structured_json is only a parseable JSON" in prompt
+    assert "target their midpoint rather than either boundary" in prompt
+    assert "hard machine-checked requirements" in prompt
 
 
 def test_validate_sft_batch_and_spec_metadata_binding():
