@@ -69,10 +69,12 @@ def generate_llm_run(
     max_tokens: int,
     adjudicator_model: str | None = None,
     adjudicator_max_tokens: int | None = None,
+    reviewer_model: str | None = None,
+    reviewer_max_tokens: int | None = None,
     start_index: int = 1,
     teacher_provider: str = "openrouter",
-    temperature: float = 0.2,
-    top_p: float = 0.95,
+    temperature: float | None = None,
+    top_p: float | None = None,
     request_timeout: float | None = None,
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
@@ -89,6 +91,7 @@ def generate_llm_run(
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
     adjudicator_backend: StructuredTeacherBackend | None = None,
+    reviewer_backend: StructuredTeacherBackend | None = None,
 ) -> SFTLLMRunResult:
     """Build specs and generate SFT datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
@@ -129,6 +132,7 @@ def generate_llm_run(
 
     active_backend = backend
     active_adjudicator_backend = adjudicator_backend
+    active_reviewer_backend = reviewer_backend
 
     def get_backend() -> StructuredTeacherBackend:
         nonlocal active_backend
@@ -168,6 +172,25 @@ def generate_llm_run(
             )
         return active_adjudicator_backend
 
+    def get_reviewer_backend() -> StructuredTeacherBackend:
+        nonlocal active_reviewer_backend
+        if active_reviewer_backend is None and reviewer_model is None:
+            active_reviewer_backend = get_adjudicator_backend()
+        if active_reviewer_backend is None:
+            active_reviewer_backend = build_openrouter_backend(
+                model=reviewer_model or adjudicator_model or teacher_model,
+                max_tokens=reviewer_max_tokens or adjudicator_max_tokens or max_tokens,
+                temperature=temperature, top_p=top_p, request_timeout=request_timeout,
+                max_request_retries=max_request_retries,
+                max_retryable_request_attempts=max_retryable_request_attempts,
+                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                adaptive_initial_in_flight=adaptive_initial_in_flight,
+                openrouter_routing_mode=openrouter_routing_mode,
+                openrouter_provider=openrouter_provider,
+            )
+        return active_reviewer_backend
+
     def run_job(job: dict[str, Any]) -> Any:
         return generate_llm_batch(
             specs=job["specs"],
@@ -179,6 +202,8 @@ def generate_llm_run(
             max_tokens=max_tokens,
             adjudicator_model=adjudicator_model,
             adjudicator_max_tokens=adjudicator_max_tokens,
+            reviewer_model=reviewer_model,
+            reviewer_max_tokens=reviewer_max_tokens,
             temperature=temperature,
             top_p=top_p,
             request_timeout=request_timeout,
@@ -198,6 +223,7 @@ def generate_llm_run(
             holdout_registry=holdout_registry,
             backend=get_backend(),
             adjudicator_backend=get_adjudicator_backend(),
+            reviewer_backend=get_reviewer_backend(),
         )
 
     results: list[Any] = []
@@ -310,6 +336,9 @@ def generate_llm_run(
                         job["adaptive_batch_size"] = batch_controller.snapshot()
                         round_jobs.append(job)
                         results.append(result)
+                        if result.semantic_rejected_count:
+                            rejected_rows_per_family[family] += result.semantic_rejected_count
+                            rejection_reason_counts["semantic_quality_rejected"] += result.semantic_rejected_count
                         family_rows_done += result.row_count
                         print_batch_progress(
                             workflow="SFT",
@@ -375,6 +404,7 @@ def generate_llm_run(
         metadata={
             "generation_mode": "live_llm_run",
             "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
+            "reviewer_model": reviewer_model or adjudicator_model or teacher_model,
             "adjudicator_max_tokens": adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
             "planning_mode": count_plan.planning_mode,
             "candidate_rows": candidate_rows,

@@ -110,15 +110,43 @@ def test_push_dpo_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
     )
     factual_batch_manifest = manifest_dir / "factual_accuracy.batch000001.dpo-run.manifest.json"
     helpful_batch_manifest = manifest_dir / "helpfulness_and_completeness.batch000001.dpo-run.manifest.json"
-    for path, row_id in ((factual_batch_manifest, "dpo-1"), (helpful_batch_manifest, "dpo-2")):
+    for path, row_id in (
+        (factual_batch_manifest, "dpo-1"),
+        (helpful_batch_manifest, "dpo-2"),
+    ):
         path.write_text(
-            json.dumps({"metadata": {"deterministic_output_validation": {
-                row_id: {
-                    "status": "passed", "declared_constraint_count": 0,
-                    "chosen": {"status": "passed", "declared_constraint_count": 0, "checks": []},
-                    "rejected": {"status": "passed", "declared_constraint_count": 0, "checks": []},
+            json.dumps(
+                {
+                    "metadata": {
+                        "deterministic_output_validation": {
+                            row_id: {
+                                "status": "passed",
+                                "declared_constraint_count": 0,
+                                "chosen": {
+                                    "status": "passed",
+                                    "declared_constraint_count": 0,
+                                    "checks": [],
+                                },
+                                "rejected": {
+                                    "status": "passed",
+                                    "declared_constraint_count": 0,
+                                    "checks": [],
+                                },
+                            }
+                        },
+                        "quality_adjudication": {
+                            row_id: {
+                                "id": row_id,
+                                "assessable": True,
+                                "judge_accepted": True,
+                                "reviewed": True,
+                                "reviewer_agreed": True,
+                                "accepted": True,
+                            }
+                        },
+                    }
                 }
-            }}}),
+            ),
             encoding="utf-8",
         )
     run_manifest = manifest_dir / "dpo-run.manifest.json"

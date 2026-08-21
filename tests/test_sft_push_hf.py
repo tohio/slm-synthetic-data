@@ -9,6 +9,13 @@ from slm_synth.sft.report import build_coverage_report, write_coverage_report
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
 
+def _quality_decision():
+    return {
+        "accepted": True, "assessable": True, "judge_accepted": True,
+        "reviewed": True, "reviewer_agreed": True,
+    }
+
+
 def _sft_row(row_id="sft-1"):
     return {
         "id": row_id,
@@ -155,19 +162,12 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
     )
     grounded_batch_manifest = manifest_dir / "grounded_qa_and_reading.batch000001.sft-run.manifest.json"
     creative_batch_manifest = manifest_dir / "creative_writing.batch000001.sft-run.manifest.json"
-    scores = {
-        "correctness": 4,
-        "grounding": 4,
-        "instruction_adherence": 4,
-        "completeness": 4,
-        "coherence": 4,
-    }
     grounded_batch_manifest.write_text(
         json.dumps(
             {
                 "metadata": {
                     "quality_adjudication": {
-                        "sft-1": {"accepted": True, "scores": scores, "constraint_results": []}
+                        "sft-1": _quality_decision()
                     },
                     "deterministic_output_validation": {
                         "sft-1": {"status": "passed", "declared_constraint_count": 0, "checks": []}
@@ -182,7 +182,7 @@ def test_push_sft_run_uploads_all_families_in_one_atomic_commit(tmp_path, monkey
             {
                 "metadata": {
                     "quality_adjudication": {
-                        "sft-2": {"accepted": True, "scores": scores, "constraint_results": []}
+                        "sft-2": _quality_decision()
                     },
                     "deterministic_output_validation": {
                         "sft-2": {"status": "passed", "declared_constraint_count": 0, "checks": []}

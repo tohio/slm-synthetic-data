@@ -10,28 +10,26 @@ from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend
 class FakeSFTBackend:
     def __init__(self): self.calls = []
 
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         self.calls.append(len(specs))
-        return {"data": {"items": [self._item(spec) for spec in specs]}, "telemetry": {"usage": {"total_tokens": 12}}}
+        return {"text": json.dumps({"items": [self._item(spec) for spec in specs]}), "telemetry": {"usage": {"total_tokens": 12}}}
 
     def _item(self, spec):
         return {
-            "id": spec["id"],
             "messages": [
                 {"role": "user", "content": f"Answer this generated item: {spec['id']}"},
                 {"role": "assistant", "content": str(spec.get("variables", {}).get("answer", "Correct."))},
             ],
-            "metadata": spec["metadata"],
         }
 
 
 class SplitOnLargeSFTBackend(FakeSFTBackend):
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         self.calls.append(len(specs))
         if len(specs) > 1: raise ValueError("batch too large")
-        return {"data": {"items": [self._item(spec) for spec in specs]}}
+        return {"text": json.dumps({"items": [self._item(spec) for spec in specs]})}
 
 
 class DuplicatePromptSFTBackend(FakeSFTBackend):
@@ -45,25 +43,25 @@ class RejectSecondSFTBackend(FakeSFTBackend):
     def _item(self, spec):
         item = super()._item(spec)
         if int(spec["id"].rsplit("_", 1)[1]) == 2:
-            item["metadata"] = {**item["metadata"], "output_mode": "concise"}
+            item["metadata"] = {"unexpected": True}
         return item
 
 
 class RejectAllSFTBackend(FakeSFTBackend):
     def _item(self, spec):
         item = super()._item(spec)
-        item["metadata"] = {**item["metadata"], "task_family": "summarization"}
+        item["metadata"] = {"unexpected": True}
         return item
 
 
 class SplitFirstFamilySFTBackend(FakeSFTBackend):
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         family = specs[0]["metadata"]["task_family"]
         self.calls.append((family, len(specs)))
         if family == "grounded_qa_and_reading" and len(specs) > 1:
             raise ValueError("split the first family")
-        return {"data": {"items": [self._item(spec) for spec in specs]}}
+        return {"text": json.dumps({"items": [self._item(spec) for spec in specs]})}
 
 
 def generate(tmp_path, backend, **planning):
@@ -122,7 +120,7 @@ def test_generate_sft_llm_run_does_not_replace_rejected_candidates(tmp_path):
     assert manifest["metadata"]["accepted_rows"] == 1
     assert manifest["metadata"]["rejected_rows"] == 1
     assert manifest["metadata"]["rejection_reason_counts"] == {
-        "render_validation_error": 1
+        "renderer_response_error": 1
     }
     assert manifest["metadata"]["rejection_diagnostics"][0]["id"].endswith("000002")
 

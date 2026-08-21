@@ -8,16 +8,14 @@ from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend
 
 
 class Backend:
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
-        return {"data": {"items": [{
-            "id": spec["id"],
+        return {"text": json.dumps({"items": [{
             "messages": [
                 {"role": "user", "content": "Please complete this task."},
                 {"role": "assistant", "content": "A correct, grounded response."},
             ],
-            "metadata": spec["metadata"],
-        } for spec in specs]}, "telemetry": {"usage": {"total_tokens": 12}}}
+        } for spec in specs]}), "telemetry": {"usage": {"total_tokens": 12}}}
 
 
 def test_generate_sft_llm_batch_writes_rows(tmp_path):
@@ -32,9 +30,10 @@ def test_generate_sft_llm_batch_writes_rows(tmp_path):
 
 def test_materialize_sft_batch_round_trips(tmp_path):
     spec = build_specs(family="rewriting_and_editing", count=1)[0]
-    response = Backend().generate_structured_object_with_metadata(
-        prompt="Input specs:\n" + json.dumps({"items": [spec]}), schema={}, schema_name="sft"
-    )["data"]
+    generated = json.loads(Backend().generate_text_with_metadata(
+        prompt="Input specs:\n" + json.dumps({"items": [spec]}), system_prompt=""
+    )["text"])
+    response = {"items": [{"id": spec["id"], **generated["items"][0], "metadata": spec["metadata"]}]}
     result = materialize_llm_batch(
         specs=[spec], teacher_response=response, output_path=tmp_path / "sft.jsonl",
         manifest_path=tmp_path / "manifest.json", teacher_model="teacher/model", generation_run="sft-001",
@@ -42,20 +41,22 @@ def test_materialize_sft_batch_round_trips(tmp_path):
     assert result.row_count == 1
 
 
-def test_sft_batch_rejects_metadata_drift(tmp_path):
+def test_sft_batch_rejects_model_owned_metadata(tmp_path):
     spec = build_specs(family="rewriting_and_editing", count=1)[0]
-    response = Backend().generate_structured_object_with_metadata(
-        prompt="Input specs:\n" + json.dumps({"items": [spec]}), schema={}, schema_name="sft"
-    )["data"]
-    response["items"][0]["metadata"]["task_family"] = "summarization"
-    with pytest.raises(SFTBatchAcceptanceError, match="metadata does not match") as error:
+    response = json.loads(Backend().generate_text_with_metadata(
+        prompt="Input specs:\n" + json.dumps({"items": [spec]}), system_prompt=""
+    )["text"])
+    response["items"][0]["metadata"] = {"task_family": "summarization"}
+    class DriftBackend:
+        def generate_text_with_metadata(self, **kwargs): return {"text": json.dumps(response), "telemetry": {}}
+    with pytest.raises(SFTBatchAcceptanceError, match="only messages") as error:
         generate_llm_batch(
             specs=[spec], output_path=tmp_path / "sft.jsonl", manifest_path=tmp_path / "manifest.json",
             teacher_model="teacher/model", generation_run="sft-001", max_tokens=1024,
-            backend=type("DriftBackend", (), {"generate_structured_object_with_metadata": lambda self, **kwargs: {"data": response, "telemetry": {}}})(),
+            backend=DriftBackend(),
             adjudicator_backend=AcceptingAdjudicatorBackend(),
         )
-    assert error.value.failure_type == "render_validation_error"
+    assert error.value.failure_type == "renderer_response_error"
 
 
 def test_sft_batch_rejects_failed_deterministic_constraint_before_adjudication(tmp_path):

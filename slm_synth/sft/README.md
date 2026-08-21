@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This package owns generic supervised fine-tuning dataset generation. It builds task specs, requests structured teacher chat rows, validates public SFT rows, writes family JSONL files, records manifests, reports coverage, and publishes public artifacts.
+This package owns generic supervised fine-tuning dataset generation. It builds task specs, requests teacher-authored conversation content through a portable plain-text contract, validates public SFT rows, writes family JSONL files, records manifests, reports coverage, and publishes public artifacts.
 
 It does not produce DPO preference pairs, response-distillation rows, deterministic seed datasets, or model-training artifacts.
 
@@ -13,7 +13,7 @@ sft/
 ├── spec_builders.py  # scalable family spec builders
 ├── specs.py          # teacher-visible spec validation
 ├── batches.py        # batch prompt and response contract
-├── adjudication.py   # independent semantic quality gate
+├── adjudication.py   # independent judge and reviewer gates
 ├── generation.py     # one-batch materialization/generation
 ├── acceptance.py     # normalized output uniqueness and acceptance
 ├── runs.py           # multi-family candidate generation and acceptance
@@ -54,23 +54,27 @@ the complete 60-source catalog, semantic-source uniqueness, near-duplicates,
 template concentration, and axis coverage. Run orchestration calls this gate
 before constructing a paid teacher backend.
 
-Live candidates are rendered from the complete grounded brief, then checked
-locally for schema, metadata, interaction, tool, and output-mode compliance.
+Live candidates are rendered from the complete grounded brief. Models return
+only language-bearing fields; repository code attaches IDs, metadata, taxonomy,
+tools, and run fields. Calls use ordinary messages and max output only by
+default—no required response schema, tool choice, reasoning, temperature, or
+top-p parameter. Local code then checks schema, interaction, tool, and
+output-mode compliance.
 Finite briefs may also declare internal machine-checkable word, line, item,
 term, heading, and JSON-key constraints. These run before semantic
 adjudication and are recorded per accepted row in batch manifests.
 Critical taxonomies and source facts may additionally declare exact public
 prompt requirements, preventing a rendered answer from relying on hidden brief
 material. Source-specific quality requirements are adjudicated independently.
-An independent structured adjudication call scores correctness, grounding,
-instruction adherence, completeness, and coherence and verifies every source
-constraint. A candidate is written only when every score is at least 3/4 and
-every constraint passes. `SFT_ADJUDICATOR_MODEL` and
-`SFT_ADJUDICATOR_MAX_TOKENS` default to the renderer settings but can be
-overridden; both roles retain the same routing, retry, backoff, and adaptive
-request controls.
-Adjudication evidence references source constraints by stable zero-based index
-instead of reproducing arbitrary constraint text.
+After deterministic validation, a conservative judge either accepts or rejects
+each candidate and must reject ambiguity, insufficient evidence, or anything it
+cannot assess reliably. Only judge-accepted candidates reach a reviewer. The
+reviewer answers whether the judge's acceptance was justified. Final acceptance
+requires deterministic success, judge acceptance, and reviewer agreement.
+Semantic rejection is final and never causes quota backfill. Malformed or
+transient provider responses retain bounded retry, backoff, and adaptive
+controls. `SFT_ADJUDICATOR_MODEL` and `SFT_REVIEWER_MODEL` are independently
+configurable.
 
 Publication re-audits the accepted public rows rather than trusting generation
 alone. It blocks exact or near-duplicate prompts and conversations, repeated

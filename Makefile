@@ -19,6 +19,20 @@ OPENROUTER_PROVIDER_SORT ?=
 OPENROUTER_PROVIDER_ARG := $(if $(OPENROUTER_PROVIDER),--openrouter-provider $(OPENROUTER_PROVIDER),)
 OPENROUTER_ROUTING_ARGS := --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE) $(OPENROUTER_PROVIDER_ARG)
 OPENROUTER_ENV := OPENROUTER_ROUTING_MODE="$(OPENROUTER_ROUTING_MODE)" OPENROUTER_PROVIDER="$(OPENROUTER_PROVIDER)" OPENROUTER_PROVIDER_ORDER="$(OPENROUTER_PROVIDER_ORDER)" OPENROUTER_PROVIDER_ONLY="$(OPENROUTER_PROVIDER_ONLY)" OPENROUTER_PROVIDER_IGNORE="$(OPENROUTER_PROVIDER_IGNORE)" OPENROUTER_PROVIDER_SORT="$(OPENROUTER_PROVIDER_SORT)"
+QUALIFY_MODEL ?= $(MODEL)
+QUALIFY_ROLES ?= all
+QUALIFY_OUTPUT ?= data/model-qualification/$(subst /,_,$(QUALIFY_MODEL)).json
+COST_GENERATOR_MODEL ?= $(MODEL)
+COST_JUDGE_MODEL ?= $(MODEL)
+COST_REVIEWER_MODEL ?= $(MODEL)
+COST_CANDIDATES ?= 1000
+COST_TARGET_ACCEPTED ?=
+COST_TARGET_TOKENS ?=
+COST_AVERAGE_ACCEPTED_TOKENS ?= 500
+COST_TARGET_ACCEPTED_ARG := $(if $(COST_TARGET_ACCEPTED),--target-accepted $(COST_TARGET_ACCEPTED),)
+COST_TARGET_TOKENS_ARG := $(if $(COST_TARGET_TOKENS),--target-tokens $(COST_TARGET_TOKENS),)
+COST_OUTPUT ?=
+COST_OUTPUT_ARG := $(if $(COST_OUTPUT),--output $(COST_OUTPUT),)
 
 # Pretraining
 CONFIG_FILE ?= configs/synthetic.yaml
@@ -112,11 +126,13 @@ SFT_GENERATION_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
 SFT_RUN_ROOT ?= data/sft/runs
 SFT_MODEL ?= $(MODEL)
 SFT_ADJUDICATOR_MODEL ?= $(SFT_MODEL)
+SFT_REVIEWER_MODEL ?= $(SFT_ADJUDICATOR_MODEL)
 SFT_INITIAL_CONCURRENCY ?= 8
 SFT_INITIAL_BATCH_SIZE ?= 4
 SFT_BATCH_INCREASE_SUCCESSES ?= 4
 SFT_MAX_TOKENS ?= 4096
 SFT_ADJUDICATOR_MAX_TOKENS ?= $(SFT_MAX_TOKENS)
+SFT_REVIEWER_MAX_TOKENS ?= 512
 SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-sft,))
@@ -139,11 +155,13 @@ DPO_GENERATION_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
 DPO_RUN_ROOT ?= data/dpo/runs
 DPO_MODEL ?= $(MODEL)
 DPO_ADJUDICATOR_MODEL ?= $(DPO_MODEL)
+DPO_REVIEWER_MODEL ?= $(DPO_ADJUDICATOR_MODEL)
 DPO_INITIAL_CONCURRENCY ?= 8
 DPO_INITIAL_BATCH_SIZE ?= 4
 DPO_BATCH_INCREASE_SUCCESSES ?= 4
 DPO_MAX_TOKENS ?= 4096
 DPO_ADJUDICATOR_MAX_TOKENS ?= $(DPO_MAX_TOKENS)
+DPO_REVIEWER_MAX_TOKENS ?= 512
 DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-dpo,))
@@ -168,6 +186,8 @@ HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_R
 	alignment-preflight sft-preflight dpo-preflight \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
 	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
+	model-qualify model-qualify-pretrain model-qualify-alignment \
+	model-qualify-distillation model-qualify-all estimate-generation-cost \
 	hf-delete-datasets hf-delete-distillation hf-delete-legacy-distillation-dpo \
 	test clean
 
@@ -188,6 +208,8 @@ help:
 > @echo "  make sft-generate        Target SFT run"
 > @echo "  make dpo-smoke           Small DPO run"
 > @echo "  make dpo-generate        Target DPO run"
+> @echo "  make model-qualify       Qualify one model for selected generation roles"
+> @echo "  make estimate-generation-cost  Estimate generator/judge/reviewer cost"
 > @echo ""
 > @echo "Inspect and report:"
 > @echo "  make pretrain-inspect    Show pretraining files and sample rows"
@@ -454,6 +476,8 @@ sft-smoke:
 >   --max-tokens $(SFT_MAX_TOKENS) \
 >   --adjudicator-model $(SFT_ADJUDICATOR_MODEL) \
 >   --adjudicator-max-tokens $(SFT_ADJUDICATOR_MAX_TOKENS) \
+>   --reviewer-model $(SFT_REVIEWER_MODEL) \
+>   --reviewer-max-tokens $(SFT_REVIEWER_MAX_TOKENS) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(SFT_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
@@ -475,6 +499,8 @@ sft-generate:
 >   --max-tokens $(SFT_MAX_TOKENS) \
 >   --adjudicator-model $(SFT_ADJUDICATOR_MODEL) \
 >   --adjudicator-max-tokens $(SFT_ADJUDICATOR_MAX_TOKENS) \
+>   --reviewer-model $(SFT_REVIEWER_MODEL) \
+>   --reviewer-max-tokens $(SFT_REVIEWER_MAX_TOKENS) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(SFT_GENERATION_CONCURRENCY) \
 >   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
@@ -517,6 +543,8 @@ dpo-smoke:
 >   --max-tokens $(DPO_MAX_TOKENS) \
 >   --adjudicator-model $(DPO_ADJUDICATOR_MODEL) \
 >   --adjudicator-max-tokens $(DPO_ADJUDICATOR_MAX_TOKENS) \
+>   --reviewer-model $(DPO_REVIEWER_MODEL) \
+>   --reviewer-max-tokens $(DPO_REVIEWER_MAX_TOKENS) \
 >   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_CONCURRENCY) \
@@ -538,6 +566,8 @@ dpo-generate:
 >   --max-tokens $(DPO_MAX_TOKENS) \
 >   --adjudicator-model $(DPO_ADJUDICATOR_MODEL) \
 >   --adjudicator-max-tokens $(DPO_ADJUDICATOR_MAX_TOKENS) \
+>   --reviewer-model $(DPO_REVIEWER_MODEL) \
+>   --reviewer-max-tokens $(DPO_REVIEWER_MAX_TOKENS) \
 >   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   $(OPENROUTER_ROUTING_ARGS) \
 >   --concurrency $(DPO_GENERATION_CONCURRENCY) \
@@ -567,6 +597,36 @@ dpo-push:
 >   --dataset-dir $(DPO_RUN_ROOT)/$(DPO_PUSH_RUN)/datasets \
 >   --run-dir $(DPO_RUN_ROOT)/$(DPO_PUSH_RUN) \
 >   --repo-id $(DPO_HF_REPO) $(HF_PRIVATE_ARG)
+
+model-qualify:
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.qualify_model \
+>   --model $(QUALIFY_MODEL) \
+>   --roles $(QUALIFY_ROLES) \
+>   --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE) \
+>   --output $(QUALIFY_OUTPUT)
+
+model-qualify-pretrain:
+> $(MAKE) model-qualify QUALIFY_ROLES=pretrain-generator
+
+model-qualify-alignment:
+> $(MAKE) model-qualify QUALIFY_ROLES=sft-generator,sft-judge,sft-reviewer,dpo-generator,dpo-judge,dpo-reviewer
+
+model-qualify-distillation:
+> $(MAKE) model-qualify QUALIFY_ROLES=distillation-sft-generator,distillation-sft-judge,distillation-sft-reviewer,distillation-dpo-generator,distillation-dpo-judge,distillation-dpo-reviewer
+
+model-qualify-all:
+> $(MAKE) model-qualify QUALIFY_ROLES=all
+
+estimate-generation-cost:
+> $(PYTHON) -m slm_synth.estimate_generation_cost \
+>   --generator-model $(COST_GENERATOR_MODEL) \
+>   --judge-model $(COST_JUDGE_MODEL) \
+>   --reviewer-model $(COST_REVIEWER_MODEL) \
+>   --candidates $(COST_CANDIDATES) \
+>   --average-accepted-tokens $(COST_AVERAGE_ACCEPTED_TOKENS) \
+>   $(COST_TARGET_ACCEPTED_ARG) \
+>   $(COST_TARGET_TOKENS_ARG) \
+>   $(COST_OUTPUT_ARG)
 
 hf-delete-datasets:
 > $(PYTHON) scripts/delete_hf_datasets.py \

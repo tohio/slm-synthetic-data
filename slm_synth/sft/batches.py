@@ -6,10 +6,11 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from slm_synth.chat_schema import CHAT_MESSAGE_JSON_SCHEMA, TOOLS_JSON_SCHEMA
+from slm_synth.chat_schema import CHAT_MESSAGE_JSON_SCHEMA
 from slm_synth.sft.schema import validate_sft_row
 from slm_synth.sft.specs import teacher_visible_sft_spec
 from slm_synth.render_contract import validate_rendered_output_mode
+from slm_synth.tool_catalog import tools_from_spec
 
 SFT_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
@@ -38,12 +39,9 @@ SFT_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["items"],
     "properties": {"items": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["id", "messages", "metadata"],
+        "required": ["messages"],
         "properties": {
-            "id": {"type": "string", "minLength": 1},
             "messages": {"type": "array", "minItems": 2, "items": CHAT_MESSAGE_SCHEMA},
-            "tools": TOOLS_JSON_SCHEMA,
-            "metadata": SFT_METADATA_SCHEMA,
         },
     }}},
 }
@@ -65,8 +63,10 @@ def build_sft_teacher_request_object(specs: Iterable[Mapping[str, Any]]) -> dict
 def render_sft_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
     request_json = json.dumps(build_sft_teacher_request_object(specs), ensure_ascii=False, indent=2)
     return (
-        "Generate one high-quality generic SFT row for each input spec. Return only JSON matching the supplied schema.\n"
-        "Preserve every id and metadata value exactly. Materialize the requested interaction mode and do not expose "
+        "Generate one high-quality generic SFT row for each input spec. Return exactly one JSON object shaped as "
+        '{"items":[{"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}]}. '
+        "Return items in input order and do not add fields outside messages. Repository code owns IDs, metadata, tools, taxonomy, and run fields. "
+        "Materialize the requested interaction mode and do not expose "
         "variables, constraints, holdout_key, fingerprints, provider data, or run data. Do not copy known evaluation prompts. "
         "Put every source passage, document, code sample, question, option, constraint, or other fact needed to perform the "
         "task into the user-visible conversation. The assistant must never answer from hidden input-spec fields. "
@@ -77,8 +77,7 @@ def render_sft_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "message if and only if interaction_modes contains system_conditioned. Use exactly one user turn for single_turn and "
         "at least two user turns for multi_turn. Do not add tools, tool_calls, or tool messages unless interaction_modes "
         "contains tool_mediated. "
-        "For tool-mediated tasks, emit one shared tools array, structured assistant tool_calls with object arguments, matching "
-        "tool responses, and a final assistant answer. Never serialize tool arguments as JSON strings. Apply output_mode to "
+        "Do not invent a tools array. Tool definitions and structural fields are attached by repository code. Apply output_mode to "
         "the final assistant content: structured_json is only a parseable JSON object or array with no surrounding prose; "
         "table is a Markdown table with a header and separator row; code contains the requested implementation in a fenced "
         "code block; concise remains brief; exact_constraints obeys every explicit count, length, heading, and forbidden-term "
@@ -123,6 +122,33 @@ def validate_sft_rows_against_specs(rows: Iterable[Mapping[str, Any]], specs: It
         validate_rendered_output_mode(
             row["messages"], output_mode=spec["metadata"]["output_mode"], row_id=row["id"]
         )
+
+
+def attach_sft_code_fields(
+    response_object: Mapping[str, Any], specs: Iterable[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Attach public structure that must never be delegated to a model."""
+    if not isinstance(response_object, Mapping) or set(response_object) != {"items"}:
+        raise ValueError("SFT generator response must contain only an items field")
+    if not isinstance(response_object["items"], list):
+        raise TypeError("SFT generator items must be a list")
+    validated_specs = list(specs)
+    if len(response_object["items"]) != len(validated_specs):
+        raise ValueError("SFT generator item count must match the input spec count")
+    items: list[dict[str, Any]] = []
+    for raw, spec in zip(response_object["items"], validated_specs, strict=True):
+        if not isinstance(raw, Mapping) or set(raw) != {"messages"}:
+            raise ValueError("SFT generator item must contain only messages")
+        item = {
+            "id": str(spec["id"]),
+            "messages": raw["messages"],
+            "metadata": dict(spec["metadata"]),
+        }
+        tools = tools_from_spec(spec)
+        if tools is not None:
+            item["tools"] = tools
+        items.append(item)
+    return {"items": items}
 
 
 def _validate_response_ids(row_ids: list[str], expected_ids: Iterable[str] | None) -> None:

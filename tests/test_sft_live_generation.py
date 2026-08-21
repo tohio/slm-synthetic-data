@@ -11,9 +11,9 @@ class FakeBackend:
         self.data = data
         self.calls = []
 
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        self.calls.append({"prompt": prompt, "schema": schema, "schema_name": schema_name})
-        return {"data": self.data, "telemetry": {"usage": {"total_tokens": 12}}}
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        return {"text": json.dumps(self.data), "telemetry": {"usage": {"total_tokens": 12}}}
 
 
 def _sft_spec():
@@ -37,19 +37,10 @@ def _teacher_data():
     return {
         "items": [
             {
-                "id": "sft_direct_arithmetic_000001",
                 "messages": [
                     {"role": "user", "content": "What is 13 + 28?"},
                     {"role": "assistant", "content": "41"},
                 ],
-                "metadata": {
-                    "task_family": "grounded_qa_and_reading",
-                    "interaction_modes": ["single_turn"],
-                    "output_mode": "free_text",
-                    "context_mode": "supplied_passage",
-                    "difficulty": 1,
-                    "template_family": "direct_qa",
-                },
             }
         ]
     }
@@ -60,10 +51,11 @@ def test_generate_teacher_batch_response_sends_specs_to_backend():
 
     response = generate_teacher_batch_response(specs=[_sft_spec()], backend=backend)
 
-    assert response == _teacher_data()
+    assert response["items"][0]["messages"] == _teacher_data()["items"][0]["messages"]
+    assert response["items"][0]["id"] == _sft_spec()["id"]
+    assert response["items"][0]["metadata"] == _sft_spec()["metadata"]
     call = backend.calls[0]
-    assert call["schema_name"] == "sft_batch"
-    assert call["schema"]["required"] == ["items"]
+    assert "JSON object" in call["system_prompt"]
     assert "sft_direct_arithmetic_000001" in call["prompt"]
     assert '"variables"' in call["prompt"]
     assert '"holdout_key":' not in call["prompt"]
@@ -72,7 +64,7 @@ def test_generate_teacher_batch_response_sends_specs_to_backend():
 def test_generate_teacher_batch_response_rejects_non_object_data():
     backend = FakeBackend([])
 
-    with pytest.raises(ValueError, match="SFT teacher backend returned non-object data"):
+    with pytest.raises(ValueError, match="JSON object"):
         generate_teacher_batch_response(specs=[_sft_spec()], backend=backend)
 
 

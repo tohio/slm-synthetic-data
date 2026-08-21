@@ -1,4 +1,4 @@
-"""Reusable structured-backend fakes for generic alignment generation tests."""
+"""Reusable plain-text backend fakes for generic alignment generation tests."""
 
 from __future__ import annotations
 
@@ -7,82 +7,44 @@ from threading import Lock
 
 
 class AcceptingAdjudicatorBackend:
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        payload = json.loads(prompt.split("Candidates:\n", 1)[1])
-        items = []
-        for entry in payload["items"]:
-            spec = entry["spec"]
-            constraints = spec.get("constraints", [])
-            if schema_name == "sft_quality_adjudication":
-                scores = {
-                    "correctness": 4, "grounding": 4, "instruction_adherence": 4,
-                    "completeness": 4, "coherence": 4,
-                }
-                item = {"id": spec["id"], "accepted": True, "scores": scores}
-            elif schema_name == "dpo_quality_adjudication":
-                scores = {
-                    "chosen_quality": 4, "rejected_plausibility": 4, "weakness_match": 4,
-                    "preference_separation": 4, "collateral_preservation": 4,
-                }
-                item = {
-                    "id": spec["id"], "accepted": True, "scores": scores,
-                    "preference_dimension": spec["metadata"]["preference_dimension"],
-                    "failure_mode": spec["metadata"]["failure_mode"],
-                    "observed_weakness": spec["metadata"]["failure_mode"],
-                }
-            else:
-                raise AssertionError(schema_name)
-            item["constraint_results"] = [
-                {
-                    "constraint_index": index,
-                    "passed": True,
-                    "reason": f"The rendered row provides evidence for constraint {index}.",
-                }
-                for index, _constraint in enumerate(constraints)
-            ]
-            item["reasons"] = []
-            items.append(item)
-        return {"data": {"items": items}, "telemetry": {"usage": {"total_tokens": 5}}}
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
+        if "Return exactly two labeled lines" in prompt:
+            text = "AGREE: YES\nREASON: The judge correctly applied the supplied evidence."
+        else:
+            text = "ASSESSABLE: YES\nDECISION: ACCEPT\nREASON: The candidate is grounded and satisfies the brief."
+        return {"text": text, "telemetry": {"usage": {"total_tokens": 5}}}
 
 
 class StagedDPOBackend:
-    """Adapt complete-row DPO test renderers to the staged production contract."""
+    """Adapt complete-row DPO test renderers to the two plain-text stages."""
 
     def __init__(self, delegate):
         self.delegate = delegate
         self._rows = {}
         self._lock = Lock()
 
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        if schema_name == "dpo_chosen_batch":
-            result = self.delegate.generate_structured_object_with_metadata(
-                prompt=prompt, schema=schema, schema_name=schema_name
-            )
-            rows = result["data"]["items"]
-            for row in rows:
-                mode = row["metadata"]["output_mode"]
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
+        if "Input specs:\n" in prompt:
+            specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
+            spec_by_id = {spec["id"]: spec for spec in specs}
+            result = self.delegate.generate_text_with_metadata(prompt=prompt, system_prompt=system_prompt)
+            payload = json.loads(result["text"])
+            rows = payload["items"]
+            for row, spec in zip(rows, specs, strict=True):
+                row["id"] = spec["id"]
+                mode = spec_by_id[row["id"]]["metadata"]["output_mode"]
+                row.pop("tools", None)
                 final = row["chosen"][-1]
-                if mode == "structured_json":
-                    final["content"] = '{"result":"A correct and complete response."}'
-                elif mode == "table":
-                    final["content"] = "| result |\n|---|\n| correct |"
-                elif mode == "code":
-                    final["content"] = "```python\nreturn True\n```"
+                if mode == "structured_json": final["content"] = '{"result":"A correct and complete response."}'
+                elif mode == "table": final["content"] = "| result |\n|---|\n| correct |"
+                elif mode == "code": final["content"] = "```python\nreturn True\n```"
             with self._lock:
                 self._rows.update({row["id"]: row for row in rows})
-            chosen_items = []
-            for row in rows:
-                chosen = {key: row[key] for key in ("id", "prompt", "chosen", "metadata")}
-                if "tools" in row:
-                    chosen["tools"] = row["tools"]
-                chosen_items.append(chosen)
-            return {**result, "data": {"items": chosen_items}}
-        if schema_name == "dpo_rejected_batch":
+            chosen = [{key: row[key] for key in ("prompt", "chosen")} for row in rows]
+            return {"text": json.dumps({"items": chosen}), "telemetry": result.get("telemetry", {})}
+        if "Input specs and chosen candidates:\n" in prompt:
             payload = json.loads(prompt.split("Input specs and chosen candidates:\n", 1)[1])
             with self._lock:
-                items = [
-                    {"id": entry["spec"]["id"], "rejected": self._rows[entry["spec"]["id"]]["rejected"]}
-                    for entry in payload["items"]
-                ]
-            return {"data": {"items": items}, "telemetry": {"usage": {"total_tokens": 3}}}
-        raise AssertionError(schema_name)
+                items = [{"rejected": self._rows[entry["spec"]["id"]]["rejected"]} for entry in payload["items"]]
+            return {"text": json.dumps({"items": items}), "telemetry": {"usage": {"total_tokens": 3}}}
+        raise AssertionError("unknown DPO stage")

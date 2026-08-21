@@ -3,26 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
 )
 from slm_synth.dpo.batches import (
-    DPO_CHOSEN_BATCH_RESPONSE_SCHEMA,
-    DPO_REJECTED_BATCH_RESPONSE_SCHEMA,
-    DPO_BATCH_RESPONSE_SCHEMA,
     merge_dpo_generation_stages,
     render_dpo_chosen_prompt,
     render_dpo_rejected_prompt,
-    render_dpo_batch_prompt,
     validate_dpo_chosen_stage,
     validate_dpo_batch_response,
 )
 from slm_synth.dpo.adjudication import adjudicate_dpo_rows
-from slm_synth.quality_adjudication import combine_telemetry
+from slm_synth.quality_telemetry import combine_telemetry
 from slm_synth.output_constraints import (
     OutputConstraintError,
     evaluate_dpo_output_constraints,
@@ -31,6 +27,7 @@ from slm_synth.dpo.io import write_jsonl
 from slm_synth.dpo.manifest import write_manifest
 from slm_synth.dpo.specs import validate_dpo_spec
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
+from slm_synth.model_contract import PlainTextBackend, call_plain_parsed, parse_json_object
 
 if TYPE_CHECKING:
     from slm_synth.llm import LLMBackend
@@ -38,17 +35,7 @@ if TYPE_CHECKING:
 SUPPORTED_TEACHER_PROVIDERS = frozenset({"openrouter"})
 
 
-class StructuredTeacherBackend(Protocol):
-    """Small protocol used by tests and live LLMBackend instances."""
-
-    def generate_structured_object_with_metadata(
-        self,
-        *,
-        prompt: str,
-        schema: dict[str, Any],
-        schema_name: str,
-    ) -> dict[str, Any]:
-        ...
+StructuredTeacherBackend = PlainTextBackend
 
 
 class DPOBatchAcceptanceError(ValueError):
@@ -76,14 +63,15 @@ class DPOLLMBatchResult:
     generation_run: str
     teacher_model: str
     teacher_provider: str
+    semantic_rejected_count: int = 0
 
 
 def build_openrouter_backend(
     *,
     model: str,
     max_tokens: int,
-    temperature: float = 0.2,
-    top_p: float = 0.95,
+    temperature: float | None = None,
+    top_p: float | None = None,
     request_timeout: float | None = None,
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
@@ -102,7 +90,7 @@ def build_openrouter_backend(
         max_tokens=max_tokens,
         temperature=temperature,
         top_p=top_p,
-        json_mode=True,
+        json_mode=False,
         request_timeout=request_timeout,
         max_request_retries=max_request_retries,
         max_retryable_request_attempts=max_retryable_request_attempts,
@@ -112,36 +100,6 @@ def build_openrouter_backend(
         openrouter_routing_mode=openrouter_routing_mode,
         openrouter_provider=openrouter_provider,
     )
-
-
-def generate_teacher_batch_response(
-    *,
-    specs: Iterable[Mapping[str, Any]],
-    backend: StructuredTeacherBackend,
-) -> dict[str, Any]:
-    """Call a teacher backend and return the strict DPO batch response object."""
-    data, _telemetry = generate_teacher_batch_response_with_metadata(specs=specs, backend=backend)
-    return data
-
-
-def generate_teacher_batch_response_with_metadata(
-    *,
-    specs: Iterable[Mapping[str, Any]],
-    backend: StructuredTeacherBackend,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Call a teacher backend and return the response object plus operational telemetry."""
-    validated_specs = [validate_dpo_spec(spec) for spec in specs]
-    rendered_prompt = render_dpo_batch_prompt(validated_specs)
-    result = backend.generate_structured_object_with_metadata(
-        prompt=rendered_prompt,
-        schema=DPO_BATCH_RESPONSE_SCHEMA,
-        schema_name="dpo_batch",
-    )
-    data = result.get("data")
-    if not isinstance(data, Mapping):
-        raise ValueError("DPO teacher backend returned non-object data")
-    telemetry = result.get("telemetry")
-    return dict(data), dict(telemetry) if isinstance(telemetry, Mapping) else {}
 
 
 def generate_llm_batch(
@@ -154,9 +112,11 @@ def generate_llm_batch(
     max_tokens: int,
     adjudicator_model: str | None = None,
     adjudicator_max_tokens: int | None = None,
+    reviewer_model: str | None = None,
+    reviewer_max_tokens: int | None = None,
     teacher_provider: str = "openrouter",
-    temperature: float = 0.2,
-    top_p: float = 0.95,
+    temperature: float | None = None,
+    top_p: float | None = None,
     request_timeout: float | None = None,
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
@@ -169,6 +129,7 @@ def generate_llm_batch(
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
     adjudicator_backend: StructuredTeacherBackend | None = None,
+    reviewer_backend: StructuredTeacherBackend | None = None,
 ) -> DPOLLMBatchResult:
     """Generate one DPO batch with OpenRouter and write dataset + manifest."""
     provider = _validate_teacher_provider(teacher_provider)
@@ -196,9 +157,6 @@ def generate_llm_batch(
         chosen_response, chosen_telemetry = _generate_dpo_stage(
             backend=active_backend,
             prompt=render_dpo_chosen_prompt(validated_specs),
-            schema=DPO_CHOSEN_BATCH_RESPONSE_SCHEMA,
-            schema_name="dpo_chosen_batch",
-            error_prefix="DPO chosen renderer",
         )
         chosen_items = validate_dpo_chosen_stage(chosen_response, specs=validated_specs)
     except (TypeError, ValueError) as exc:
@@ -212,9 +170,6 @@ def generate_llm_batch(
         rejected_response, rejected_telemetry = _generate_dpo_stage(
             backend=active_backend,
             prompt=render_dpo_rejected_prompt(validated_specs, chosen_items),
-            schema=DPO_REJECTED_BATCH_RESPONSE_SCHEMA,
-            schema_name="dpo_rejected_batch",
-            error_prefix="DPO rejected renderer",
         )
         teacher_response = merge_dpo_generation_stages(
             specs=validated_specs,
@@ -258,9 +213,26 @@ def generate_llm_batch(
         openrouter_routing_mode=openrouter_routing_mode,
         openrouter_provider=openrouter_provider,
     )
+    active_reviewer = reviewer_backend or (active_adjudicator if reviewer_model is None else None)
+    if active_reviewer is None:
+        active_reviewer = build_openrouter_backend(
+            model=reviewer_model or adjudicator_model or teacher_model,
+            max_tokens=reviewer_max_tokens or adjudicator_max_tokens or max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            openrouter_routing_mode=openrouter_routing_mode,
+            openrouter_provider=openrouter_provider,
+        )
     try:
         decisions, adjudication_telemetry = adjudicate_dpo_rows(
-            specs=validated_specs, rows=rows, backend=active_adjudicator
+            specs=validated_specs, rows=rows, backend=active_adjudicator,
+            reviewer_backend=active_reviewer,
         )
     except (TypeError, ValueError) as exc:
         raise DPOBatchAcceptanceError(
@@ -269,11 +241,30 @@ def generate_llm_batch(
             telemetry=combine_telemetry(chosen_telemetry, rejected_telemetry),
         ) from exc
 
+    accepted_ids = {item_id for item_id, decision in decisions.items() if decision["accepted"]}
+    accepted_specs = [spec for spec in validated_specs if spec["id"] in accepted_ids]
+    accepted_rows = [row for row in rows if row["id"] in accepted_ids]
+    rejected_count = len(validated_specs) - len(accepted_specs)
     telemetry = combine_telemetry(chosen_telemetry, rejected_telemetry, adjudication_telemetry)
+    if not accepted_specs:
+        return _write_accepted_dpo_rows(
+            rows=[], output_path=output_path, manifest_path=manifest_path,
+            teacher_model=teacher_model, teacher_provider=provider, generation_run=generation_run,
+            metadata={
+                "generation_mode": "live_llm_batch", "spec_count": len(validated_specs),
+                "accepted_count": 0, "semantic_rejected_count": rejected_count,
+                "llm_telemetry": telemetry,
+                "llm_stage_telemetry": {"chosen_renderer": chosen_telemetry, "rejected_renderer": rejected_telemetry, "quality_pipeline": adjudication_telemetry},
+                "adjudicator_model": adjudicator_model or teacher_model,
+                "reviewer_model": reviewer_model or adjudicator_model or teacher_model,
+                "quality_adjudication": decisions, **dict(metadata or {}),
+            }, semantic_rejected_count=rejected_count,
+        )
+    accepted_response = {"items": accepted_rows}
     try:
-        return materialize_llm_batch(
-            specs=validated_specs,
-            teacher_response=teacher_response,
+        result = materialize_llm_batch(
+            specs=accepted_specs,
+            teacher_response=accepted_response,
             output_path=output_path,
             manifest_path=manifest_path,
             teacher_model=teacher_model,
@@ -282,18 +273,22 @@ def generate_llm_batch(
             metadata={
                 "generation_mode": "live_llm_batch",
                 "spec_count": len(validated_specs),
+                "accepted_count": len(accepted_specs),
+                "semantic_rejected_count": rejected_count,
                 "llm_telemetry": telemetry,
                 "llm_stage_telemetry": {
                     "chosen_renderer": chosen_telemetry,
                     "rejected_renderer": rejected_telemetry,
-                    "adjudicator": adjudication_telemetry,
+                    "quality_pipeline": adjudication_telemetry,
                 },
                 "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
+                "reviewer_model": reviewer_model or adjudicator_model or teacher_model,
                 "quality_adjudication": decisions,
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
         )
+        return replace(result, semantic_rejected_count=rejected_count)
     except DPOBatchAcceptanceError as exc:
         raise DPOBatchAcceptanceError(
             str(exc),
@@ -374,18 +369,34 @@ def materialize_llm_batch(
     )
 
 
-def _generate_dpo_stage(
-    *, backend: StructuredTeacherBackend, prompt: str, schema: dict[str, Any],
-    schema_name: str, error_prefix: str
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    result = backend.generate_structured_object_with_metadata(
-        prompt=prompt, schema=schema, schema_name=schema_name
+def _write_accepted_dpo_rows(
+    *, rows: list[dict[str, Any]], output_path: str | Path, manifest_path: str | Path,
+    teacher_model: str, teacher_provider: str, generation_run: str,
+    metadata: Mapping[str, Any], semantic_rejected_count: int,
+) -> DPOLLMBatchResult:
+    dataset_path = Path(output_path)
+    row_count = write_jsonl(rows, dataset_path)
+    local_manifest_path = write_manifest(
+        manifest_path=manifest_path, dataset_path=dataset_path, rows=rows,
+        generation_run=generation_run, metadata=metadata,
     )
-    data = result.get("data")
-    if not isinstance(data, Mapping):
-        raise ValueError(f"{error_prefix} returned non-object data")
-    telemetry = result.get("telemetry")
-    return dict(data), dict(telemetry) if isinstance(telemetry, Mapping) else {}
+    return DPOLLMBatchResult(
+        dataset_path=dataset_path, manifest_path=local_manifest_path,
+        row_count=row_count, generation_run=generation_run,
+        teacher_model=teacher_model, teacher_provider=teacher_provider,
+        semantic_rejected_count=semantic_rejected_count,
+    )
+
+
+def _generate_dpo_stage(
+    *, backend: StructuredTeacherBackend, prompt: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    data, telemetry = call_plain_parsed(
+        backend, prompt=prompt,
+        system_prompt="Generate dataset content. Return one valid JSON object and no commentary.",
+        parser=parse_json_object,
+    )
+    return data, telemetry
 
 
 def _validate_candidate_rows(

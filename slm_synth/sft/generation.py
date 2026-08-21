@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
 )
 from slm_synth.sft.batches import (
-    SFT_BATCH_RESPONSE_SCHEMA,
+    attach_sft_code_fields,
     render_sft_batch_prompt,
     validate_sft_batch_response,
     validate_sft_rows_against_specs,
@@ -20,12 +20,13 @@ from slm_synth.sft.io import write_jsonl
 from slm_synth.sft.manifest import write_manifest
 from slm_synth.sft.specs import validate_sft_spec
 from slm_synth.sft.adjudication import adjudicate_sft_rows
-from slm_synth.quality_adjudication import combine_telemetry
+from slm_synth.quality_telemetry import combine_telemetry
 from slm_synth.output_constraints import (
     OutputConstraintError,
     evaluate_sft_output_constraints,
 )
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
+from slm_synth.model_contract import PlainTextBackend, call_plain_parsed, parse_json_object
 
 if TYPE_CHECKING:
     from slm_synth.llm import LLMBackend
@@ -33,17 +34,7 @@ if TYPE_CHECKING:
 SUPPORTED_TEACHER_PROVIDERS = frozenset({"openrouter"})
 
 
-class StructuredTeacherBackend(Protocol):
-    """Small protocol used by tests and live LLMBackend instances."""
-
-    def generate_structured_object_with_metadata(
-        self,
-        *,
-        prompt: str,
-        schema: dict[str, Any],
-        schema_name: str,
-    ) -> dict[str, Any]:
-        ...
+StructuredTeacherBackend = PlainTextBackend
 
 
 class SFTBatchAcceptanceError(ValueError):
@@ -71,14 +62,15 @@ class SFTLLMBatchResult:
     generation_run: str
     teacher_model: str
     teacher_provider: str
+    semantic_rejected_count: int = 0
 
 
 def build_openrouter_backend(
     *,
     model: str,
     max_tokens: int,
-    temperature: float = 0.2,
-    top_p: float = 0.95,
+    temperature: float | None = None,
+    top_p: float | None = None,
     request_timeout: float | None = None,
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
@@ -97,7 +89,7 @@ def build_openrouter_backend(
         max_tokens=max_tokens,
         temperature=temperature,
         top_p=top_p,
-        json_mode=True,
+        json_mode=False,
         request_timeout=request_timeout,
         max_request_retries=max_request_retries,
         max_retryable_request_attempts=max_retryable_request_attempts,
@@ -127,16 +119,14 @@ def generate_teacher_batch_response_with_metadata(
     """Call a teacher backend and return the response object plus operational telemetry."""
     validated_specs = [validate_sft_spec(spec) for spec in specs]
     rendered_prompt = render_sft_batch_prompt(validated_specs)
-    result = backend.generate_structured_object_with_metadata(
+    parsed, telemetry = call_plain_parsed(
+        backend,
+        system_prompt="Generate dataset content. Return one valid JSON object and no commentary.",
         prompt=rendered_prompt,
-        schema=SFT_BATCH_RESPONSE_SCHEMA,
-        schema_name="sft_batch",
+        parser=parse_json_object,
     )
-    data = result.get("data")
-    if not isinstance(data, Mapping):
-        raise ValueError("SFT teacher backend returned non-object data")
-    telemetry = result.get("telemetry")
-    return dict(data), dict(telemetry) if isinstance(telemetry, Mapping) else {}
+    data = attach_sft_code_fields(parsed, validated_specs)
+    return data, telemetry
 
 
 def generate_llm_batch(
@@ -149,9 +139,11 @@ def generate_llm_batch(
     max_tokens: int,
     adjudicator_model: str | None = None,
     adjudicator_max_tokens: int | None = None,
+    reviewer_model: str | None = None,
+    reviewer_max_tokens: int | None = None,
     teacher_provider: str = "openrouter",
-    temperature: float = 0.2,
-    top_p: float = 0.95,
+    temperature: float | None = None,
+    top_p: float | None = None,
     request_timeout: float | None = None,
     max_request_retries: int = 3,
     max_retryable_request_attempts: int = 20,
@@ -164,6 +156,7 @@ def generate_llm_batch(
     holdout_registry: HoldoutRegistry | None = None,
     backend: StructuredTeacherBackend | None = None,
     adjudicator_backend: StructuredTeacherBackend | None = None,
+    reviewer_backend: StructuredTeacherBackend | None = None,
 ) -> SFTLLMBatchResult:
     """Generate one SFT batch with OpenRouter and write dataset + manifest."""
     provider = _validate_teacher_provider(teacher_provider)
@@ -229,9 +222,26 @@ def generate_llm_batch(
         openrouter_routing_mode=openrouter_routing_mode,
         openrouter_provider=openrouter_provider,
     )
+    active_reviewer = reviewer_backend or (active_adjudicator if reviewer_model is None else None)
+    if active_reviewer is None:
+        active_reviewer = build_openrouter_backend(
+            model=reviewer_model or adjudicator_model or teacher_model,
+            max_tokens=reviewer_max_tokens or adjudicator_max_tokens or max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            request_timeout=request_timeout,
+            max_request_retries=max_request_retries,
+            max_retryable_request_attempts=max_retryable_request_attempts,
+            retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+            adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+            adaptive_initial_in_flight=adaptive_initial_in_flight,
+            openrouter_routing_mode=openrouter_routing_mode,
+            openrouter_provider=openrouter_provider,
+        )
     try:
         decisions, adjudication_telemetry = adjudicate_sft_rows(
-            specs=validated_specs, rows=rows, backend=active_adjudicator
+            specs=validated_specs, rows=rows, backend=active_adjudicator,
+            reviewer_backend=active_reviewer,
         )
     except (TypeError, ValueError) as exc:
         adjudication_telemetry = getattr(exc, "telemetry", {})
@@ -241,11 +251,30 @@ def generate_llm_batch(
             telemetry=combine_telemetry(telemetry, adjudication_telemetry),
         ) from exc
 
+    accepted_ids = {item_id for item_id, decision in decisions.items() if decision["accepted"]}
+    accepted_specs = [spec for spec in validated_specs if spec["id"] in accepted_ids]
+    accepted_rows = [row for row in rows if row["id"] in accepted_ids]
+    rejected_count = len(validated_specs) - len(accepted_specs)
     combined_telemetry = combine_telemetry(telemetry, adjudication_telemetry)
+    if not accepted_specs:
+        return _write_accepted_sft_rows(
+            rows=[], output_path=output_path, manifest_path=manifest_path,
+            teacher_model=teacher_model, teacher_provider=provider, generation_run=generation_run,
+            metadata={
+                "generation_mode": "live_llm_batch", "spec_count": len(validated_specs),
+                "accepted_count": 0, "semantic_rejected_count": rejected_count,
+                "llm_telemetry": combined_telemetry,
+                "llm_stage_telemetry": {"renderer": telemetry, "quality_pipeline": adjudication_telemetry},
+                "adjudicator_model": adjudicator_model or teacher_model,
+                "reviewer_model": reviewer_model or adjudicator_model or teacher_model,
+                "quality_adjudication": decisions, **dict(metadata or {}),
+            }, semantic_rejected_count=rejected_count,
+        )
+    accepted_response = {"items": accepted_rows}
     try:
-        return materialize_llm_batch(
-            specs=validated_specs,
-            teacher_response=teacher_response,
+        result = materialize_llm_batch(
+            specs=accepted_specs,
+            teacher_response=accepted_response,
             output_path=output_path,
             manifest_path=manifest_path,
             teacher_model=teacher_model,
@@ -254,17 +283,21 @@ def generate_llm_batch(
             metadata={
                 "generation_mode": "live_llm_batch",
                 "spec_count": len(validated_specs),
+                "accepted_count": len(accepted_specs),
+                "semantic_rejected_count": rejected_count,
                 "llm_telemetry": combined_telemetry,
                 "llm_stage_telemetry": {
                     "renderer": telemetry,
-                    "adjudicator": adjudication_telemetry,
+                    "quality_pipeline": adjudication_telemetry,
                 },
                 "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
+                "reviewer_model": reviewer_model or adjudicator_model or teacher_model,
                 "quality_adjudication": decisions,
                 **dict(metadata or {}),
             },
             holdout_registry=holdout_registry,
         )
+        return replace(result, semantic_rejected_count=rejected_count)
     except SFTBatchAcceptanceError as exc:
         raise SFTBatchAcceptanceError(
             str(exc),
@@ -342,6 +375,26 @@ def materialize_llm_batch(
         generation_run=run,
         teacher_model=model,
         teacher_provider=provider,
+    )
+
+
+def _write_accepted_sft_rows(
+    *, rows: list[dict[str, Any]], output_path: str | Path, manifest_path: str | Path,
+    teacher_model: str, teacher_provider: str, generation_run: str,
+    metadata: Mapping[str, Any], semantic_rejected_count: int,
+) -> SFTLLMBatchResult:
+    """Persist a quality-filtered batch, including the valid empty outcome."""
+    dataset_path = Path(output_path)
+    row_count = write_jsonl(rows, dataset_path)
+    local_manifest_path = write_manifest(
+        manifest_path=manifest_path, dataset_path=dataset_path, rows=rows,
+        generation_run=generation_run, metadata=metadata,
+    )
+    return SFTLLMBatchResult(
+        dataset_path=dataset_path, manifest_path=local_manifest_path,
+        row_count=row_count, generation_run=generation_run,
+        teacher_model=teacher_model, teacher_provider=teacher_provider,
+        semantic_rejected_count=semantic_rejected_count,
     )
 
 

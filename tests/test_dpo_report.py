@@ -175,9 +175,19 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
                 "declared_constraint_count": 0,
                 "chosen": {"status": "passed", "declared_constraint_count": 0, "checks": []},
                 "rejected": {"status": "passed", "declared_constraint_count": 0, "checks": []},
-            }
-        }
-    }}), encoding="utf-8")
+                }
+            },
+            "quality_adjudication": {
+                "one": {
+                    "id": "one",
+                    "assessable": True,
+                    "judge_accepted": True,
+                    "reviewed": True,
+                    "reviewer_agreed": True,
+                    "accepted": True,
+                }
+            },
+        }}), encoding="utf-8")
     manifest_path = tmp_path / "run.manifest.json"
     manifest_path.write_text(json.dumps({
         "datasets": [{"batch_manifests": [str(batch_manifest_path)]}],
@@ -200,6 +210,7 @@ def test_dpo_report_uses_manifest_accounting_and_accepts_clean_dataset(tmp_path)
     assert report["acceptance"]["duplicate_pairs"] == 1
     assert report["acceptance"]["candidate_pairs"] == 2
     assert report["acceptance"]["estimated_tokens"] > 0
+    assert report["semantic_adjudication"]["passed_row_ids"] == ["one"]
     assert report["acceptance"]["publish_ready"] is True
     require_publish_ready_report(report)
 
@@ -224,5 +235,8 @@ def test_dpo_report_blocks_missing_deterministic_output_evidence(tmp_path):
 
     assert report["deterministic_output_validation"]["missing_row_ids"] == ["one"]
     assert "deterministic_output_validation_missing" in report["acceptance"][
+        "publish_blockers"
+    ]
+    assert "semantic_adjudication_missing" in report["acceptance"][
         "publish_blockers"
     ]

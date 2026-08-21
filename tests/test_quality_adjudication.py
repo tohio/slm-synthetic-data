@@ -1,141 +1,44 @@
 import copy
-import json
 
 import pytest
 
-from slm_synth.dpo.adjudication import DPO_ADJUDICATION_SCHEMA, adjudicate_dpo_rows
 from slm_synth.dpo.generation import DPOBatchAcceptanceError, generate_llm_batch as generate_dpo_batch
 from slm_synth.dpo.spec_builders import build_specs as build_dpo_specs
-from slm_synth.quality_adjudication import (
-    QUALITY_ADJUDICATION_SCHEMA, render_quality_adjudication_prompt,
-    validate_quality_adjudication,
-)
+from slm_synth.model_contract import parse_judge_decision, parse_review_decision
 from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPOBackend
 from tests.test_dpo_llm_generation import Backend as CompleteDPOBackend
 
 
-def test_quality_adjudication_rejects_a_failed_source_constraint():
-    spec = {
-        "id": "sft_example",
-        "constraints": ["Use only supplied facts."],
-    }
-    response = {"items": [{
-        "id": "sft_example",
-        "accepted": True,
-        "scores": {
-            "correctness": 4, "grounding": 4, "instruction_adherence": 4,
-            "completeness": 4, "coherence": 4,
-        },
-        "constraint_results": [{
-            "constraint_index": 0, "passed": False, "reason": "Invented a date."
-        }],
-        "reasons": ["Invented a date."],
-    }]}
-    with pytest.raises(ValueError, match="semantic quality adjudication rejected"):
-        validate_quality_adjudication(response, specs=[spec])
-
-
-def test_quality_adjudication_references_constraints_by_stable_index():
-    spec = {"id": "sft_example", "constraints": ["Use only supplied facts."]}
-    prompt = render_quality_adjudication_prompt(dataset_type="SFT", specs=[spec], rows=[{"id": "sft_example"}])
-    result_schema = QUALITY_ADJUDICATION_SCHEMA["properties"]["items"]["items"]["properties"][
-        "constraint_results"
-    ]["items"]
-
-    assert "constraint_index" in result_schema["required"]
-    assert "constraint" not in result_schema["properties"]
-    assert "Do not copy or paraphrase the constraint text" in prompt
-    assert "every source statement, entity, field, owner, date" in prompt
-    assert "Treat predictive assurances as promises" in prompt
-    assert "must not assert that staff, volunteers, partners" in prompt
-    assert "generic statement such as 'satisfied' is not evidence" in prompt
-
-
-def test_quality_adjudication_rejects_missing_constraint_index_coverage():
-    spec = {"id": "sft_example", "constraints": ["First.", "Second."]}
-    response = {"items": [{
-        "id": "sft_example",
-        "accepted": True,
-        "scores": {
-            "correctness": 4, "grounding": 4, "instruction_adherence": 4,
-            "completeness": 4, "coherence": 4,
-        },
-        "constraint_results": [
-            {"constraint_index": 0, "passed": True, "reason": "satisfied"},
-            {"constraint_index": 0, "passed": True, "reason": "satisfied"},
-        ],
-        "reasons": [],
-    }]}
-    with pytest.raises(ValueError, match="constraint index coverage"):
-        validate_quality_adjudication(response, specs=[spec])
-
-
-def test_dpo_adjudication_uses_and_validates_stable_constraint_indexes():
-    result_schema = DPO_ADJUDICATION_SCHEMA["properties"]["items"]["items"]["properties"][
-        "constraint_results"
-    ]["items"]
-    assert "constraint_index" in result_schema["required"]
-    assert "constraint" not in result_schema["properties"]
-
-    spec = build_dpo_specs(family="factual_accuracy", count=1)[0]
-
-    class DuplicateIndexBackend:
-        def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-            assert "Do not copy or paraphrase the constraint text" in prompt
-            return {"data": {"items": [{
-                "id": spec["id"],
-                "accepted": True,
-                "preference_dimension": spec["metadata"]["preference_dimension"],
-                "failure_mode": spec["metadata"]["failure_mode"],
-                "observed_weakness": spec["metadata"]["failure_mode"],
-                "scores": {
-                    "chosen_quality": 4,
-                    "rejected_plausibility": 4,
-                    "weakness_match": 4,
-                    "preference_separation": 4,
-                    "collateral_preservation": 4,
-                },
-                "constraint_results": [
-                    {"constraint_index": 0, "passed": True, "reason": "satisfied"},
-                    {"constraint_index": 0, "passed": True, "reason": "satisfied"},
-                ],
-                "reasons": [],
-            }]}}
-
-    with pytest.raises(ValueError, match="constraint index coverage"):
-        adjudicate_dpo_rows(specs=[spec], rows=[{"id": spec["id"]}], backend=DuplicateIndexBackend())
-
-
-def test_dpo_live_generation_uses_chosen_rejected_adjudication_order(tmp_path):
-    class RecordingBackend(CompleteDPOBackend):
-        def __init__(self):
-            super().__init__()
-            self.calls = []
-
-        def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-            self.calls.append(schema_name)
-            return super().generate_structured_object_with_metadata(
-                prompt=prompt, schema=schema, schema_name=schema_name
-            )
-
-    complete = RecordingBackend()
-    renderer = StagedDPOBackend(complete)
-    adjudicator = AcceptingAdjudicatorBackend()
-    generate_dpo_batch(
-        specs=build_dpo_specs(family="factual_accuracy", count=1),
-        output_path=tmp_path / "dpo.jsonl",
-        manifest_path=tmp_path / "manifest.json",
-        teacher_model="teacher/model",
-        generation_run="staged-dpo",
-        max_tokens=1024,
-        backend=renderer,
-        adjudicator_backend=adjudicator,
+def test_judge_rejects_unassessable_even_if_decision_says_accept():
+    decision = parse_judge_decision(
+        "ASSESSABLE: NO\nDECISION: ACCEPT\nREASON: Required evidence is missing."
     )
-    assert complete.calls == ["dpo_chosen_batch"]
-    manifest = json.loads((tmp_path / "manifest.json").read_text())
-    assert set(manifest["metadata"]["llm_stage_telemetry"]) == {
-        "chosen_renderer", "rejected_renderer", "adjudicator"
-    }
+    assert decision.assessable is False
+    assert decision.accepted is False
+
+
+def test_plain_decision_contracts_reject_missing_labels():
+    with pytest.raises(ValueError, match="missing labeled"):
+        parse_judge_decision("DECISION: ACCEPT")
+    with pytest.raises(ValueError, match="missing labeled"):
+        parse_review_decision("AGREE: YES")
+
+
+def test_reviewer_disagreement_rejects_without_regeneration(tmp_path):
+    class DisagreeingReviewer:
+        def generate_text_with_metadata(self, *, prompt, system_prompt):
+            return {"text": "AGREE: NO\nREASON: The judge missed unsupported content.", "telemetry": {}}
+
+    result = generate_dpo_batch(
+        specs=build_dpo_specs(family="factual_accuracy", count=1),
+        output_path=tmp_path / "dpo.jsonl", manifest_path=tmp_path / "manifest.json",
+        teacher_model="teacher/model", generation_run="review-reject", max_tokens=1024,
+        backend=StagedDPOBackend(CompleteDPOBackend()),
+        adjudicator_backend=AcceptingAdjudicatorBackend(), reviewer_backend=DisagreeingReviewer(),
+    )
+    assert result.row_count == 0
+    assert result.semantic_rejected_count == 1
+    assert (tmp_path / "dpo.jsonl").read_text() == ""
 
 
 def test_dpo_identical_branches_are_rejected_without_local_repair(tmp_path):
@@ -149,12 +52,9 @@ def test_dpo_identical_branches_are_rejected_without_local_repair(tmp_path):
 
     with pytest.raises(DPOBatchAcceptanceError, match="must differ"):
         generate_dpo_batch(
-            specs=[spec],
-            output_path=tmp_path / "dpo.jsonl",
-            manifest_path=tmp_path / "manifest.json",
-            teacher_model="teacher/model",
-            generation_run="no-repair",
-            max_tokens=1024,
+            specs=[spec], output_path=tmp_path / "dpo.jsonl",
+            manifest_path=tmp_path / "manifest.json", teacher_model="teacher/model",
+            generation_run="no-repair", max_tokens=1024,
             backend=StagedDPOBackend(IdenticalBackend()),
             adjudicator_backend=AcceptingAdjudicatorBackend(),
         )

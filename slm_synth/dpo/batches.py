@@ -6,10 +6,11 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from slm_synth.chat_schema import CHAT_MESSAGE_JSON_SCHEMA, TOOLS_JSON_SCHEMA
+from slm_synth.chat_schema import CHAT_MESSAGE_JSON_SCHEMA
 from slm_synth.dpo.schema import validate_dpo_chosen_candidate, validate_dpo_row
 from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 from slm_synth.render_contract import validate_rendered_output_mode
+from slm_synth.tool_catalog import tools_from_spec
 
 DPO_BATCH_RESPONSE_FIELDS = frozenset({"items"})
 
@@ -33,23 +34,6 @@ DPO_METADATA_SCHEMA: dict[str, Any] = {
     },
 }
 
-DPO_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
-    "type": "object", "additionalProperties": False, "required": ["items"],
-    "properties": {"items": {"type": "array", "items": {
-        "type": "object", "additionalProperties": False,
-        "required": ["id", "prompt", "chosen", "rejected", "metadata"],
-        "properties": {
-            "id": {"type": "string", "minLength": 1},
-            "prompt": {"type": "array", "minItems": 1, "items": _MESSAGE},
-            "chosen": {"type": "array", "minItems": 1, "items": _MESSAGE},
-            "rejected": {"type": "array", "minItems": 1, "items": _MESSAGE},
-            "tools": TOOLS_JSON_SCHEMA,
-            "metadata": DPO_METADATA_SCHEMA,
-        },
-    }}},
-}
-
-
 def build_dpo_teacher_request_items(specs: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     items = [teacher_visible_dpo_spec(spec) for spec in specs]
     ids = [item["id"] for item in items]
@@ -63,43 +47,14 @@ def build_dpo_teacher_request_object(specs: Iterable[Mapping[str, Any]]) -> dict
     return {"items": build_dpo_teacher_request_items(specs)}
 
 
-def render_dpo_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
-    request_json = json.dumps(build_dpo_teacher_request_object(specs), ensure_ascii=False, indent=2)
-    return (
-        "Generate one high-quality generic DPO preference row for each input spec. Return only JSON matching the schema.\n"
-        "Preserve every id and metadata value exactly. The chosen response must be materially better on the named "
-        "preference_dimension; the rejected response must be plausible and exhibit failure_mode. Do not expose variables, "
-        "constraints, holdout_key, fingerprints, provider data, or run data. Do not copy known evaluation prompts. Put every "
-        "source passage, document, code sample, question, option, constraint, or other fact needed to perform the task into "
-        "the shared user-visible prompt; neither branch may rely on hidden input-spec fields. "
-        "Every message object must include content. System, user, tool, and ordinary assistant messages require non-empty "
-        "string content; only an assistant message containing tool_calls may use null content. The shared prompt must start "
-        "with a system message if and only if interaction_modes contains system_conditioned, contain exactly one user turn "
-        "for single_turn or at least two user turns for multi_turn, and end with a user message. Do not add tools, tool_calls, "
-        "or tool messages unless interaction_modes contains tool_mediated. Use exactly one shared prompt. For tool-mediated "
-        "items, use one shared tools array; each branch may contain assistant tool_calls, matching tool responses, "
-        "and follow-up assistant messages; both branches must use only the shared tools. Never serialize tool arguments as "
-        "strings. Apply output_mode to the final content of both branches: structured_json is only parseable JSON; table is a "
-        "Markdown table with a separator row; code uses a fenced code block; exact_constraints obeys every explicit surface "
-        "constraint; concise remains brief. Treat output_constraints as hard machine-checked requirements for the chosen "
-        "branch. When both min_words and max_words are present, target their midpoint rather than either boundary and count "
-        "the final chosen words before returning. The rejected branch may violate an output constraint only when that is the "
-        "requested failure_mode; otherwise it must preserve the chosen branch's output contract.\n\n"
-        f"Input specs:\n{request_json}"
-    )
-
-
 DPO_CHOSEN_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["items"],
     "properties": {"items": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["id", "prompt", "chosen", "metadata"],
+        "required": ["prompt", "chosen"],
         "properties": {
-            "id": {"type": "string", "minLength": 1},
             "prompt": {"type": "array", "minItems": 1, "items": _MESSAGE},
             "chosen": {"type": "array", "minItems": 1, "items": _MESSAGE},
-            "tools": TOOLS_JSON_SCHEMA,
-            "metadata": DPO_METADATA_SCHEMA,
         },
     }}},
 }
@@ -108,9 +63,8 @@ DPO_REJECTED_BATCH_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["items"],
     "properties": {"items": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["id", "rejected"],
+        "required": ["rejected"],
         "properties": {
-            "id": {"type": "string", "minLength": 1},
             "rejected": {"type": "array", "minItems": 1, "items": _MESSAGE},
         },
     }}},
@@ -121,7 +75,8 @@ def render_dpo_chosen_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
     request_json = json.dumps(build_dpo_teacher_request_object(specs), ensure_ascii=False, indent=2)
     return (
         "Generate the shared prompt and one highest-quality chosen response for each grounded DPO brief. "
-        "Return only JSON matching the schema. Do not generate a rejected response. Preserve id and metadata exactly. "
+        "Return exactly one JSON object with an items array; each item contains only prompt and chosen, in input order. "
+        "Do not generate a rejected response; repository code attaches IDs, metadata, and tools. "
         "The chosen branch must be correct, complete, grounded in supplied material, and satisfy every source constraint. "
         "Put every source passage, document, code sample, question, option, constraint, or other fact needed to perform the "
         "task into the shared user-visible prompt; the chosen branch may not rely on hidden input-spec fields. "
@@ -130,7 +85,7 @@ def render_dpo_chosen_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "with a system message if and only if interaction_modes contains system_conditioned, contain exactly one user turn "
         "for single_turn or at least two user turns for multi_turn, and end with a user message. Do not add tools or structured "
         "tool activity unless interaction_modes contains tool_mediated. "
-        "For tool-mediated tasks, return one shared tools array and valid structured tool activity. Apply output_mode to the "
+        "For tool-mediated tasks, use valid structured tool activity in chosen but do not return a tools array. Apply output_mode to the "
         "chosen branch's final content: structured_json is only parseable JSON; table is a Markdown table with a separator "
         "row; code uses a fenced code block; exact_constraints obeys every explicit surface constraint; concise remains brief. "
         "Treat output_constraints as hard machine-checked requirements. When both min_words and max_words are present, "
@@ -150,7 +105,8 @@ def render_dpo_rejected_prompt(
         ]
     }
     return (
-        "Generate only the rejected branch for each DPO item. Return only JSON matching the schema. Start from the supplied "
+        "Generate only the rejected branch for each DPO item. Return exactly one JSON object with an items array; each item "
+        "contains only rejected, in input order. Start from the supplied "
         "chosen candidate and introduce exactly one plausible controlled weakness: the requested failure_mode on the named "
         "preference_dimension. Preserve all unrelated strengths. Do not alter or repeat the shared prompt, tools, metadata, "
         "or chosen branch. Do not use a fabricated wrong-number shortcut unless the grounded brief explicitly requests a "
@@ -169,13 +125,19 @@ def merge_dpo_generation_stages(
     expected_ids = [spec["id"] for spec in validated_specs]
     chosen_items = _validate_stage_items(chosen_response, expected_ids=expected_ids, stage="chosen")
     rejected_items = _validate_stage_items(rejected_response, expected_ids=expected_ids, stage="rejected")
-    rejected_by_id = {item["id"]: item for item in rejected_items}
     merged: list[dict[str, Any]] = []
     specs_by_id = {spec["id"]: spec for spec in validated_specs}
-    for chosen in chosen_items:
-        item = {**chosen, "rejected": rejected_by_id[chosen["id"]]["rejected"]}
+    for chosen, rejected in zip(chosen_items, rejected_items, strict=True):
+        spec = specs_by_id[chosen["id"]]
+        item = {
+            **chosen,
+            "rejected": rejected["rejected"],
+            "metadata": dict(spec["metadata"]),
+        }
+        tools = tools_from_spec(spec)
+        if tools is not None:
+            item["tools"] = tools
         row = validate_dpo_row(item)
-        spec = specs_by_id[row["id"]]
         if row["metadata"] != spec["metadata"]:
             raise ValueError(f"DPO row {row['id']} metadata does not match its input spec")
         validate_rendered_output_mode(
@@ -192,7 +154,15 @@ def validate_dpo_chosen_stage(
     expected_ids = [spec["id"] for spec in validated_specs]
     specs_by_id = {spec["id"]: spec for spec in validated_specs}
     items = _validate_stage_items(response, expected_ids=expected_ids, stage="chosen")
-    rows = [validate_dpo_chosen_candidate(item) for item in items]
+    normalized: list[dict[str, Any]] = []
+    for item in items:
+        spec = specs_by_id[item["id"]]
+        value = {**item, "metadata": dict(spec["metadata"])}
+        tools = tools_from_spec(spec)
+        if tools is not None:
+            value["tools"] = tools
+        normalized.append(value)
+    rows = [validate_dpo_chosen_candidate(item) for item in normalized]
     for row in rows:
         spec = specs_by_id[row["id"]]
         if row["metadata"] != spec["metadata"]:
@@ -211,14 +181,14 @@ def _validate_stage_items(
     items = [dict(item) for item in response["items"] if isinstance(item, Mapping)]
     if len(items) != len(response["items"]):
         raise TypeError(f"DPO {stage} stage item must be an object")
-    ids = [str(item.get("id")) for item in items]
-    _validate_ids(ids, expected_ids)
-    required = {"id", "rejected"} if stage == "rejected" else {"id", "prompt", "chosen", "metadata"}
-    optional = set() if stage == "rejected" else {"tools"}
+    if len(items) != len(expected_ids):
+        raise ValueError(f"DPO {stage} stage item count must match the input spec count")
+    required = {"rejected"} if stage == "rejected" else {"prompt", "chosen"}
+    optional = set()
     for item in items:
         if not required <= set(item) or set(item) - required - optional:
             raise ValueError(f"DPO {stage} stage item fields do not match the contract")
-    return items
+    return [{"id": item_id, **item} for item_id, item in zip(expected_ids, items, strict=True)]
 
 
 def validate_dpo_batch_response(
@@ -251,6 +221,8 @@ def validate_dpo_batch_response(
                     row["chosen"], output_mode=spec["metadata"]["output_mode"], row_id=row["id"]
                 )
     return rows
+
+
 def _validate_ids(row_ids: list[str], expected_ids: Iterable[str] | None) -> None:
     duplicates = sorted({row_id for row_id in row_ids if row_ids.count(row_id) > 1})
     if duplicates:

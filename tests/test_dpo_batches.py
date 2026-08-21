@@ -3,8 +3,8 @@ import json
 import pytest
 
 from slm_synth.dpo.batches import (
-    DPO_BATCH_RESPONSE_SCHEMA, DPO_METADATA_SCHEMA, build_dpo_teacher_request_items,
-    render_dpo_batch_prompt, render_dpo_chosen_prompt, validate_dpo_batch_response,
+    DPO_CHOSEN_BATCH_RESPONSE_SCHEMA, DPO_METADATA_SCHEMA, build_dpo_teacher_request_items,
+    render_dpo_chosen_prompt, validate_dpo_batch_response,
 )
 from slm_synth.dpo.spec_builders import build_specs
 
@@ -24,12 +24,12 @@ def _response(spec):
 def test_dpo_batch_schema_uses_new_metadata_only():
     required = set(DPO_METADATA_SCHEMA["required"])
     assert {"task_family", "interaction_modes", "output_mode", "context_mode", "preference_dimension"} <= required
-    assert "eval_family" not in json.dumps(DPO_BATCH_RESPONSE_SCHEMA)
+    assert "eval_family" not in json.dumps(DPO_CHOSEN_BATCH_RESPONSE_SCHEMA)
     assert "category" not in DPO_METADATA_SCHEMA["properties"]
-    item_schema = DPO_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
-    assert "tools" in item_schema["properties"]
+    item_schema = DPO_CHOSEN_BATCH_RESPONSE_SCHEMA["properties"]["items"]["items"]
+    assert set(item_schema["properties"]) == {"prompt", "chosen"}
+    assert "metadata" not in item_schema["properties"]
     assert "maxItems" not in item_schema["properties"]["chosen"]
-    assert "maxItems" not in item_schema["properties"]["rejected"]
     assert "content" in item_schema["properties"]["prompt"]["items"]["required"]
     assert item_schema["properties"]["prompt"]["items"]["allOf"]
 
@@ -43,22 +43,17 @@ def test_dpo_teacher_request_hides_holdout_key():
 
 def test_dpo_prompt_names_preference_contract_without_internal_fields():
     spec = build_specs(family="style_and_tone", count=1)[0]
-    prompt = render_dpo_batch_prompt([spec])
+    prompt = render_dpo_chosen_prompt([spec])
     assert "preference_dimension" in prompt
-    assert "holdout_key" in prompt  # appears only in the prohibition rule
     if "holdout_key" in spec:
         assert json.dumps(spec["holdout_key"]) not in prompt
-    assert "exactly one shared prompt" in prompt
-    assert "items, use one shared tools array" in prompt
+    assert "repository code attaches IDs, metadata, and tools" in prompt
     assert "if and only if interaction_modes contains system_conditioned" in prompt
     assert "exactly one user turn for single_turn" in prompt
-    assert "neither branch may rely on hidden input-spec fields" in prompt
+    assert "chosen branch may not rely on hidden input-spec fields" in prompt
     assert "target their midpoint rather than either boundary" in prompt
     assert "hard machine-checked requirements" in prompt
 
-    chosen_prompt = render_dpo_chosen_prompt([spec])
-    assert "target their midpoint rather than either boundary" in chosen_prompt
-    assert "hard machine-checked requirements" in chosen_prompt
 
 
 def test_validate_dpo_batch_response_matches_spec_metadata():

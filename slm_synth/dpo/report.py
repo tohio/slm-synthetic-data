@@ -9,8 +9,10 @@ from typing import Any
 
 from slm_synth.alignment_evidence import (
     build_deterministic_output_validation_summary,
+    build_quality_decision_summary,
     deterministic_validation_blockers,
     filter_validation_summary,
+    quality_decision_blockers,
 )
 from slm_synth.alignment_tokens import estimate_dpo_tokens
 from slm_synth.dpo.acceptance import build_dpo_content_summary, partition_unique_dpo_rows
@@ -50,13 +52,20 @@ def build_coverage_report(
         manifest=manifest,
         run_manifest_path=Path(run_manifest) if run_manifest is not None else None,
     )
+    semantic_adjudication = build_quality_decision_summary(
+        row_ids={row["id"] for row in rows},
+        manifest=manifest,
+        run_manifest_path=Path(run_manifest) if run_manifest is not None else None,
+    )
     blockers = _publish_blockers(
         content=content,
         holdouts=holdouts,
         deterministic_validation=deterministic_validation,
+        semantic_adjudication=semantic_adjudication,
         manifest_metadata=metadata,
         require_holdout_check=require_holdout_check,
         require_deterministic_validation=run_manifest is not None,
+        require_semantic_adjudication=run_manifest is not None,
     )
     if not unique_rows:
         blockers.append("empty_dataset")
@@ -74,6 +83,7 @@ def build_coverage_report(
         "failure_modes": _count_metadata(rows, "failure_mode"),
         "content_quality": content,
         "deterministic_output_validation": deterministic_validation,
+        "semantic_adjudication": semantic_adjudication,
         "holdouts": holdouts,
         "acceptance": {
             "attempted_pairs": attempted,
@@ -95,6 +105,8 @@ def build_coverage_report(
             require_holdout_check=require_holdout_check,
             deterministic_validation=deterministic_validation,
             require_deterministic_validation=run_manifest is not None,
+            semantic_adjudication=semantic_adjudication,
+            require_semantic_adjudication=run_manifest is not None,
         ),
     }
 
@@ -124,6 +136,8 @@ def _build_dimension_reports(
     require_holdout_check: bool,
     deterministic_validation: dict[str, Any],
     require_deterministic_validation: bool,
+    semantic_adjudication: dict[str, Any],
+    require_semantic_adjudication: bool,
 ) -> dict[str, Any]:
     reports: dict[str, Any] = {}
     configured = manifest_metadata.get("candidate_pairs_per_dimension", {})
@@ -163,9 +177,13 @@ def _build_dimension_reports(
             deterministic_validation=filter_validation_summary(
                 deterministic_validation, {row["id"] for row in dimension_rows}
             ),
+            semantic_adjudication=filter_validation_summary(
+                semantic_adjudication, {row["id"] for row in dimension_rows}
+            ),
             manifest_metadata={},
             require_holdout_check=require_holdout_check,
             require_deterministic_validation=require_deterministic_validation,
+            require_semantic_adjudication=require_semantic_adjudication,
         )
         if not unique_rows:
             blockers.append("empty_preference_dimension")
@@ -181,6 +199,9 @@ def _build_dimension_reports(
             ),
             "failure_modes": _count_metadata(dimension_rows, "failure_mode"),
             "content_quality": content,
+            "semantic_adjudication": filter_validation_summary(
+                semantic_adjudication, {row["id"] for row in dimension_rows}
+            ),
             "holdouts": holdouts,
             "acceptance": {
                 "attempted_pairs": attempted,
@@ -213,7 +234,9 @@ def _build_holdout_summary(rows: list[dict[str, Any]], registry: HoldoutRegistry
 def _publish_blockers(
     *, content: dict[str, Any], holdouts: dict[str, Any],
     deterministic_validation: dict[str, Any], manifest_metadata: dict[str, Any],
+    semantic_adjudication: dict[str, Any],
     require_holdout_check: bool, require_deterministic_validation: bool,
+    require_semantic_adjudication: bool,
 ) -> list[str]:
     blockers: list[str] = []
     for key, blocker in (("ids", "duplicate_ids"), ("prompts", "duplicate_prompts"), ("triples", "duplicate_triples")):
@@ -226,6 +249,11 @@ def _publish_blockers(
     blockers.extend(
         deterministic_validation_blockers(
             deterministic_validation, required=require_deterministic_validation
+        )
+    )
+    blockers.extend(
+        quality_decision_blockers(
+            semantic_adjudication, required=require_semantic_adjudication
         )
     )
     if manifest_metadata and manifest_metadata.get("publish_ready") is False:

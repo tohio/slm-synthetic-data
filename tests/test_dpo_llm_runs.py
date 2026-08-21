@@ -8,52 +8,52 @@ from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPO
 
 
 def _fake_row(spec, *, prompt=None):
-    return {"id": spec["id"], "prompt": [{"role": "user", "content": prompt or f"Answer this generated item: {spec['id']}"}], "chosen": [{"role": "assistant", "content": "A strong grounded answer."}], "rejected": [{"role": "assistant", "content": "A plausible but weaker answer."}], "metadata": spec["metadata"]}
+    return {"prompt": [{"role": "user", "content": prompt or f"Answer this generated item: {spec['id']}"}], "chosen": [{"role": "assistant", "content": "A strong grounded answer."}], "rejected": [{"role": "assistant", "content": "A plausible but weaker answer."}]}
 
 
 class FakeDPOBackend:
     def __init__(self):
         self.calls = []
 
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         self.calls.append([spec["id"] for spec in specs])
-        return {"data": {"items": [_fake_row(spec) for spec in specs]}, "telemetry": {"usage": {"total_tokens": 12}}}
+        return {"text": json.dumps({"items": [_fake_row(spec) for spec in specs]}), "telemetry": {"usage": {"total_tokens": 12}}}
 
 
 class DuplicatePromptDPOBackend(FakeDPOBackend):
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         self.calls.append([spec["id"] for spec in specs])
-        return {"data": {"items": [_fake_row(spec, prompt="Answer the repeated prompt.") for spec in specs]}, "telemetry": {"usage": {"total_tokens": 12}}}
+        return {"text": json.dumps({"items": [_fake_row(spec, prompt="Answer the repeated prompt.") for spec in specs]}), "telemetry": {"usage": {"total_tokens": 12}}}
 
 
 class SplitOnLargeDPOBackend(FakeDPOBackend):
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         self.calls.append(len(specs))
         if len(specs) > 1:
             raise ValueError("batch too large")
-        return {"data": {"items": [_fake_row(spec) for spec in specs]}, "telemetry": {"usage": {"total_tokens": 12}}}
+        return {"text": json.dumps({"items": [_fake_row(spec) for spec in specs]}), "telemetry": {"usage": {"total_tokens": 12}}}
 
 
 class RejectAllDPOBackend(FakeDPOBackend):
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         rows = [_fake_row(spec) for spec in specs]
         for row in rows:
-            row["metadata"] = {**row["metadata"], "preference_dimension": "groundedness"}
-        return {"data": {"items": rows}, "telemetry": {"usage": {"total_tokens": 12}}}
+            row["prompt"] = []
+        return {"text": json.dumps({"items": rows}), "telemetry": {"usage": {"total_tokens": 12}}}
 
 
 class SplitFirstDimensionDPOBackend(FakeDPOBackend):
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
         specs = json.loads(prompt.split("Input specs:\n", 1)[1])["items"]
         dimension = specs[0]["metadata"]["preference_dimension"]
         self.calls.append((dimension, len(specs)))
         if dimension == "helpfulness_and_completeness" and len(specs) > 1:
             raise ValueError("split the first dimension")
-        return {"data": {"items": [_fake_row(spec) for spec in specs]}}
+        return {"text": json.dumps({"items": [_fake_row(spec) for spec in specs]})}
 
 
 def _backends(backend):

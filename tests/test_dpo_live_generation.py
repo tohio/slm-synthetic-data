@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from slm_synth.dpo.generation import generate_llm_batch, generate_teacher_batch_response
+from slm_synth.dpo.generation import generate_llm_batch
 from tests.alignment_backend_fakes import AcceptingAdjudicatorBackend, StagedDPOBackend
 
 
@@ -11,9 +11,9 @@ class FakeBackend:
         self.data = data
         self.calls = []
 
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        self.calls.append({"prompt": prompt, "schema": schema, "schema_name": schema_name})
-        return {"data": self.data, "telemetry": {"usage": {"total_tokens": 12}}}
+    def generate_text_with_metadata(self, *, prompt, system_prompt):
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        return {"text": json.dumps(self.data), "telemetry": {"usage": {"total_tokens": 12}}}
 
 
 def _dpo_spec():
@@ -42,46 +42,14 @@ def _teacher_data():
     return {
         "items": [
             {
-                "id": "dpo_answer_only_arithmetic_000001",
                 "prompt": [{"role": "user", "content": "Answer with only the number: What is 17 + 26?"}],
                 "chosen": [{"role": "assistant", "content": "43"}],
                 "rejected": [
                     {"role": "assistant", "content": "The answer is 43 because 17 plus 26 equals 43."}
                 ],
-                "metadata": {
-                    "task_family": "applied_math_and_reasoning",
-                    "interaction_modes": ["single_turn"],
-                    "output_mode": "concise",
-                    "context_mode": "self_contained",
-                    "preference_dimension": "factual_accuracy",
-                    "difficulty": 1,
-                    "template_family": "direct_qa",
-                    "failure_mode": "extra_explanation",
-                },
             }
         ]
     }
-
-
-def test_generate_teacher_batch_response_sends_specs_to_backend():
-    backend = FakeBackend(_teacher_data())
-
-    response = generate_teacher_batch_response(specs=[_dpo_spec()], backend=backend)
-
-    assert response == _teacher_data()
-    call = backend.calls[0]
-    assert call["schema_name"] == "dpo_batch"
-    assert call["schema"]["required"] == ["items"]
-    assert "dpo_answer_only_arithmetic_000001" in call["prompt"]
-    assert "failure_mode" in call["prompt"]
-    assert '"holdout_key":' not in call["prompt"]
-
-
-def test_generate_teacher_batch_response_rejects_non_object_data():
-    backend = FakeBackend([])
-
-    with pytest.raises(ValueError, match="DPO teacher backend returned non-object data"):
-        generate_teacher_batch_response(specs=[_dpo_spec()], backend=backend)
 
 
 def test_generate_llm_batch_writes_dataset_and_manifest(tmp_path):

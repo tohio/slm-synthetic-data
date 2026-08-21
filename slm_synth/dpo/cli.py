@@ -55,6 +55,8 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         max_tokens=args.max_tokens,
         adjudicator_model=args.adjudicator_model,
         adjudicator_max_tokens=args.adjudicator_max_tokens,
+        reviewer_model=args.reviewer_model,
+        reviewer_max_tokens=args.reviewer_max_tokens,
         start_index=args.start_index,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -112,9 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--max-tokens", required=True, type=int)
     generate_run_parser.add_argument("--adjudicator-model", default=None)
     generate_run_parser.add_argument("--adjudicator-max-tokens", type=int, default=None)
+    generate_run_parser.add_argument("--reviewer-model", default=None)
+    generate_run_parser.add_argument("--reviewer-max-tokens", type=int, default=None)
     generate_run_parser.add_argument("--start-index", type=int, default=1)
-    generate_run_parser.add_argument("--temperature", type=float, default=0.2)
-    generate_run_parser.add_argument("--top-p", type=float, default=0.95)
+    generate_run_parser.add_argument("--temperature", type=float, default=None)
+    generate_run_parser.add_argument("--top-p", type=float, default=None)
     generate_run_parser.add_argument("--request-timeout", type=float, default=None)
     generate_run_parser.add_argument("--max-request-retries", type=int, default=3)
     generate_run_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)

@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from slm_synth.alignment_evidence import (
+    build_quality_decision_summary,
     build_deterministic_output_validation_summary,
     deterministic_validation_blockers,
     filter_validation_summary,
+    quality_decision_blockers,
 )
 from slm_synth.alignment_tokens import estimate_sft_tokens
 from slm_synth.sft.acceptance import build_sft_content_summary, partition_unique_sft_rows
@@ -58,8 +60,8 @@ def build_coverage_report(
     candidate_rows = _non_negative_int(manifest_metadata.get("candidate_rows"), attempted_rows)
 
     holdouts = _build_holdout_summary(rows, holdout_registry)
-    semantic_adjudication = _build_semantic_adjudication_summary(
-        rows=rows,
+    semantic_adjudication = build_quality_decision_summary(
+        row_ids={row["id"] for row in rows},
         manifest=manifest,
         run_manifest_path=Path(run_manifest) if run_manifest is not None else None,
     )
@@ -232,7 +234,7 @@ def _build_family_reports(
             content=content,
             publication_quality=publication_quality,
             validation={"invalid_row_count": 0, "invalid_tool_or_role_sequence_count": 0},
-            semantic_adjudication=_filter_semantic_adjudication(
+            semantic_adjudication=filter_validation_summary(
                 semantic_adjudication, {row["id"] for row in family_rows}
             ),
             deterministic_validation=filter_validation_summary(
@@ -328,14 +330,11 @@ def _publish_blockers(
         blockers.append("invalid_public_rows")
     if validation["invalid_tool_or_role_sequence_count"]:
         blockers.append("invalid_tool_or_role_sequences")
-    if semantic_adjudication["failed_row_count"]:
-        blockers.append("semantic_adjudication_failed")
-    if require_semantic_adjudication and (
-        semantic_adjudication["status"] in {"not_checked", "incomplete"}
-        or semantic_adjudication["missing_row_count"]
-        or semantic_adjudication["evidence_errors"]
-    ):
-        blockers.append("semantic_adjudication_missing")
+    blockers.extend(
+        quality_decision_blockers(
+            semantic_adjudication, required=require_semantic_adjudication
+        )
+    )
     blockers.extend(
         deterministic_validation_blockers(
             deterministic_validation, required=require_deterministic_validation
@@ -429,127 +428,6 @@ def _read_run_manifest(path: str | Path | None) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         raise ValueError(f"SFT run manifest metadata must contain an object: {manifest_path}")
     return value
-
-
-def _build_semantic_adjudication_summary(
-    *, rows: list[dict[str, Any]], manifest: dict[str, Any], run_manifest_path: Path | None
-) -> dict[str, Any]:
-    public_ids = {row["id"] for row in rows}
-    decisions: dict[str, dict[str, Any]] = {}
-    evidence_errors: list[str] = []
-    manifest_count = 0
-    datasets = manifest.get("datasets") if manifest else None
-    if isinstance(datasets, list):
-        raw_paths = [
-            raw_path
-            for dataset in datasets
-            if isinstance(dataset, dict)
-            for raw_path in dataset.get("batch_manifests", [])
-            if isinstance(raw_path, str)
-        ]
-        for raw_path in raw_paths:
-            path = _resolve_manifest_path(raw_path, run_manifest_path)
-            if path is None:
-                evidence_errors.append(f"missing batch manifest: {raw_path}")
-                continue
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                evidence_errors.append(f"unreadable batch manifest {path}: {exc}")
-                continue
-            manifest_count += 1
-            metadata = payload.get("metadata") if isinstance(payload, dict) else None
-            quality = metadata.get("quality_adjudication") if isinstance(metadata, dict) else None
-            if not isinstance(quality, dict):
-                evidence_errors.append(f"batch manifest lacks quality adjudication: {path}")
-                continue
-            for row_id, decision in quality.items():
-                if row_id in decisions:
-                    evidence_errors.append(f"duplicate adjudication evidence for row: {row_id}")
-                elif isinstance(row_id, str) and isinstance(decision, dict):
-                    decisions[row_id] = decision
-                else:
-                    evidence_errors.append(f"malformed adjudication evidence in: {path}")
-
-    failed_ids = sorted(
-        row_id for row_id in public_ids if row_id in decisions and not _decision_passes(decisions[row_id])
-    )
-    missing_ids = sorted(public_ids - set(decisions))
-    passed_ids = sorted(public_ids - set(failed_ids) - set(missing_ids))
-    if not manifest:
-        status = "not_checked"
-    elif missing_ids or evidence_errors:
-        status = "incomplete"
-    elif failed_ids:
-        status = "failed"
-    else:
-        status = "checked"
-    return {
-        "status": status,
-        "public_row_count": len(public_ids),
-        "passed_row_count": len(passed_ids),
-        "failed_row_count": len(failed_ids),
-        "missing_row_count": len(missing_ids),
-        "passed_row_ids": passed_ids,
-        "failed_row_ids": failed_ids,
-        "missing_row_ids": missing_ids,
-        "evidence_manifest_count": manifest_count,
-        "evidence_errors": evidence_errors,
-    }
-
-
-def _resolve_manifest_path(raw_path: str, run_manifest_path: Path | None) -> Path | None:
-    path = Path(raw_path)
-    if path.is_file():
-        return path
-    if run_manifest_path is not None:
-        candidate = run_manifest_path.parent / path
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def _decision_passes(decision: dict[str, Any]) -> bool:
-    scores = decision.get("scores")
-    constraints = decision.get("constraint_results")
-    return (
-        decision.get("accepted") is True
-        and isinstance(scores, dict)
-        and bool(scores)
-        and all(
-            isinstance(score, int) and not isinstance(score, bool) and score >= 3
-            for score in scores.values()
-        )
-        and isinstance(constraints, list)
-        and all(isinstance(item, dict) and item.get("passed") is True for item in constraints)
-    )
-
-
-def _filter_semantic_adjudication(
-    summary: dict[str, Any], row_ids: set[str]
-) -> dict[str, Any]:
-    passed = sorted(row_ids & set(summary["passed_row_ids"]))
-    failed = sorted(row_ids & set(summary["failed_row_ids"]))
-    missing = sorted(row_ids & set(summary["missing_row_ids"]))
-    if summary["status"] == "not_checked":
-        status = "not_checked"
-    elif missing or summary["evidence_errors"]:
-        status = "incomplete"
-    elif failed:
-        status = "failed"
-    else:
-        status = "checked"
-    return {
-        **summary,
-        "status": status,
-        "public_row_count": len(row_ids),
-        "passed_row_count": len(passed),
-        "failed_row_count": len(failed),
-        "missing_row_count": len(missing),
-        "passed_row_ids": passed,
-        "failed_row_ids": failed,
-        "missing_row_ids": missing,
-    }
 
 
 def _non_negative_int(*values: Any) -> int:

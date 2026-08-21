@@ -1,147 +1,75 @@
-"""Independent semantic quality and preference-separation gate for DPO."""
+"""Portable judge and reviewer gates for DPO preference pairs."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from typing import Any, Protocol
+from typing import Any
 
 from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
-
-DPO_ADJUDICATION_SCORES = (
-    "chosen_quality",
-    "rejected_plausibility",
-    "weakness_match",
-    "preference_separation",
-    "collateral_preservation",
-)
-
-DPO_ADJUDICATION_SCHEMA: dict[str, Any] = {
-    "type": "object", "additionalProperties": False, "required": ["items"],
-    "properties": {"items": {"type": "array", "items": {
-        "type": "object", "additionalProperties": False,
-        "required": [
-            "id", "accepted", "preference_dimension", "failure_mode",
-            "observed_weakness", "scores", "constraint_results", "reasons",
-        ],
-        "properties": {
-            "id": {"type": "string", "minLength": 1},
-            "accepted": {"type": "boolean"},
-            "preference_dimension": {"type": "string", "minLength": 1},
-            "failure_mode": {"type": "string", "minLength": 1},
-            "observed_weakness": {"type": "string", "minLength": 1},
-            "scores": {
-                "type": "object", "additionalProperties": False,
-                "required": list(DPO_ADJUDICATION_SCORES),
-                "properties": {
-                    name: {"type": "integer", "minimum": 1, "maximum": 4}
-                    for name in DPO_ADJUDICATION_SCORES
-                },
-            },
-            "constraint_results": {"type": "array", "items": {
-                "type": "object", "additionalProperties": False,
-                "required": ["constraint_index", "passed", "reason"],
-                "properties": {
-                    "constraint_index": {"type": "integer", "minimum": 0},
-                    "passed": {"type": "boolean"},
-                    "reason": {"type": "string", "minLength": 1},
-                },
-            }},
-            "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        },
-    }}},
-}
+from slm_synth.model_contract import PlainTextBackend, call_plain_parsed, parse_judge_decision, parse_review_decision
+from slm_synth.quality_telemetry import combine_telemetry
 
 
-class StructuredAdjudicatorBackend(Protocol):
-    def generate_structured_object_with_metadata(
-        self, *, prompt: str, schema: dict[str, Any], schema_name: str
-    ) -> dict[str, Any]: ...
+def _judge_prompt(spec: Mapping[str, Any], row: Mapping[str, Any]) -> str:
+    return (
+        "Decide whether this DPO pair is reliably assessable and suitable. The chosen branch must be correct, grounded, "
+        "complete, and clearly better on the named preference dimension. The rejected branch must remain plausible while "
+        "showing exactly the requested controlled failure, without unrelated corruption. Reject ambiguity, insufficient "
+        "evidence, copied branches, arbitrary wrong numbers, multiple weaknesses, or any case you cannot determine. Never "
+        "guess or repair the pair.\n\nReturn exactly three labeled lines:\nASSESSABLE: YES or NO\n"
+        "DECISION: ACCEPT or REJECT\nREASON: one concise evidence-based reason\n\n"
+        f"Pair:\n{json.dumps({'brief': dict(spec), 'candidate': dict(row)}, ensure_ascii=False, indent=2)}"
+    )
+
+
+def _review_prompt(spec: Mapping[str, Any], row: Mapping[str, Any], judge: Mapping[str, Any]) -> str:
+    return (
+        "Review only whether the judge's ACCEPT decision is justified. Disagree if chosen quality, rejected plausibility, "
+        "the requested weakness, preference separation, grounding, or assessability was judged incorrectly. Do not repair "
+        "the pair or add requirements.\n\nReturn exactly two labeled lines:\nAGREE: YES or NO\n"
+        "REASON: one concise evidence-based reason\n\n"
+        f"Review item:\n{json.dumps({'brief': dict(spec), 'candidate': dict(row), 'judge': dict(judge)}, ensure_ascii=False, indent=2)}"
+    )
 
 
 def adjudicate_dpo_rows(
     *, specs: Iterable[Mapping[str, Any]], rows: Iterable[Mapping[str, Any]],
-    backend: StructuredAdjudicatorBackend
+    backend: PlainTextBackend, reviewer_backend: PlainTextBackend,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     validated_specs = [validate_dpo_spec(spec) for spec in specs]
-    payload = {"items": [
-        {"spec": teacher_visible_dpo_spec(spec), "rendered_pair": dict(row)}
-        for spec, row in zip(validated_specs, rows, strict=True)
-    ]}
-    prompt = (
-        "Independently adjudicate these DPO candidates. Return only JSON matching the schema. The chosen response must be "
-        "high quality. The rejected response must be plausible and contain exactly the requested failure_mode on the named "
-        "preference_dimension while preserving unrelated strengths. Reject arbitrary corruption, multiple weaknesses, copied "
-        "branches, unsupported facts, or a numeric error not explicitly grounded in the brief. Score from 1 to 4 and accept "
-        "only when every score is at least 3 and every source constraint passes. Verify that the shared public prompt contains "
-        "all source material needed to evaluate both branches; reject pairs that rely on hidden spec variables. For supplied "
-        "context, permit ordinary linguistic entailment and direct inference but no unsupported factual claims. For "
-        "self-contained creative, conversational, planning, and brainstorming tasks, appropriate invented details are allowed "
-        "unless prohibited. Treat meaning-preserving edits as preserving uncertainty even when wording changes. Enforce the "
-        "declared output_mode and every explicit count, length, heading, and forbidden-term rule. Do not repair any row.\n\n"
-        "Return one constraint_results entry for every source constraint. Identify each constraint by its zero-based "
-        "position in the source constraints array: return constraint_index values 0 through N-1 exactly once and in "
-        "ascending order. Do not copy or paraphrase the constraint text into constraint_results.\n\n"
-        f"Candidates:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
-    )
-    result = backend.generate_structured_object_with_metadata(
-        prompt=prompt, schema=DPO_ADJUDICATION_SCHEMA, schema_name="dpo_quality_adjudication"
-    )
-    data = result.get("data")
-    if not isinstance(data, Mapping) or set(data) != {"items"} or not isinstance(data["items"], list):
-        raise ValueError("DPO adjudicator returned invalid data")
-    expected_ids = [spec["id"] for spec in validated_specs]
-    specs_by_id = {spec["id"]: spec for spec in validated_specs}
+    rendered_rows = [dict(row) for row in rows]
     decisions: dict[str, dict[str, Any]] = {}
-    failures: list[str] = []
-    for raw in data["items"]:
-        if not isinstance(raw, Mapping):
-            raise TypeError("DPO adjudication item must be an object")
-        item = dict(raw)
-        item_id = str(item.get("id"))
-        if item_id in decisions:
-            raise ValueError(f"DPO adjudication contains duplicate id: {item_id}")
-        spec = specs_by_id.get(item_id)
-        if spec is None:
-            raise ValueError(f"DPO adjudication contains unexpected id: {item_id}")
-        metadata = spec["metadata"]
-        if item.get("preference_dimension") != metadata["preference_dimension"]:
-            failures.append(f"{item_id}: preference_dimension mismatch")
-        if item.get("failure_mode") != metadata["failure_mode"]:
-            failures.append(f"{item_id}: failure_mode mismatch")
-        scores = item.get("scores")
-        if not isinstance(scores, Mapping) or set(scores) != set(DPO_ADJUDICATION_SCORES):
-            raise ValueError(f"DPO adjudication scores are invalid for {item_id}")
-        scores_pass = all(
-            isinstance(scores[name], int) and not isinstance(scores[name], bool) and 3 <= scores[name] <= 4
-            for name in DPO_ADJUDICATION_SCORES
+    judge_telemetry: list[dict[str, Any]] = []
+    reviewer_telemetry: list[dict[str, Any]] = []
+    for spec, row in zip(validated_specs, rendered_rows, strict=True):
+        visible_spec = teacher_visible_dpo_spec(spec)
+        judged, call_telemetry = call_plain_parsed(
+            backend, system_prompt="You are a conservative preference-data quality judge. Use only supplied evidence.",
+            prompt=_judge_prompt(visible_spec, row),
+            parser=parse_judge_decision,
         )
-        results = item.get("constraint_results")
-        constraints = list(spec.get("constraints", []))
-        valid_results = (
-            isinstance(results, list)
-            and all(
-                isinstance(entry, Mapping)
-                and set(entry) == {"constraint_index", "passed", "reason"}
-                and isinstance(entry.get("constraint_index"), int)
-                and not isinstance(entry.get("constraint_index"), bool)
-                and entry.get("constraint_index", -1) >= 0
-                for entry in results
+        judge_telemetry.append(call_telemetry)
+        decision: dict[str, Any] = {
+            "id": spec["id"], "assessable": judged.assessable,
+            "judge_accepted": judged.accepted, "judge_reason": judged.reason,
+            "reviewed": False, "reviewer_agreed": False, "accepted": False,
+        }
+        if judged.accepted:
+            reviewed, review_telemetry = call_plain_parsed(
+                reviewer_backend, system_prompt="You independently audit preference-data acceptance decisions.",
+                prompt=_review_prompt(visible_spec, row, decision),
+                parser=parse_review_decision,
             )
-        )
-        result_indexes = [entry["constraint_index"] for entry in results] if valid_results else []
-        if not valid_results or result_indexes != list(range(len(constraints))):
-            failures.append(f"{item_id}: constraint index coverage does not match the source brief")
-        elif not all(entry.get("passed") is True for entry in results):
-            failures.append(f"{item_id}: source constraint failed")
-        if item.get("accepted") is not True or not scores_pass:
-            reasons = item.get("reasons")
-            detail = "; ".join(str(reason) for reason in reasons) if isinstance(reasons, list) else "quality gate failed"
-            failures.append(f"{item_id}: {detail or 'quality gate failed'}")
-        decisions[item_id] = item
-    if set(decisions) != set(expected_ids):
-        raise ValueError(f"DPO adjudication id mismatch: missing={sorted(set(expected_ids) - set(decisions))}")
-    if failures:
-        raise ValueError("semantic DPO adjudication rejected candidate(s): " + " | ".join(failures))
-    telemetry = result.get("telemetry")
-    return decisions, dict(telemetry) if isinstance(telemetry, Mapping) else {}
+            reviewer_telemetry.append(review_telemetry)
+            decision.update(
+                reviewed=True, reviewer_agreed=reviewed.agreed,
+                reviewer_reason=reviewed.reason, accepted=reviewed.agreed,
+            )
+        decisions[spec["id"]] = decision
+    aggregate = combine_telemetry(*judge_telemetry, *reviewer_telemetry)
+    aggregate["role_telemetry"] = {
+        "judge": combine_telemetry(*judge_telemetry),
+        "reviewer": combine_telemetry(*reviewer_telemetry),
+    }
+    return decisions, aggregate

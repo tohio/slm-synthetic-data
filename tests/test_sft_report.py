@@ -7,6 +7,13 @@ from slm_synth.sft.report import build_coverage_report, require_publish_ready_re
 from slm_synth.taxonomy.holdouts import HoldoutRecord, HoldoutRegistry
 
 
+def _quality_decision(accepted=True):
+    return {
+        "accepted": accepted, "assessable": accepted, "judge_accepted": accepted,
+        "reviewed": accepted, "reviewer_agreed": accepted,
+    }
+
+
 def _sft_row(
     *,
     row_id: str,
@@ -262,17 +269,7 @@ def test_sft_report_records_candidate_and_rejection_outcomes_from_manifest(tmp_p
             {
                 "metadata": {
                     "quality_adjudication": {
-                        "first": {
-                            "accepted": True,
-                            "scores": {
-                                "correctness": 4,
-                                "grounding": 4,
-                                "instruction_adherence": 4,
-                                "completeness": 4,
-                                "coherence": 4,
-                            },
-                            "constraint_results": [],
-                        }
+                        "first": _quality_decision()
                     },
                     "deterministic_output_validation": {
                         "first": {
@@ -418,17 +415,7 @@ def test_sft_report_requires_passing_semantic_evidence_for_every_public_row(tmp_
     batch_manifest_path = tmp_path / "batch.manifest.json"
     decisions = {}
     for row_id, accepted in (("semantic-pass", True), ("semantic-fail", False)):
-        decisions[row_id] = {
-            "accepted": accepted,
-            "scores": {
-                "correctness": 4 if accepted else 2,
-                "grounding": 4,
-                "instruction_adherence": 4,
-                "completeness": 4,
-                "coherence": 4,
-            },
-            "constraint_results": [],
-        }
+        decisions[row_id] = _quality_decision(accepted)
     batch_manifest_path.write_text(
         json.dumps(
             {
@@ -520,17 +507,7 @@ def test_sft_report_blocks_failed_deterministic_output_evidence(tmp_path):
             {
                 "metadata": {
                     "quality_adjudication": {
-                        "creative-fail": {
-                            "accepted": True,
-                            "scores": {
-                                "correctness": 4,
-                                "grounding": 4,
-                                "instruction_adherence": 4,
-                                "completeness": 4,
-                                "coherence": 4,
-                            },
-                            "constraint_results": [],
-                        }
+                        "creative-fail": _quality_decision()
                     },
                     "deterministic_output_validation": {
                         "creative-fail": {

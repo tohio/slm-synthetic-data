@@ -1,17 +1,14 @@
 """DPO synthetic row validation."""
 
 from slm_synth.dpo.batches import (
-    DPO_BATCH_RESPONSE_SCHEMA,
     build_dpo_teacher_request_items,
     build_dpo_teacher_request_object,
-    render_dpo_batch_prompt,
     validate_dpo_batch_response,
 )
 from slm_synth.dpo.generation import (
     DPOLLMBatchResult,
     build_openrouter_backend,
     generate_llm_batch,
-    generate_teacher_batch_response,
     materialize_llm_batch,
 )
 from slm_synth.dpo.io import read_jsonl, write_jsonl
@@ -30,7 +27,6 @@ from slm_synth.dpo.spec_builders import (
 from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 
 __all__ = [
-    "DPO_BATCH_RESPONSE_SCHEMA",
     "DPOLLMRunResult",
     "DPO_PREFERENCE_DIMENSIONS",
     "DPOLLMBatchResult",
@@ -42,10 +38,8 @@ __all__ = [
     "build_dpo_teacher_request_object",
     "generate_llm_batch",
     "generate_llm_run",
-    "generate_teacher_batch_response",
     "materialize_llm_batch",
     "read_jsonl",
-    "render_dpo_batch_prompt",
     "resolve_preference_dimensions",
     "teacher_visible_dpo_spec",
     "validate_dpo_batch_response",

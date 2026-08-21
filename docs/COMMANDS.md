@@ -33,6 +33,36 @@ OpenRouter routing defaults to `auto`. Use `prefer` to try one provider first wh
 
 For providers that throttle, keep `OPENROUTER_ROUTING_MODE=auto` or use `prefer`; both retain fallback. `strict` disables fallback and can turn provider throttling into a terminal run failure.
 
+Qualify model compatibility and role behavior before a smoke run:
+
+```bash
+QUALIFY_MODEL=openai/gpt-oss-20b QUALIFY_ROLES=sft-generator,sft-judge,sft-reviewer make model-qualify
+make model-qualify-pretrain QUALIFY_MODEL=<model>
+make model-qualify-alignment QUALIFY_MODEL=<model>
+make model-qualify-distillation QUALIFY_MODEL=<model>
+make model-qualify-all QUALIFY_MODEL=<model>
+```
+
+Qualification uses the same minimal portable contract as production: ordinary
+messages plus max output and routing preferences. Provider-side JSON Schema,
+tool choice, reasoning controls, temperature, and top-p are not required.
+
+Estimate low, expected, and high generator/judge/reviewer costs from live
+OpenRouter pricing before setting candidate budgets:
+
+```bash
+COST_GENERATOR_MODEL=<model> COST_JUDGE_MODEL=<model> \
+COST_REVIEWER_MODEL=<model> COST_CANDIDATES=1000 make estimate-generation-cost
+
+COST_GENERATOR_MODEL=<model> COST_JUDGE_MODEL=<model> \
+COST_REVIEWER_MODEL=<model> COST_TARGET_TOKENS=100000 \
+COST_AVERAGE_ACCEPTED_TOKENS=500 make estimate-generation-cost
+```
+
+The token-target form converts the desired accepted output into an estimated
+accepted-record count, then accounts for judge rejection, reviewer disagreement,
+malformed-output retries, and each role's input and output token profile.
+
 ## Pretraining
 
 ```bash
@@ -118,6 +148,8 @@ replaced to fill a quota.
 | `SFT_RUN_ROOT` | `data/sft/runs` | Run output root. |
 | `SFT_MODEL` | `$(MODEL)` | Teacher model. |
 | `SFT_ADJUDICATOR_MODEL` | `$(SFT_MODEL)` | Independent semantic adjudicator model. |
+| `SFT_REVIEWER_MODEL` | `$(SFT_ADJUDICATOR_MODEL)` | Independent reviewer of judge-accepted rows. |
+| `SFT_REVIEWER_MAX_TOKENS` | `512` | Maximum reviewer output; reviewer output is intentionally small. |
 | `SFT_ADJUDICATOR_MAX_TOKENS` | `$(SFT_MAX_TOKENS)` | Maximum adjudication completion tokens. |
 | `SFT_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
 | `SFT_HF_REPO` | `<HF_NAMESPACE>/slm-synthetic-sft` | One consolidated generic SFT dataset repository. |
@@ -160,6 +192,8 @@ replaced. Accepted pairs and estimated tokens are the run outcome.
 | `DPO_RUN_ROOT` | `data/dpo/runs` | Run output root. |
 | `DPO_MODEL` | `$(MODEL)` | Teacher model. |
 | `DPO_ADJUDICATOR_MODEL` | `$(DPO_MODEL)` | Independent preference adjudicator model. |
+| `DPO_REVIEWER_MODEL` | `$(DPO_ADJUDICATOR_MODEL)` | Independent reviewer of judge-accepted pairs. |
+| `DPO_REVIEWER_MAX_TOKENS` | `512` | Maximum reviewer output. |
 | `DPO_ADJUDICATOR_MAX_TOKENS` | `$(DPO_MAX_TOKENS)` | Maximum adjudication completion tokens. |
 | `DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` | Holdout registry required by generation and reporting. |
 | `DPO_HF_REPO` | `<HF_NAMESPACE>/slm-synthetic-dpo` | One consolidated generic DPO dataset repository. |

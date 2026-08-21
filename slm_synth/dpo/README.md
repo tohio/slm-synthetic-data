@@ -32,12 +32,11 @@ DPO is organized by ten preference dimensions. Each pair also carries the shared
 Live generation is staged. The renderer first creates the shared prompt and a
 high-quality chosen branch. A second call receives that candidate and
 introduces exactly one plausible weakness matching `preference_dimension` and
-`failure_mode`. An independent adjudicator then checks chosen quality, rejected
-plausibility, weakness match, preference separation, collateral preservation,
-and every source constraint. No local correct-number/wrong-number fabrication
-or copied-branch repair remains.
-Adjudication evidence references source constraints by stable zero-based index
-instead of reproducing arbitrary constraint text.
+`failure_mode`. Deterministic checks run first. A conservative judge then checks
+assessability, chosen quality, rejected plausibility, weakness match, preference
+separation, grounding, and constraints. Only judge-accepted pairs reach a
+reviewer, which accepts only when the judge's decision is justified. No local
+correct-number/wrong-number fabrication or copied-branch repair remains.
 
 Public rows preserve one explicit `prompt`, `chosen`, and `rejected`. Optional
 tool definitions occur once at row level and are shared by both branches.
@@ -53,8 +52,10 @@ concentration, and SFT prompt overlap before generation can construct a
 provider backend. Requested finite source ranges are also validated. Model selection remains configurable through
 `DPO_MODEL`; OpenRouter routing remains configurable through the shared routing
 variables.
-`DPO_ADJUDICATOR_MODEL` and `DPO_ADJUDICATOR_MAX_TOKENS` default to the renderer
-settings and can be overridden. All three calls use the existing configurable
+`DPO_ADJUDICATOR_MODEL` and `DPO_REVIEWER_MODEL` default through the renderer
+settings and can be overridden. Generation models return only language-bearing
+fields; repository code attaches metadata, taxonomy, tools, and run fields.
+All calls use a minimal plain-text contract by default and retain configurable
 OpenRouter routing, retry, backoff, and adaptive request controls; manifests
 retain aggregate and per-stage telemetry.
 

@@ -376,8 +376,8 @@ class LLMBackend:
         provider: str,
         model: str,
         max_tokens: int,
-        temperature: float,
-        top_p: float,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         *,
         json_mode: bool = True,
         service_tier: Optional[str] = None,
@@ -429,8 +429,8 @@ class LLMBackend:
         self.provider = provider
         self.model = model
         self.max_tokens = int(max_tokens)
-        self.temperature = float(temperature)
-        self.top_p = float(top_p)
+        self.temperature = None if temperature is None else float(temperature)
+        self.top_p = None if top_p is None else float(top_p)
         self.json_mode = bool(json_mode)
         self.service_tier = service_tier
         self.request_timeout = request_timeout
@@ -558,7 +558,7 @@ class LLMBackend:
         return objs
 
     def _base_kwargs(self, prompt: str) -> Dict[str, Any]:
-        return {
+        kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {
@@ -568,9 +568,46 @@ class LLMBackend:
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "top_p": self.top_p,
         }
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
+        return kwargs
+
+    def _plain_text_kwargs(self, *, system_prompt: str, prompt: str) -> Dict[str, Any]:
+        """Build the smallest portable OpenAI-compatible chat request.
+
+        Generation roles intentionally do not require provider-side JSON schema,
+        tool calling, reasoning controls, or sampling controls.  Callers may opt
+        into temperature/top_p when qualifying a model, but both are omitted by
+        default.
+        """
+        kwargs: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": self.max_tokens,
+            "extra_body": self._provider_extra_body(),
+        }
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
+        return kwargs
+
+    @staticmethod
+    def _response_text(response: Any) -> str:
+        choices = getattr(response, "choices", None)
+        if not isinstance(choices, (list, tuple)) or not choices:
+            raise ValueError("Provider returned no completion choices")
+        message = getattr(choices[0], "message", None)
+        content = getattr(message, "content", None) if message is not None else None
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Provider returned an empty text completion")
+        return content.strip()
 
     def _provider_extra_body(self) -> dict[str, Any]:
         return {
@@ -946,6 +983,127 @@ class LLMBackend:
                 telemetry=telemetry,
             ) from last_error
         raise RuntimeError(f"Structured LLM request failed after {attempt} attempts: {last_error}")
+
+    def generate_text_with_metadata(
+        self,
+        *,
+        prompt: str,
+        system_prompt: str = "Follow the instructions exactly and return only the requested content.",
+    ) -> dict[str, Any]:
+        """Generate plain text through the portable model contract.
+
+        This path deliberately omits provider-side structured-output and tool
+        parameters.  Syntax and semantics are validated by repository code
+        after the response is returned.
+        """
+        last_error: Optional[Exception] = None
+        overall_started = monotonic()
+        retry_started: float | None = None
+        attempt = 0
+        retryable_provider_retries = 0
+        retry_sleep_seconds = 0.0
+        adaptive_window_increases = 0
+        adaptive_window_decreases = 0
+        adaptive_admission_wait_seconds = 0.0
+        max_adaptive_cooldown_seconds = 0.0
+        accumulated_usage: dict[str, Any] = {}
+        last_response: Any | None = None
+        last_failure_was_response = False
+        while True:
+            attempt += 1
+            if retry_started is None:
+                retry_started = monotonic()
+            admission_wait, admission_generation = self._acquire_provider_slot()
+            adaptive_admission_wait_seconds += max(0.0, admission_wait)
+            response: Any | None = None
+            try:
+                response = self.client.chat.completions.create(
+                    **self._plain_text_kwargs(system_prompt=system_prompt, prompt=prompt)
+                )
+            except Exception as exc:
+                last_error = exc
+                last_failure_was_response = False
+            else:
+                last_response = response
+                accumulated_usage = self._merge_usage(accumulated_usage, self._usage_dict(response))
+                increased, _previous, _current = self.adaptive_controller.record_success(
+                    self.model, admission_generation
+                )
+                if increased:
+                    adaptive_window_increases += 1
+                try:
+                    content = self._response_text(response)
+                    telemetry = {
+                        "model": getattr(response, "model", self.model),
+                        "provider": (getattr(response, "model_extra", None) or {}).get("provider"),
+                        "usage": accumulated_usage,
+                        "retry_count": attempt - 1,
+                        "retryable_provider_retries": retryable_provider_retries,
+                        "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+                        **self._routing_metadata(),
+                        "adaptive_window_increases": adaptive_window_increases,
+                        "adaptive_window_decreases": adaptive_window_decreases,
+                        "adaptive_admission_wait_seconds": round(adaptive_admission_wait_seconds, 3),
+                        "max_adaptive_cooldown_seconds": round(max_adaptive_cooldown_seconds, 3),
+                        **self.adaptive_controller.snapshot(),
+                        "elapsed_seconds": round(monotonic() - overall_started, 3),
+                    }
+                    return {"text": content, "telemetry": telemetry}
+                except Exception as exc:
+                    last_error = exc
+                    last_failure_was_response = True
+            finally:
+                self._release_provider_slot()
+            assert retry_started is not None
+            if not self._can_retry(
+                attempt,
+                retry_started,
+                last_error,
+                admission_wait_seconds=adaptive_admission_wait_seconds,
+            ):
+                break
+            if self._is_retryable_provider_error(last_error):
+                retryable_provider_retries += 1
+            delay, decreases, cooldown = self._sleep_before_retry(
+                attempt,
+                last_error,
+                started=retry_started,
+                admission_wait_seconds=adaptive_admission_wait_seconds,
+                admission_generation=admission_generation,
+            )
+            retry_sleep_seconds += delay
+            adaptive_window_decreases += decreases
+            max_adaptive_cooldown_seconds = max(max_adaptive_cooldown_seconds, cooldown)
+        telemetry = {
+            "model": getattr(last_response, "model", self.model),
+            "provider": (getattr(last_response, "model_extra", None) or {}).get("provider")
+            if last_response is not None else None,
+            "usage": accumulated_usage,
+            "retry_count": attempt - 1,
+            "retryable_provider_retries": retryable_provider_retries,
+            "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+            **self._routing_metadata(),
+            "adaptive_window_increases": adaptive_window_increases,
+            "adaptive_window_decreases": adaptive_window_decreases,
+            "adaptive_admission_wait_seconds": round(adaptive_admission_wait_seconds, 3),
+            "max_adaptive_cooldown_seconds": round(max_adaptive_cooldown_seconds, 3),
+            **self.adaptive_controller.snapshot(),
+            "elapsed_seconds": round(monotonic() - overall_started, 3),
+        }
+        if self._is_retryable_provider_error(last_error):
+            raise RetryableProviderExhaustedError(
+                f"Retryable plain-text provider failure exhausted after {attempt} attempts: {last_error}",
+                telemetry=telemetry,
+            ) from last_error
+        if last_failure_was_response:
+            raise StructuredRenderedResponseError(
+                f"Plain-text response unusable after {attempt} attempts: {last_error}",
+                telemetry=telemetry,
+            ) from last_error
+        raise RuntimeError(f"Plain-text LLM request failed after {attempt} attempts: {last_error}")
+
+    def generate_text(self, *, prompt: str, system_prompt: str = "Follow the instructions exactly.") -> str:
+        return self.generate_text_with_metadata(prompt=prompt, system_prompt=system_prompt)["text"]
 
     def generate_structured_object(
         self,

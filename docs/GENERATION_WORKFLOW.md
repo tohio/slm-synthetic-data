@@ -378,14 +378,16 @@ verify zero deficit for every configured signal.
 
 ## Validation Checklist
 
-Generic SFT live generation uses three acceptance layers: deterministic row and
-interaction validation, locally verifiable output-mode checks, and independent
-semantic adjudication against the full grounded brief. Generic DPO adds a
-staged generation contract: chosen first, one controlled rejected weakness
-second, then independent preference adjudication. Semantic failure rejects the
-candidate; neither workflow repairs content locally. Renderer and adjudicator
-models are configurable, and their combined and role-level telemetry is stored
-in batch manifests.
+Generic alignment uses `generator -> deterministic validation -> judge ->
+reviewer`. Models return only language-bearing fields through a minimal
+plain-text contract; code owns IDs, metadata, taxonomy, tools, constraints, and
+run fields. The judge must reject ambiguous or insufficiently grounded tasks
+rather than guess. The reviewer sees only judge-accepted candidates and answers
+whether the acceptance was justified. Final acceptance requires all three
+gates. Semantic failure is final, is not backfilled, and is never repaired
+locally. Provider or malformed-output failures retain bounded retry. Generator,
+judge, and reviewer models are independently configurable, and role telemetry
+is stored in batch manifests.
 
 For each run, inspect:
 
