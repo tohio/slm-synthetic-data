@@ -112,6 +112,41 @@ def estimate(args: argparse.Namespace) -> dict:
     return {"pricing_source": "OpenRouter", "models": rates, "scenarios": output}
 
 
+def _render_human(report: dict) -> str:
+    lines = [
+        f"Pricing source: {report['pricing_source']}",
+        "Model pricing (USD per 1M tokens):",
+    ]
+    for model, price in report["models"].items():
+        prompt_per_million = price["prompt"] * 1_000_000
+        completion_per_million = price["completion"] * 1_000_000
+        lines.append(
+            f"  {model}: input=${prompt_per_million:.6f}, output=${completion_per_million:.6f}"
+        )
+
+    lines.append("Scenarios:")
+    for name, scenario in report["scenarios"].items():
+        role_costs = scenario["role_costs_usd"]
+        lines.extend(
+            [
+                f"  {name}:",
+                f"    candidate calls: {scenario['candidate_calls']}",
+                f"    deterministic pass rate: {scenario['deterministic_pass_rate'] * 100:.1f}%",
+                f"    judge calls: {scenario['judge_calls']:.2f}",
+                f"    reviewer calls: {scenario['reviewer_calls']:.2f}",
+                f"    estimated accepted: {scenario['estimated_accepted']:.2f}",
+                f"    estimated accepted tokens: {scenario['estimated_accepted_tokens']:,}",
+                "    role costs: "
+                f"generator=${role_costs['generator']:.6f}, "
+                f"judge=${role_costs['judge']:.6f}, "
+                f"reviewer=${role_costs['reviewer']:.6f}",
+                f"    total cost: ${scenario['total_cost_usd']:.6f}",
+                f"    cost per accepted: ${scenario['cost_per_accepted_usd']:.6f}",
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--generator-model", required=True)
@@ -138,13 +173,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     report = estimate(args)
-    rendered = json.dumps(report, indent=2) + "\n"
     if args.output:
+        rendered = json.dumps(report, indent=2) + "\n"
         path = Path(args.output)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(rendered, encoding="utf-8")
     else:
-        print(rendered, end="")
+        print(_render_human(report), end="")
     return 0
 
 
