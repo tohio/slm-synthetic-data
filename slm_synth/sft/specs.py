@@ -11,7 +11,10 @@ from slm_synth.taxonomy import validate_alignment_metadata
 
 SFT_SPEC_REQUIRED_FIELDS = frozenset({"id", "instruction", "metadata"})
 SFT_SPEC_OPTIONAL_FIELDS = frozenset(
-    {"variables", "constraints", "output_constraints", "holdout_key"}
+    {
+        "variables", "constraints", "output_constraints",
+        "public_prompt_requirements", "holdout_key",
+    }
 )
 SFT_SPEC_FIELDS = SFT_SPEC_REQUIRED_FIELDS | SFT_SPEC_OPTIONAL_FIELDS
 
@@ -48,6 +51,10 @@ def validate_sft_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         validated["output_constraints"] = validate_output_constraints(
             spec["output_constraints"]
         )
+    if "public_prompt_requirements" in spec:
+        validated["public_prompt_requirements"] = _validate_string_list(
+            spec["public_prompt_requirements"], "public_prompt_requirements"
+        )
     if "holdout_key" in spec:
         validated["holdout_key"] = _validate_mapping(spec["holdout_key"], "holdout_key")
     return validated
@@ -71,6 +78,8 @@ def teacher_visible_sft_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         visible["constraints"] = validated["constraints"]
     if "output_constraints" in validated:
         visible["output_constraints"] = validated["output_constraints"]
+    if "public_prompt_requirements" in validated:
+        visible["public_prompt_requirements"] = validated["public_prompt_requirements"]
     return visible
 
 

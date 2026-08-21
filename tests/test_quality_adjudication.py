@@ -45,6 +45,10 @@ def test_quality_adjudication_references_constraints_by_stable_index():
     assert "constraint_index" in result_schema["required"]
     assert "constraint" not in result_schema["properties"]
     assert "Do not copy or paraphrase the constraint text" in prompt
+    assert "every source statement, entity, field, owner, date" in prompt
+    assert "Treat predictive assurances as promises" in prompt
+    assert "must not assert that staff, volunteers, partners" in prompt
+    assert "generic statement such as 'satisfied' is not evidence" in prompt
 
 
 def test_quality_adjudication_rejects_missing_constraint_index_coverage():

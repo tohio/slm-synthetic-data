@@ -59,6 +59,9 @@ locally for schema, metadata, interaction, tool, and output-mode compliance.
 Finite briefs may also declare internal machine-checkable word, line, item,
 term, heading, and JSON-key constraints. These run before semantic
 adjudication and are recorded per accepted row in batch manifests.
+Critical taxonomies and source facts may additionally declare exact public
+prompt requirements, preventing a rendered answer from relying on hidden brief
+material. Source-specific quality requirements are adjudicated independently.
 An independent structured adjudication call scores correctness, grounding,
 instruction adherence, completeness, and coherence and verifies every source
 constraint. A candidate is written only when every score is at least 3/4 and

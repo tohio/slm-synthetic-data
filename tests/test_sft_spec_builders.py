@@ -63,6 +63,36 @@ def test_creative_source_requirements_are_explicit_in_public_instructions():
     assert "light and dust" in lighthouse["instruction"]
 
 
+def test_smoke_failure_sources_have_explicit_quality_contracts():
+    support, action_items = build_specs(family="classification_and_extraction", count=2)
+    _invitation, anxiety = build_specs(family="everyday_conversation", count=2)
+    _onboarding, library = build_specs(
+        family="planning_brainstorming_recommendations", count=2
+    )
+
+    assert support["public_prompt_requirements"] == [
+        "Allowed urgency labels: low, normal, high, critical.",
+        "Use critical when an essential time-sensitive operation is blocked by a same-day deadline.",
+    ]
+    assert support["output_constraints"]["exact_json_keys"] == [
+        "urgency", "product", "symptom", "deadline",
+    ]
+    assert "The publication owner is not assigned." in action_items[
+        "public_prompt_requirements"
+    ]
+    assert "publication owner" in action_items["output_constraints"]["required_terms"]
+    assert any("must not promise or predict" in value for value in anxiety["constraints"])
+    assert any("must not claim" in value for value in library["constraints"])
+
+
+def test_public_prompt_requirements_are_teacher_visible_but_not_public_metadata():
+    spec = build_specs(family="classification_and_extraction", count=1)[0]
+    visible = teacher_visible_sft_spec(spec)
+
+    assert visible["public_prompt_requirements"] == spec["public_prompt_requirements"]
+    assert "public_prompt_requirements" not in spec["metadata"]
+
+
 def test_self_contained_programming_brief_has_accurate_context_mode():
     spec = build_specs(family="programming", count=1)[0]
     assert spec["metadata"]["context_mode"] == "self_contained"

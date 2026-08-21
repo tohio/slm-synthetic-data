@@ -55,6 +55,7 @@ def _build_spec(family: str, index: int) -> dict[str, Any]:
         constraints.append(
             "Treat the supplied passage, document, transcript, code, or other context as the factual source of truth. Ordinary direct inference is allowed, but unsupported factual claims are not."
         )
+    constraints.extend(source.get("quality_requirements", ()))
     result: dict[str, Any] = {
         "id": f"sft_{family}_{index:06d}",
         "instruction": source["instruction"],
@@ -66,4 +67,6 @@ def _build_spec(family: str, index: int) -> dict[str, Any]:
         result["holdout_key"] = dict(source["holdout_key"])
     if "output_constraints" in source:
         result["output_constraints"] = dict(source["output_constraints"])
+    if "public_prompt_requirements" in source:
+        result["public_prompt_requirements"] = list(source["public_prompt_requirements"])
     return result

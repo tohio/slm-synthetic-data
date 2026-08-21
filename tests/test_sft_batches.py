@@ -44,6 +44,8 @@ def test_sft_prompt_contains_generation_contract():
     assert "structured_json is only a parseable JSON" in prompt
     assert "target their midpoint rather than either boundary" in prompt
     assert "hard machine-checked requirements" in prompt
+    assert "copy every listed phrase exactly" in prompt
+    assert "may not appear only in the answer" in prompt
 
 
 def test_validate_sft_batch_and_spec_metadata_binding():

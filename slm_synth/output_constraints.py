@@ -76,6 +76,15 @@ def evaluate_sft_output_constraints(
             _final_assistant_content(rows_by_id[row_id]["messages"], row_id=row_id),
             spec.get("output_constraints", {}),
         )
+        prompt_checks = _evaluate_public_prompt_requirements(
+            rows_by_id[row_id]["messages"],
+            spec.get("public_prompt_requirements", []),
+        )
+        result["checks"].extend(prompt_checks)
+        result["declared_constraint_count"] += len(prompt_checks)
+        result["status"] = (
+            "passed" if all(check["passed"] for check in result["checks"]) else "failed"
+        )
         evidence[row_id] = result
         if result["status"] != "passed":
             failures.append(_failure_text(row_id, result))
@@ -183,6 +192,36 @@ def _final_assistant_content(messages: Sequence[Mapping[str, Any]], *, row_id: s
     if not values or not values[-1].strip():
         raise ValueError(f"rendered row {row_id} has no final assistant content")
     return values[-1].strip()
+
+
+def _evaluate_public_prompt_requirements(
+    messages: Sequence[Mapping[str, Any]], requirements: Any
+) -> list[dict[str, Any]]:
+    validated = _string_list(requirements, "public_prompt_requirements")
+    final_assistant_index = max(
+        (
+            index
+            for index, message in enumerate(messages)
+            if message.get("role") == "assistant"
+            and isinstance(message.get("content"), str)
+            and message["content"].strip()
+        ),
+        default=-1,
+    )
+    public_prompt = "\n".join(
+        str(message["content"])
+        for message in messages[:final_assistant_index]
+        if isinstance(message.get("content"), str)
+    ).casefold()
+    return [
+        _check(
+            "public_prompt_requirement",
+            requirement,
+            requirement.casefold() in public_prompt,
+            requirement.casefold() in public_prompt,
+        )
+        for requirement in validated
+    ]
 
 
 def _words(value: str) -> list[str]:

@@ -49,6 +49,64 @@ def test_sft_constraints_reject_the_short_attic_scene_regression():
         evaluate_sft_output_constraints(specs=[spec], rows=[row])
 
 
+def test_sft_constraints_require_critical_source_facts_in_public_prompt():
+    spec = {
+        "id": "triage-1",
+        "public_prompt_requirements": [
+            "Allowed urgency labels: low, normal, high, critical.",
+        ],
+    }
+    missing = {
+        "id": "triage-1",
+        "messages": [
+            {"role": "user", "content": "Classify this payroll failure."},
+            {
+                "role": "assistant",
+                "content": "Allowed urgency labels: low, normal, high, critical.",
+            },
+        ],
+    }
+    with pytest.raises(OutputConstraintError, match="public_prompt_requirement"):
+        evaluate_sft_output_constraints(specs=[spec], rows=[missing])
+
+    present = {
+        **missing,
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "Allowed urgency labels: low, normal, high, critical. "
+                    "Classify this payroll failure."
+                ),
+            },
+            {"role": "assistant", "content": "critical"},
+        ],
+    }
+    evidence = evaluate_sft_output_constraints(specs=[spec], rows=[present])
+    assert evidence["triage-1"]["status"] == "passed"
+
+
+def test_sft_constraints_reject_incomplete_action_item_table_regression():
+    spec = {
+        "id": "actions-1",
+        "output_constraints": {
+            "required_terms": ["Mina", "Jorge", "publication owner", "null"],
+        },
+    }
+    row = {
+        "id": "actions-1",
+        "messages": [
+            {"role": "user", "content": "Extract every action."},
+            {
+                "role": "assistant",
+                "content": "| Mina | 12 June |\n| Jorge | 14 June | null |",
+            },
+        ],
+    }
+    with pytest.raises(OutputConstraintError, match="publication owner"):
+        evaluate_sft_output_constraints(specs=[spec], rows=[row])
+
+
 def test_dpo_constraints_require_chosen_but_only_measure_rejected_branch():
     spec = {"id": "pair-1", "output_constraints": {"max_words": 2}}
     row = {

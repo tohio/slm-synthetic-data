@@ -33,7 +33,11 @@ class AcceptingAdjudicatorBackend:
             else:
                 raise AssertionError(schema_name)
             item["constraint_results"] = [
-                {"constraint_index": index, "passed": True, "reason": "satisfied"}
+                {
+                    "constraint_index": index,
+                    "passed": True,
+                    "reason": f"The rendered row provides evidence for constraint {index}.",
+                }
                 for index, _constraint in enumerate(constraints)
             ]
             item["reasons"] = []

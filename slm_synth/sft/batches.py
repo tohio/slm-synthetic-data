@@ -70,6 +70,8 @@ def render_sft_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "variables, constraints, holdout_key, fingerprints, provider data, or run data. Do not copy known evaluation prompts. "
         "Put every source passage, document, code sample, question, option, constraint, or other fact needed to perform the "
         "task into the user-visible conversation. The assistant must never answer from hidden input-spec fields. "
+        "When public_prompt_requirements is present, copy every listed phrase exactly into a system or user message before "
+        "the final assistant response; these phrases are checked locally and may not appear only in the answer. "
         "Every message object must include content. System, user, tool, and ordinary assistant messages require non-empty "
         "string content; only an assistant message containing tool_calls may use null content. Include a leading system "
         "message if and only if interaction_modes contains system_conditioned. Use exactly one user turn for single_turn and "
