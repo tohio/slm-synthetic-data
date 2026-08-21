@@ -114,7 +114,7 @@ def qualify(
             for role in roles
         }
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "model": model,
             "contract": "portable_plain_text_v1",
@@ -122,6 +122,16 @@ def qualify(
             "roles": results,
             "passed": False,
         }
+
+    reasoning_requires_live_verification = (
+        reasoning_policy.get("reasoning_capable") is True
+        and reasoning_policy.get("reasoning_mandatory") is False
+        and reasoning_policy.get("reasoning_disable_supported") is None
+    )
+    reasoning_policy["reasoning_disable_verified"] = not reasoning_requires_live_verification
+    reasoning_policy["verification"] = (
+        "not_required" if not reasoning_requires_live_verification else "pending_live_request"
+    )
 
     backend = LLMBackend(
         provider="openrouter",
@@ -182,14 +192,33 @@ def qualify(
                 "passed": False,
                 "error": str(exc),
             }
+    if reasoning_requires_live_verification:
+        reasoning_disable_verified = any(
+            result.get("transport_compatible") is True for result in results.values()
+        )
+        reasoning_policy["reasoning_disable_supported"] = reasoning_disable_verified
+        reasoning_policy["reasoning_disable_verified"] = reasoning_disable_verified
+        reasoning_policy["reasoning_policy_pass"] = reasoning_disable_verified
+        reasoning_policy["verification"] = (
+            "live_request_with_reasoning_effort_none"
+            if reasoning_disable_verified
+            else "live_request_failed"
+        )
+        for result in results.values():
+            result["reasoning_policy_pass"] = reasoning_disable_verified
+            result["passed"] = bool(result["passed"] and reasoning_disable_verified)
+
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "contract": "portable_plain_text_v1",
         "reasoning_policy": reasoning_policy,
         "roles": results,
-        "passed": all(result["passed"] for result in results.values()),
+        "passed": bool(
+            reasoning_policy["reasoning_policy_pass"]
+            and all(result["passed"] for result in results.values())
+        ),
     }
 
 

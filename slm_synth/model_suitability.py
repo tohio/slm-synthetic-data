@@ -22,7 +22,7 @@ class ReasoningSuitability:
     model: str
     reasoning_capable: bool
     reasoning_mandatory: bool
-    reasoning_disable_supported: bool
+    reasoning_disable_supported: bool | None
     reasoning_policy_pass: bool
     source: str = "OpenRouter"
 
@@ -83,23 +83,27 @@ def get_reasoning_suitability(model: str) -> ReasoningSuitability:
 
     reasoning_metadata = reasoning if isinstance(reasoning, dict) else {}
     mandatory = bool(reasoning_metadata.get("mandatory", False))
-    efforts_exposed = "supported_efforts" in reasoning_metadata
-    supported_efforts = reasoning_metadata.get("supported_efforts")
-    disable_supported = (
-        not mandatory
-        and efforts_exposed
-        and (
-            supported_efforts is None
-            or (isinstance(supported_efforts, list) and "none" in supported_efforts)
+    if mandatory:
+        return ReasoningSuitability(
+            model=model_id,
+            reasoning_capable=True,
+            reasoning_mandatory=True,
+            reasoning_disable_supported=False,
+            reasoning_policy_pass=False,
         )
-    )
 
+    # OpenRouter metadata does not consistently advertise an explicit
+    # ``none`` effort even when reasoning is optional. Treat optional
+    # reasoning as requiring live verification instead of rejecting it from
+    # catalog metadata alone. The backend will send reasoning.effort=none with
+    # provider.require_parameters=true, so a successful request is the proof
+    # that the selected route can honor reasoning-off.
     return ReasoningSuitability(
         model=model_id,
         reasoning_capable=True,
-        reasoning_mandatory=mandatory,
-        reasoning_disable_supported=disable_supported,
-        reasoning_policy_pass=disable_supported,
+        reasoning_mandatory=False,
+        reasoning_disable_supported=None,
+        reasoning_policy_pass=True,
     )
 
 
@@ -107,6 +111,6 @@ def require_reasoning_off_suitability(model: str) -> ReasoningSuitability:
     suitability = get_reasoning_suitability(model)
     if not suitability.reasoning_policy_pass:
         raise ModelSuitabilityError(
-            f"Model {model!r} is ineligible: repository policy requires verified reasoning.effort=none support"
+            f"Model {model!r} is ineligible: repository policy requires reasoning to be disableable"
         )
     return suitability
