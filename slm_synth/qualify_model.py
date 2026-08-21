@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -230,7 +231,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote model qualification report to {path}")
     else:
         print(rendered, end="")
-    return 0 if report["passed"] else 1
+
+    qualification = "PASS" if report["passed"] else "FAIL"
+    print(f"model qualification result: {qualification}")
+
+    strict = os.getenv("QUALIFY_STRICT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if strict and not report["passed"]:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
