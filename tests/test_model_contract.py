@@ -6,6 +6,8 @@ import pytest
 from slm_synth.estimate_generation_cost import estimate
 from slm_synth.llm import LLMBackend
 from slm_synth.model_contract import (
+    PlainOutputContractError,
+    call_plain_parsed,
     parse_json_object,
     parse_judge_decision,
     parse_review_decision,
@@ -95,9 +97,15 @@ def test_cost_estimator_counts_reviewer_only_after_judge_acceptance(tmp_path):
 
 def test_model_qualification_uses_the_same_plain_contract(monkeypatch):
     class Backend:
+        judge_attempts = 0
+
         def generate_text_with_metadata(self, *, prompt, system_prompt):
             if "ASSESSABLE" in prompt:
-                text = "ASSESSABLE: NO\nDECISION: REJECT\nREASON: insufficient context"
+                self.judge_attempts += 1
+                if self.judge_attempts == 1:
+                    text = "ASSESSABLE: NO\nDECISION: REJECT"
+                else:
+                    text = "ASSESSABLE: NO\nDECISION: REJECT\nREASON: insufficient context"
             elif "AGREE" in prompt:
                 text = "AGREE: NO\nREASON: the answer was unsupported"
             else:
@@ -113,5 +121,36 @@ def test_model_qualification_uses_the_same_plain_contract(monkeypatch):
     )
 
     assert report["contract"] == "portable_plain_text_v1"
+    assert report["schema_version"] == 2
     assert report["passed"] is True
     assert all(result["passed"] for result in report["roles"].values())
+    assert report["roles"]["sft-judge"]["transport_compatible"] is True
+    assert report["roles"]["sft-judge"]["contract_pass"] is True
+    assert report["roles"]["sft-judge"]["telemetry"]["batch_count"] == 2
+
+
+def test_plain_parser_error_retains_transport_evidence_after_bounded_retries():
+    class Backend:
+        calls = 0
+
+        def generate_text_with_metadata(self, *, prompt, system_prompt):
+            self.calls += 1
+            return {
+                "text": "ASSESSABLE: NO\nDECISION: REJECT",
+                "telemetry": {"usage": {"total_tokens": 10}},
+            }
+
+    backend = Backend()
+    with pytest.raises(PlainOutputContractError) as error:
+        call_plain_parsed(
+            backend,
+            prompt="judge this",
+            system_prompt="judge",
+            parser=parse_judge_decision,
+            attempts=3,
+        )
+
+    assert backend.calls == 3
+    assert error.value.response == "ASSESSABLE: NO\nDECISION: REJECT"
+    assert error.value.telemetry["batch_count"] == 3
+    assert error.value.telemetry["usage"]["total_tokens"] == 30

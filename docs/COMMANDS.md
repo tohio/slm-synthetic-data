@@ -37,6 +37,7 @@ Qualify model compatibility and role behavior before a smoke run:
 
 ```bash
 QUALIFY_MODEL=openai/gpt-oss-20b QUALIFY_ROLES=sft-generator,sft-judge,sft-reviewer make model-qualify
+QUALIFY_MODEL=<model> QUALIFY_MAX_TOKENS=4096 make model-qualify-alignment
 make model-qualify-pretrain QUALIFY_MODEL=<model>
 make model-qualify-alignment QUALIFY_MODEL=<model>
 make model-qualify-distillation QUALIFY_MODEL=<model>
@@ -46,6 +47,10 @@ make model-qualify-all QUALIFY_MODEL=<model>
 Qualification uses the same minimal portable contract as production: ordinary
 messages plus max output and routing preferences. Provider-side JSON Schema,
 tool choice, reasoning controls, temperature, and top-p are not required.
+Malformed role output receives the same bounded format retries as production.
+Reports distinguish transport compatibility, contract compliance, and the
+role-specific behavioral check. Increase `QUALIFY_MAX_TOKENS` only for models
+that need a larger completion budget to produce the small probe response.
 
 Estimate low, expected, and high generator/judge/reviewer costs from live
 OpenRouter pricing before setting candidate budgets:

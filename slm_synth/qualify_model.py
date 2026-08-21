@@ -10,7 +10,8 @@ from typing import Any
 
 from slm_synth.llm import LLMBackend
 from slm_synth.model_contract import (
-    call_plain_text,
+    PlainOutputContractError,
+    call_plain_parsed,
     parse_json_object,
     parse_judge_decision,
     parse_review_decision,
@@ -48,14 +49,23 @@ def _probe(role: str) -> tuple[str, str, Any]:
             "The task asks for the exact cause of an unnamed Atlas project delay and supplies no organization, date, or "
             "source. Reject because it is not reliably assessable. Return exactly:\n"
             "ASSESSABLE: YES or NO\n"
-            "DECISION: ACCEPT or REJECT\nREASON: one concise reason"
+            "DECISION: ACCEPT or REJECT\nREASON: one concise reason in English"
         )
-        return "You are a conservative dataset judge. Never guess.", prompt, parse_judge_decision
+        return (
+            "You are a conservative dataset judge. Never guess. Respond in English.",
+            prompt,
+            parse_judge_decision,
+        )
     prompt = (
         "A judge accepted an answer that invented the cause of an unnamed Atlas project delay despite no evidence. "
-        "State whether you agree. Return exactly:\nAGREE: YES or NO\nREASON: one concise reason"
+        "State whether you agree. Return exactly:\nAGREE: YES or NO\n"
+        "REASON: one concise reason in English"
     )
-    return "You independently review dataset judge decisions.", prompt, parse_review_decision
+    return (
+        "You independently review dataset judge decisions. Respond in English.",
+        prompt,
+        parse_review_decision,
+    )
 
 
 def _generator_passed(value: Any) -> bool:
@@ -86,30 +96,52 @@ def qualify(
     results: dict[str, Any] = {}
     for role in roles:
         system, prompt, parser = _probe(role)
+        response: dict[str, str] = {}
+
+        def capture_and_parse(text: str) -> Any:
+            response["text"] = text
+            return parser(text)
+
         try:
-            text, telemetry = call_plain_text(backend, system_prompt=system, prompt=prompt)
-            parsed = parser(text)
+            parsed, telemetry = call_plain_parsed(
+                backend,
+                system_prompt=system,
+                prompt=prompt,
+                parser=capture_and_parse,
+            )
             behavioral_pass = _generator_passed(parsed) if role.endswith("generator") else True
             if role.endswith("judge"):
                 behavioral_pass = not parsed.accepted and not parsed.assessable
             elif role.endswith("reviewer"):
                 behavioral_pass = not parsed.agreed
             results[role] = {
-                "compatible": True,
+                "transport_compatible": True,
+                "contract_pass": True,
                 "behavioral_pass": behavioral_pass,
                 "passed": behavioral_pass,
-                "response": text,
+                "response": response["text"],
                 "telemetry": telemetry,
+            }
+        except PlainOutputContractError as exc:
+            results[role] = {
+                "transport_compatible": True,
+                "contract_pass": False,
+                "behavioral_pass": False,
+                "passed": False,
+                "response": exc.response,
+                "telemetry": exc.telemetry,
+                "error": str(exc),
             }
         except Exception as exc:
             results[role] = {
-                "compatible": False,
+                "transport_compatible": False,
+                "contract_pass": False,
                 "behavioral_pass": False,
                 "passed": False,
                 "error": str(exc),
             }
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "contract": "portable_plain_text_v1",

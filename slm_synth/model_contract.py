@@ -19,6 +19,21 @@ class PlainTextBackend(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class PlainOutputContractError(ValueError):
+    """Raised after text was returned but remained unparsable after retries."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        response: str,
+        telemetry: Mapping[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.response = response
+        self.telemetry = dict(telemetry or {})
+
+
 def parse_json_object(text: str) -> dict[str, Any]:
     """Parse one JSON object, tolerating only a surrounding Markdown fence."""
     if not isinstance(text, str) or not text.strip():
@@ -108,11 +123,13 @@ def call_plain_parsed(
     """Retry only malformed role output; semantic decisions are never retried."""
     telemetry: list[dict[str, Any]] = []
     last_error: ValueError | None = None
+    last_response = ""
     active_prompt = prompt
     for _attempt in range(1, attempts + 1):
         text, call_telemetry = call_plain_text(
             backend, prompt=active_prompt, system_prompt=system_prompt
         )
+        last_response = text
         telemetry.append(call_telemetry)
         try:
             return parser(text), aggregate_llm_telemetry(telemetry)
@@ -123,4 +140,8 @@ def call_plain_parsed(
                 + "\n\nYour prior response violated the exact output contract. "
                 "Return only the requested fields."
             )
-    raise ValueError(f"model output remained malformed after {attempts} attempts: {last_error}")
+    raise PlainOutputContractError(
+        f"model output remained malformed after {attempts} attempts: {last_error}",
+        response=last_response,
+        telemetry=aggregate_llm_telemetry(telemetry),
+    )
