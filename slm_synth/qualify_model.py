@@ -84,8 +84,15 @@ def _generator_passed(value: Any) -> bool:
 
 
 def qualify(
-    *, model: str, roles: list[str], max_tokens: int, routing_mode: str | None
+    *,
+    model: str,
+    roles: list[str],
+    max_tokens: int,
+    routing_mode: str | None,
+    behavior_trials: int = 3,
 ) -> dict[str, Any]:
+    if behavior_trials < 1:
+        raise ValueError("behavior_trials must be >= 1")
     try:
         reasoning_suitability = get_reasoning_suitability(model)
         reasoning_policy = reasoning_suitability.as_dict()
@@ -114,11 +121,12 @@ def qualify(
             for role in roles
         }
         return {
-            "schema_version": 4,
+            "schema_version": 5,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "model": model,
             "contract": "portable_plain_text_v1",
             "reasoning_policy": reasoning_policy,
+            "behavior_trials": behavior_trials,
             "roles": results,
             "passed": False,
         }
@@ -145,53 +153,94 @@ def qualify(
     results: dict[str, Any] = {}
     for role in roles:
         system, prompt, parser = _probe(role)
-        response: dict[str, str] = {}
+        trials: list[dict[str, Any]] = []
 
-        def capture_and_parse(text: str) -> Any:
-            response["text"] = text
-            return parser(text)
+        for trial_number in range(1, behavior_trials + 1):
+            response: dict[str, str] = {}
 
-        try:
-            parsed, telemetry = call_plain_parsed(
-                backend,
-                system_prompt=system,
-                prompt=prompt,
-                parser=capture_and_parse,
-            )
-            behavioral_pass = _generator_passed(parsed) if role.endswith("generator") else True
-            if role.endswith("judge"):
-                behavioral_pass = not parsed.accepted and not parsed.assessable
-            elif role.endswith("reviewer"):
-                behavioral_pass = not parsed.agreed
-            results[role] = {
-                "transport_compatible": True,
-                "contract_pass": True,
-                "behavioral_pass": behavioral_pass,
-                "reasoning_policy_pass": True,
-                "passed": behavioral_pass,
-                "response": response["text"],
-                "telemetry": telemetry,
-            }
-        except PlainOutputContractError as exc:
-            results[role] = {
-                "transport_compatible": True,
-                "contract_pass": False,
-                "behavioral_pass": False,
-                "reasoning_policy_pass": True,
-                "passed": False,
-                "response": exc.response,
-                "telemetry": exc.telemetry,
-                "error": str(exc),
-            }
-        except Exception as exc:
-            results[role] = {
-                "transport_compatible": False,
-                "contract_pass": False,
-                "behavioral_pass": False,
-                "reasoning_policy_pass": True,
-                "passed": False,
-                "error": str(exc),
-            }
+            def capture_and_parse(text: str) -> Any:
+                response["text"] = text
+                return parser(text)
+
+            try:
+                parsed, telemetry = call_plain_parsed(
+                    backend,
+                    system_prompt=system,
+                    prompt=prompt,
+                    parser=capture_and_parse,
+                )
+                behavioral_pass = (
+                    _generator_passed(parsed) if role.endswith("generator") else True
+                )
+                if role.endswith("judge"):
+                    behavioral_pass = not parsed.accepted and not parsed.assessable
+                elif role.endswith("reviewer"):
+                    behavioral_pass = not parsed.agreed
+                trials.append(
+                    {
+                        "trial": trial_number,
+                        "transport_compatible": True,
+                        "contract_pass": True,
+                        "behavioral_pass": behavioral_pass,
+                        "passed": behavioral_pass,
+                        "response": response["text"],
+                        "telemetry": telemetry,
+                    }
+                )
+            except PlainOutputContractError as exc:
+                trials.append(
+                    {
+                        "trial": trial_number,
+                        "transport_compatible": True,
+                        "contract_pass": False,
+                        "behavioral_pass": False,
+                        "passed": False,
+                        "response": exc.response,
+                        "telemetry": exc.telemetry,
+                        "error": str(exc),
+                    }
+                )
+            except Exception as exc:
+                trials.append(
+                    {
+                        "trial": trial_number,
+                        "transport_compatible": False,
+                        "contract_pass": False,
+                        "behavioral_pass": False,
+                        "passed": False,
+                        "error": str(exc),
+                    }
+                )
+
+        passed_trials = sum(1 for trial in trials if trial["passed"])
+        transport_compatible = all(
+            trial["transport_compatible"] is True for trial in trials
+        )
+        contract_pass = all(trial["contract_pass"] is True for trial in trials)
+        behavioral_pass = all(trial["behavioral_pass"] is True for trial in trials)
+        role_result = {
+            "transport_compatible": transport_compatible,
+            "contract_pass": contract_pass,
+            "behavioral_pass": behavioral_pass,
+            "reasoning_policy_pass": True,
+            "passed": passed_trials == behavior_trials,
+            "behavior_trials_requested": behavior_trials,
+            "behavior_trials_passed": passed_trials,
+            "trials": trials,
+        }
+        last_response = next(
+            (trial.get("response") for trial in reversed(trials) if trial.get("response")),
+            None,
+        )
+        first_error = next(
+            (trial.get("error") for trial in trials if trial.get("error")),
+            None,
+        )
+        if last_response is not None:
+            role_result["response"] = last_response
+        if first_error is not None:
+            role_result["error"] = first_error
+        results[role] = role_result
     if reasoning_requires_live_verification:
         reasoning_disable_verified = any(
             result.get("transport_compatible") is True for result in results.values()
@@ -209,11 +258,12 @@ def qualify(
             result["passed"] = bool(result["passed"] and reasoning_disable_verified)
 
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "contract": "portable_plain_text_v1",
         "reasoning_policy": reasoning_policy,
+        "behavior_trials": behavior_trials,
         "roles": results,
         "passed": bool(
             reasoning_policy["reasoning_policy_pass"]
@@ -227,6 +277,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", required=True)
     parser.add_argument("--roles", required=True, help="Comma-separated role names or all")
     parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument(
+        "--behavior-trials",
+        type=int,
+        default=int(os.getenv("QUALIFY_BEHAVIOR_TRIALS", "3")),
+        help="Independent behavioral qualification trials required per role (default: 3)",
+    )
     parser.add_argument(
         "--openrouter-routing-mode",
         choices=["auto", "prefer", "strict"],
@@ -251,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         roles=roles,
         max_tokens=args.max_tokens,
         routing_mode=args.openrouter_routing_mode,
+        behavior_trials=args.behavior_trials,
     )
     rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
