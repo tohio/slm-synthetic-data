@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
 from slm_synth.adaptive_batch import (
@@ -232,63 +233,67 @@ def generate_llm_run(
     active_backend = backend
     active_adjudicator_backend = adjudicator_backend
     active_reviewer_backend = reviewer_backend
+    backend_init_lock = RLock()
 
     def get_backend() -> StructuredTeacherBackend:
         nonlocal active_backend
-        if active_backend is None:
-            active_backend = build_openrouter_backend(
-                model=teacher_model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                request_timeout=request_timeout,
-                max_request_retries=max_request_retries,
-                max_retryable_request_attempts=max_retryable_request_attempts,
-                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-                adaptive_initial_in_flight=adaptive_initial_in_flight,
-                openrouter_routing_mode=openrouter_routing_mode,
-                openrouter_provider=openrouter_provider,
-            )
-        return active_backend
+        with backend_init_lock:
+            if active_backend is None:
+                active_backend = build_openrouter_backend(
+                    model=teacher_model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    request_timeout=request_timeout,
+                    max_request_retries=max_request_retries,
+                    max_retryable_request_attempts=max_retryable_request_attempts,
+                    retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                    adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                    adaptive_initial_in_flight=adaptive_initial_in_flight,
+                    openrouter_routing_mode=openrouter_routing_mode,
+                    openrouter_provider=openrouter_provider,
+                )
+            return active_backend
 
     def get_adjudicator_backend() -> StructuredTeacherBackend:
         nonlocal active_adjudicator_backend
-        if active_adjudicator_backend is None:
-            active_adjudicator_backend = build_openrouter_backend(
-                model=adjudicator_model if adjudicator_model is not None else teacher_model,
-                max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                request_timeout=request_timeout,
-                max_request_retries=max_request_retries,
-                max_retryable_request_attempts=max_retryable_request_attempts,
-                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-                adaptive_initial_in_flight=adaptive_initial_in_flight,
-                openrouter_routing_mode=openrouter_routing_mode,
-                openrouter_provider=openrouter_provider,
-            )
-        return active_adjudicator_backend
+        with backend_init_lock:
+            if active_adjudicator_backend is None:
+                active_adjudicator_backend = build_openrouter_backend(
+                    model=adjudicator_model if adjudicator_model is not None else teacher_model,
+                    max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    request_timeout=request_timeout,
+                    max_request_retries=max_request_retries,
+                    max_retryable_request_attempts=max_retryable_request_attempts,
+                    retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                    adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                    adaptive_initial_in_flight=adaptive_initial_in_flight,
+                    openrouter_routing_mode=openrouter_routing_mode,
+                    openrouter_provider=openrouter_provider,
+                )
+            return active_adjudicator_backend
 
     def get_reviewer_backend() -> StructuredTeacherBackend:
         nonlocal active_reviewer_backend
-        if active_reviewer_backend is None and reviewer_model is None:
-            active_reviewer_backend = get_adjudicator_backend()
-        if active_reviewer_backend is None:
-            active_reviewer_backend = build_openrouter_backend(
-                model=reviewer_model or adjudicator_model or teacher_model,
-                max_tokens=reviewer_max_tokens or adjudicator_max_tokens or max_tokens,
-                temperature=temperature, top_p=top_p, request_timeout=request_timeout,
-                max_request_retries=max_request_retries,
-                max_retryable_request_attempts=max_retryable_request_attempts,
-                retry_max_elapsed_seconds=retry_max_elapsed_seconds,
-                adaptive_maximum_in_flight=adaptive_maximum_in_flight,
-                adaptive_initial_in_flight=adaptive_initial_in_flight,
-                openrouter_routing_mode=openrouter_routing_mode,
-                openrouter_provider=openrouter_provider,
-            )
-        return active_reviewer_backend
+        with backend_init_lock:
+            if active_reviewer_backend is None and reviewer_model is None:
+                active_reviewer_backend = get_adjudicator_backend()
+            if active_reviewer_backend is None:
+                active_reviewer_backend = build_openrouter_backend(
+                    model=reviewer_model or adjudicator_model or teacher_model,
+                    max_tokens=reviewer_max_tokens or adjudicator_max_tokens or max_tokens,
+                    temperature=temperature, top_p=top_p, request_timeout=request_timeout,
+                    max_request_retries=max_request_retries,
+                    max_retryable_request_attempts=max_retryable_request_attempts,
+                    retry_max_elapsed_seconds=retry_max_elapsed_seconds,
+                    adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+                    adaptive_initial_in_flight=adaptive_initial_in_flight,
+                    openrouter_routing_mode=openrouter_routing_mode,
+                    openrouter_provider=openrouter_provider,
+                )
+            return active_reviewer_backend
 
     def run_job(job: dict[str, Any]) -> Any:
         return generate_llm_batch(
@@ -434,17 +439,35 @@ def generate_llm_run(
             accepted_token_estimates_per_family=accepted_token_estimates_per_family,
         )
 
-    def run_generation(request_counts: dict[str, int]) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
+    def run_generation(
+        request_counts: dict[str, int],
+    ) -> tuple[
+        list[dict[str, Any]],
+        dict[str, int],
+        dict[str, dict[str, int]],
+    ]:
         round_jobs: list[dict[str, Any]] = []
         rejected_rows_per_family = {family: 0 for family in resolved_families}
-        rejection_reason_counts: Counter[str] = Counter()
+        rejection_reason_counts_per_family = {
+            family: Counter() for family in resolved_families
+        }
+        family_states: dict[str, dict[str, Any]] = {}
+
         for family in resolved_families:
             requested_rows = request_counts.get(family, 0)
             if requested_rows == 0:
                 continue
             round_start_index = next_source_indexes[family]
-            validate_spec_range(family=family, count=requested_rows, start_index=round_start_index)
-            specs = build_specs(family=family, count=requested_rows, start_index=round_start_index)
+            validate_spec_range(
+                family=family,
+                count=requested_rows,
+                start_index=round_start_index,
+            )
+            specs = build_specs(
+                family=family,
+                count=requested_rows,
+                start_index=round_start_index,
+            )
             next_source_indexes[family] += requested_rows
             batch_controller = AdaptiveBatchSizeController(
                 maximum=batch_size,
@@ -453,142 +476,220 @@ def generate_llm_run(
                 increase_successes=adaptive_batch_increase_successes,
             )
             batch_controllers.append(batch_controller)
+            family_states[family] = {
+                "round_start_index": round_start_index,
+                "specs": specs,
+                "pending_ranges": deque([(0, len(specs))]),
+                "active_count": 0,
+                "rows_done": 0,
+                "batch_controller": batch_controller,
+            }
             print(
                 "[generate] Starting SFT family: "
                 f"{family} (candidate_rows={len(specs)}, batch_size={batch_size}, "
-                f"min_batch_size=1, parallel_requests={concurrency}, model={teacher_model})",
+                f"min_batch_size=1, global_parallel_requests={concurrency}, "
+                f"model={teacher_model})",
                 flush=True,
             )
-            pending_ranges: deque[tuple[int, int]] = deque([(0, len(specs))])
-            active: dict[Any, dict[str, Any]] = {}
-            family_rows_done = 0
 
-            def make_job(batch_specs: list[dict[str, Any]], batch_number: int, offset: int) -> dict[str, Any]:
-                batch_start_index = round_start_index + offset
-                return {
-                    "family": family,
-                    "batch_number": batch_number,
-                    "batch_start_index": batch_start_index,
-                    "specs": batch_specs,
-                    "dataset_path": default_batch_output_dir(output_dir) / f"{family}.batch{batch_number:06d}.jsonl",
-                    "manifest_path": Path(manifest_dir) / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
-                }
+        def make_job(
+            *,
+            family: str,
+            batch_specs: list[dict[str, Any]],
+            batch_number: int,
+            offset: int,
+        ) -> dict[str, Any]:
+            state = family_states[family]
+            batch_start_index = state["round_start_index"] + offset
+            return {
+                "family": family,
+                "batch_number": batch_number,
+                "batch_start_index": batch_start_index,
+                "specs": batch_specs,
+                "dataset_path": default_batch_output_dir(output_dir)
+                / f"{family}.batch{batch_number:06d}.jsonl",
+                "manifest_path": Path(manifest_dir)
+                / f"{family}.batch{batch_number:06d}.{generation_run}.manifest.json",
+            }
 
-            def active_job_limit() -> int:
-                return min(concurrency, max(1, adaptive_initial_in_flight, batch_controller.current))
+        def family_active_job_limit(family: str) -> int:
+            controller = family_states[family]["batch_controller"]
+            return min(
+                concurrency,
+                max(1, adaptive_initial_in_flight, controller.current),
+            )
 
-            def submit_available(executor: ThreadPoolExecutor) -> None:
-                while pending_ranges and len(active) < active_job_limit():
-                    offset, remaining = pending_ranges.popleft()
-                    size = min(batch_controller.current, remaining)
-                    if remaining > size:
-                        pending_ranges.appendleft((offset + size, remaining - size))
-                    batch_number = next_batch_numbers[family]
-                    next_batch_numbers[family] += 1
-                    job = make_job(specs[offset : offset + size], batch_number, offset)
-                    active[executor.submit(run_job, job)] = job
+        active: dict[Any, dict[str, Any]] = {}
+        scheduling_order = deque(family_states)
 
-            with ThreadPoolExecutor(max_workers=concurrency) as executor:
-                submit_available(executor)
-                while active:
-                    done, _ = wait(set(active), return_when=FIRST_COMPLETED)
-                    for future in done:
-                        job = active.pop(future)
-                        try:
-                            result = future.result()
-                        except Exception as exc:
-                            batch_controller.record_failure()
-                            if isinstance(exc, SFTBatchAcceptanceError):
-                                rejected_llm_telemetry.append(exc.telemetry)
-                            print_batch_failure(
-                                workflow="SFT",
-                                group_key="family",
-                                group_value=family,
-                                batch_number=job["batch_number"],
-                                batch_start=job["batch_start_index"],
-                                batch_size=len(job["specs"]),
-                                adaptive_batch_size=batch_controller.snapshot(),
-                                error=exc,
-                            )
-                            if len(job["specs"]) <= batch_controller.minimum:
-                                if isinstance(exc, SFTBatchAcceptanceError):
-                                    rejected_rows_per_family[family] += 1
-                                    rejection_reason_counts[exc.failure_type] += 1
-                                    rejection_diagnostics.append(
-                                        {
-                                            "id": job["specs"][0]["id"],
-                                            "family": family,
-                                            "failure_type": exc.failure_type,
-                                            "reason": str(exc),
-                                        }
-                                    )
-                                    submit_available(executor)
-                                    continue
-                                raise
-                            offset = job["batch_start_index"] - round_start_index
-                            pending_ranges.appendleft((offset, len(job["specs"])))
-                            submit_available(executor)
-                            continue
-                        batch_controller.record_success()
-                        job["result"] = result
-                        job["adaptive_batch_size"] = batch_controller.snapshot()
-                        round_jobs.append(job)
-                        results.append(result)
-                        if result.semantic_rejected_count:
-                            rejected_rows_per_family[family] += result.semantic_rejected_count
-                            rejection_reason_counts["semantic_quality_rejected"] += result.semantic_rejected_count
-                        family_rows_done += result.row_count
-                        print_batch_progress(
+        def submit_available(executor: ThreadPoolExecutor) -> None:
+            if not scheduling_order:
+                return
+            stalled = 0
+            while len(active) < concurrency and scheduling_order:
+                family = scheduling_order[0]
+                scheduling_order.rotate(-1)
+                state = family_states[family]
+                pending_ranges = state["pending_ranges"]
+                if (
+                    not pending_ranges
+                    or state["active_count"] >= family_active_job_limit(family)
+                ):
+                    stalled += 1
+                    if stalled >= len(scheduling_order):
+                        break
+                    continue
+
+                stalled = 0
+                offset, remaining = pending_ranges.popleft()
+                controller = state["batch_controller"]
+                size = min(controller.current, remaining)
+                if remaining > size:
+                    pending_ranges.appendleft((offset + size, remaining - size))
+                batch_number = next_batch_numbers[family]
+                next_batch_numbers[family] += 1
+                job = make_job(
+                    family=family,
+                    batch_specs=state["specs"][offset : offset + size],
+                    batch_number=batch_number,
+                    offset=offset,
+                )
+                active[executor.submit(run_job, job)] = job
+                state["active_count"] += 1
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            submit_available(executor)
+            while active:
+                done, _ = wait(set(active), return_when=FIRST_COMPLETED)
+                for future in done:
+                    job = active.pop(future)
+                    family = job["family"]
+                    state = family_states[family]
+                    state["active_count"] -= 1
+                    controller = state["batch_controller"]
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        controller.record_failure()
+                        if isinstance(exc, SFTBatchAcceptanceError):
+                            rejected_llm_telemetry.append(exc.telemetry)
+                        print_batch_failure(
                             workflow="SFT",
                             group_key="family",
                             group_value=family,
                             batch_number=job["batch_number"],
                             batch_start=job["batch_start_index"],
                             batch_size=len(job["specs"]),
-                            rows_done=family_rows_done,
-                            rows_total=len(specs),
-                            manifest_path=result.manifest_path,
-                            adaptive_batch_size=job["adaptive_batch_size"],
+                            adaptive_batch_size=controller.snapshot(),
+                            error=exc,
                         )
-                        submit_available(executor)
+                        if len(job["specs"]) <= controller.minimum:
+                            if isinstance(exc, SFTBatchAcceptanceError):
+                                rejected_rows_per_family[family] += 1
+                                rejection_reason_counts_per_family[family][
+                                    exc.failure_type
+                                ] += 1
+                                rejection_diagnostics.append(
+                                    {
+                                        "id": job["specs"][0]["id"],
+                                        "family": family,
+                                        "failure_type": exc.failure_type,
+                                        "reason": str(exc),
+                                    }
+                                )
+                                continue
+                            raise
+                        offset = (
+                            job["batch_start_index"] - state["round_start_index"]
+                        )
+                        state["pending_ranges"].appendleft(
+                            (offset, len(job["specs"]))
+                        )
+                        continue
+
+                    controller.record_success()
+                    job["result"] = result
+                    job["adaptive_batch_size"] = controller.snapshot()
+                    round_jobs.append(job)
+                    results.append(result)
+                    if result.semantic_rejected_count:
+                        rejected_rows_per_family[family] += result.semantic_rejected_count
+                        rejection_reason_counts_per_family[family][
+                            "semantic_quality_rejected"
+                        ] += result.semantic_rejected_count
+                    state["rows_done"] += result.row_count
+                    print_batch_progress(
+                        workflow="SFT",
+                        group_key="family",
+                        group_value=family,
+                        batch_number=job["batch_number"],
+                        batch_start=job["batch_start_index"],
+                        batch_size=len(job["specs"]),
+                        rows_done=state["rows_done"],
+                        rows_total=len(state["specs"]),
+                        manifest_path=result.manifest_path,
+                        adaptive_batch_size=job["adaptive_batch_size"],
+                    )
+                submit_available(executor)
+
+        for family in resolved_families:
+            if family not in family_states:
+                continue
+            state = family_states[family]
+            controller = state["batch_controller"]
             print(
                 "[generate] Completed SFT family: "
-                f"{family} rendered_rows={family_rows_done}, candidate_rows={len(specs)}, "
-                f"batch_size={batch_size}, min_batch_size=1, parallel_requests={concurrency}, "
-                f"adaptive_batch_size_observed_minimum={batch_controller.observed_minimum}, "
-                f"adaptive_batch_size_observed_peak={batch_controller.observed_peak}, "
-                f"adaptive_batch_size_increases={batch_controller.increases}, "
-                f"adaptive_batch_size_decreases={batch_controller.decreases}, "
-                f"adaptive_batch_size_failures={batch_controller.failures}",
+                f"{family} rendered_rows={state['rows_done']}, "
+                f"candidate_rows={len(state['specs'])}, batch_size={batch_size}, "
+                f"min_batch_size=1, global_parallel_requests={concurrency}, "
+                f"adaptive_batch_size_observed_minimum={controller.observed_minimum}, "
+                f"adaptive_batch_size_observed_peak={controller.observed_peak}, "
+                f"adaptive_batch_size_increases={controller.increases}, "
+                f"adaptive_batch_size_decreases={controller.decreases}, "
+                f"adaptive_batch_size_failures={controller.failures}",
                 flush=True,
             )
-        round_jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
-        return round_jobs, rejected_rows_per_family, dict(rejection_reason_counts)
+
+        round_jobs.sort(
+            key=lambda item: (
+                item["family"],
+                item["batch_start_index"],
+                item["batch_number"],
+            )
+        )
+        return (
+            round_jobs,
+            rejected_rows_per_family,
+            {
+                family: dict(rejection_reason_counts_per_family[family])
+                for family in resolved_families
+            },
+        )
 
     def execute_round(request_counts: dict[str, int]) -> None:
         nonlocal datasets, output_acceptance, planning_rounds
         if not any(request_counts.values()):
             return
         planning_rounds += 1
-        # Commit one family-wave at a time. If the process stops, all public
-        # data and planner cursors up to the last completed family-wave are
-        # restartable without consuming or skipping uncommitted candidates.
+        round_jobs, round_rejected, round_rejection_reasons = run_generation(
+            request_counts
+        )
         for family in resolved_families:
             requested_rows = request_counts.get(family, 0)
             if requested_rows == 0:
                 continue
-            round_jobs, round_rejected, round_rejection_reasons = run_generation(
-                {family: requested_rows}
-            )
+            family_jobs = [
+                job for job in round_jobs if job["family"] == family
+            ]
             datasets, output_acceptance = _commit_family_wave(
-                jobs=round_jobs,
+                jobs=family_jobs,
                 output_dir=output_dir,
                 generation_run=generation_run,
                 family=family,
                 prior_datasets=datasets,
                 prior_acceptance=output_acceptance,
                 new_rejected_rows=round_rejected[family],
-                new_rejection_reason_counts=round_rejection_reasons,
+                new_rejection_reason_counts=round_rejection_reasons[family],
                 next_shard_numbers=next_shard_numbers,
                 seen_ids=seen_ids,
                 seen_prompts=seen_prompts,
