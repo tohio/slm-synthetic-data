@@ -24,8 +24,8 @@ def _public_evidence(row: Mapping[str, Any]) -> dict[str, Any]:
         "deterministic_validation": {
             "status": "passed",
             "instruction": (
-                "Repository-owned exact and structural checks already passed. "
-                "Do not recount, reinterpret, or override them."
+                "Repository-owned exact and structural checks passed before semantic review. "
+                "Treat that result as supporting evidence while still reviewing the candidate holistically."
             ),
         },
     }
@@ -34,12 +34,15 @@ def _public_evidence(row: Mapping[str, Any]) -> dict[str, Any]:
 def _judge_prompt(row: Mapping[str, Any]) -> str:
     payload = _public_evidence(row)
     return (
-        "Decide whether this candidate is unambiguous, answerable from its public conversation, correct, grounded, "
-        "complete, and compliant with requirements actually stated in that public conversation. Reject it if the public "
-        "task or evidence is ambiguous, insufficient, contradictory, or cannot be evaluated reliably. Do not treat hidden "
-        "repository metadata, variables, taxonomy labels, or planning fields as independent requirements. Repository-owned "
-        "exact and structural checks have already passed; do not recount or second-guess them. Never guess and never repair "
-        "the candidate.\n\n"
+        "Decide whether this candidate is suitable training data from the public conversation and candidate content. "
+        "Evaluate correctness, grounding, completeness, instruction adherence, and material ambiguity. Reject only when "
+        "there is a concrete, material defect supported by the supplied evidence. Do not reject merely because another "
+        "interpretation is possible, wording could be improved, an unstated detail could be more explicit, or you would "
+        "personally answer differently. Do not treat hidden repository metadata, variables, taxonomy labels, or planning "
+        "fields as independent requirements. Deterministic checks are supplied as supporting evidence; review the whole "
+        "candidate, but do not invent conflicting facts about those checks. Never guess and never repair the candidate. "
+        "When rejecting, identify the specific candidate content and public requirement or evidence that makes the defect "
+        "material.\n\n"
         "Return exactly three labeled lines:\nASSESSABLE: YES or NO\nDECISION: ACCEPT or REJECT\n"
         "REASON: one concise evidence-based reason\n\n"
         f"Candidate evidence:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
@@ -49,11 +52,14 @@ def _judge_prompt(row: Mapping[str, Any]) -> str:
 def _review_prompt(row: Mapping[str, Any], judge: Mapping[str, Any]) -> str:
     payload = {**_public_evidence(row), "judge": dict(judge)}
     return (
-        "Review only whether the judge's ACCEPT decision is justified by the public conversation and candidate. "
-        "Disagree if the judge missed ambiguity, missing evidence, an incorrect claim, or an unmet requirement actually "
-        "stated in the public conversation. Do not invent requirements from hidden repository metadata, variables, "
-        "taxonomy labels, or planning fields. Repository-owned exact and structural checks have already passed; do not "
-        "recount or second-guess them. Do not repair the candidate.\n\n"
+        "Review only whether the judge's ACCEPT decision is reasonably justified by the public conversation and "
+        "candidate. AGREE unless there is a clear, material defect the judge missed. Do not perform a fresh stricter "
+        "re-judgment, search for a novel defect merely to overturn the judge, or reject for stylistic preferences, harmless "
+        "ambiguity, or an alternative but reasonable interpretation. Do not invent requirements from hidden repository "
+        "metadata, variables, taxonomy labels, or planning fields. Deterministic checks are supporting evidence; review the "
+        "whole candidate without inventing conflicting facts about those checks. If you disagree, identify the specific "
+        "candidate content and public requirement or evidence that makes the judge's acceptance materially wrong. Do not "
+        "repair the candidate or include self-deliberation.\n\n"
         "Return exactly two labeled lines:\nAGREE: YES or NO\nREASON: one concise evidence-based reason\n\n"
         f"Review item:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -71,7 +77,7 @@ def adjudicate_sft_rows(
     reviewer_telemetry: list[dict[str, Any]] = []
     for spec, row in zip(validated_specs, rendered_rows, strict=True):
         judged, call_telemetry = call_plain_parsed(
-            backend, system_prompt="You are a conservative dataset quality judge. Use only supplied evidence.",
+            backend, system_prompt="You are an evidence-based dataset quality judge. Use only supplied evidence.",
             prompt=_judge_prompt(row),
             parser=parse_judge_decision,
         )
@@ -83,7 +89,7 @@ def adjudicate_sft_rows(
         }
         if judged.accepted:
             reviewed, review_telemetry = call_plain_parsed(
-                reviewer_backend, system_prompt="You independently audit dataset acceptance decisions.",
+                reviewer_backend, system_prompt="You independently audit whether dataset acceptance decisions are reasonably justified.",
                 prompt=_review_prompt(row, decision),
                 parser=parse_review_decision,
             )

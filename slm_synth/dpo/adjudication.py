@@ -28,8 +28,8 @@ def _public_evidence(spec: Mapping[str, Any], row: Mapping[str, Any]) -> dict[st
         "deterministic_validation": {
             "status": "passed",
             "instruction": (
-                "Repository-owned exact and structural checks already passed. "
-                "Do not recount, reinterpret, or override them."
+                "Repository-owned exact and structural checks passed before semantic review. "
+                "Treat that result as supporting evidence while still reviewing the pair holistically."
             ),
         },
     }
@@ -41,13 +41,15 @@ def _public_evidence(spec: Mapping[str, Any], row: Mapping[str, Any]) -> dict[st
 def _judge_prompt(spec: Mapping[str, Any], row: Mapping[str, Any]) -> str:
     payload = _public_evidence(spec, row)
     return (
-        "Decide whether this DPO pair is reliably assessable and suitable from the public pair evidence. The chosen branch "
-        "must be correct, grounded, complete, and clearly better on the supplied preference dimension. The rejected branch "
-        "must remain plausible while showing the intended controlled weakness, without unrelated corruption. Do not invent "
-        "requirements from hidden repository variables, taxonomy labels, or planning fields. Repository-owned exact and "
-        "structural checks already passed; do not recount or second-guess them. Reject ambiguity, insufficient evidence, "
-        "copied branches, arbitrary wrong numbers, multiple weaknesses, or any case you cannot determine. Never guess or "
-        "repair the pair.\n\nReturn exactly three labeled lines:\nASSESSABLE: YES or NO\n"
+        "Decide whether this DPO pair is suitable preference-training data from the public pair evidence. The chosen branch "
+        "must be correct, grounded, complete, and materially better on the supplied preference dimension. The rejected "
+        "branch must remain plausible while exhibiting the intended controlled weakness without unrelated corruption. "
+        "Reject only when there is a concrete, material defect supported by the supplied evidence. Do not reject merely "
+        "because another interpretation is possible, wording could be improved, or you would personally prefer a different "
+        "answer. Do not invent requirements from hidden repository variables, taxonomy labels, or planning fields. "
+        "Deterministic checks are supporting evidence; review the whole pair, but do not invent conflicting facts about "
+        "those checks. Never guess or repair the pair. When rejecting, identify the specific branch content and preference "
+        "requirement or evidence that makes the defect material.\n\nReturn exactly three labeled lines:\nASSESSABLE: YES or NO\n"
         "DECISION: ACCEPT or REJECT\nREASON: one concise evidence-based reason\n\n"
         f"Pair evidence:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -56,11 +58,14 @@ def _judge_prompt(spec: Mapping[str, Any], row: Mapping[str, Any]) -> str:
 def _review_prompt(spec: Mapping[str, Any], row: Mapping[str, Any], judge: Mapping[str, Any]) -> str:
     payload = {**_public_evidence(spec, row), "judge": dict(judge)}
     return (
-        "Review only whether the judge's ACCEPT decision is justified by the public pair evidence and supplied preference "
-        "dimension. Disagree if chosen quality, rejected plausibility, the intended weakness, preference separation, "
-        "grounding, or assessability was judged incorrectly. Do not invent requirements from hidden repository variables, "
-        "taxonomy labels, or planning fields. Repository-owned exact and structural checks already passed; do not recount "
-        "or second-guess them. Do not repair the pair.\n\nReturn exactly two labeled lines:\nAGREE: YES or NO\n"
+        "Review only whether the judge's ACCEPT decision is reasonably justified by the public pair evidence and supplied "
+        "preference dimension. AGREE unless there is a clear, material defect the judge missed. Do not perform a fresh "
+        "stricter re-judgment, search for a novel defect merely to overturn the judge, or reject for stylistic preferences, "
+        "harmless ambiguity, or an alternative but reasonable interpretation. Do not invent requirements from hidden "
+        "repository variables, taxonomy labels, or planning fields. Deterministic checks are supporting evidence; review the "
+        "whole pair without inventing conflicting facts about those checks. If you disagree, identify the specific branch "
+        "content and preference requirement or evidence that makes the judge's acceptance materially wrong. Do not repair "
+        "the pair or include self-deliberation.\n\nReturn exactly two labeled lines:\nAGREE: YES or NO\n"
         "REASON: one concise evidence-based reason\n\n"
         f"Review item:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -77,7 +82,7 @@ def adjudicate_dpo_rows(
     reviewer_telemetry: list[dict[str, Any]] = []
     for spec, row in zip(validated_specs, rendered_rows, strict=True):
         judged, call_telemetry = call_plain_parsed(
-            backend, system_prompt="You are a conservative preference-data quality judge. Use only supplied evidence.",
+            backend, system_prompt="You are an evidence-based preference-data quality judge. Use only supplied evidence.",
             prompt=_judge_prompt(spec, row),
             parser=parse_judge_decision,
         )
@@ -89,7 +94,7 @@ def adjudicate_dpo_rows(
         }
         if judged.accepted:
             reviewed, review_telemetry = call_plain_parsed(
-                reviewer_backend, system_prompt="You independently audit preference-data acceptance decisions.",
+                reviewer_backend, system_prompt="You independently audit whether preference-data acceptance decisions are reasonably justified.",
                 prompt=_review_prompt(spec, row, decision),
                 parser=parse_review_decision,
             )
