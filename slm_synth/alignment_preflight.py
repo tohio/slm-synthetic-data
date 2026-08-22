@@ -12,6 +12,7 @@ from typing import Any, Iterable, Mapping
 from slm_synth.dpo.source_catalog import DPO_SOURCE_CATALOG
 from slm_synth.dpo.spec_builders import build_complete_inventory as build_complete_dpo_inventory
 from slm_synth.dpo.specs import dpo_source_fingerprint, require_unique_dpo_sources
+from slm_synth.sft.planning import FINITE_SFT_SPEC_PLANNER
 from slm_synth.sft.source_catalog import SFT_SOURCE_CATALOG
 from slm_synth.sft.spec_builders import build_complete_inventory as build_complete_sft_inventory
 from slm_synth.sft.specs import require_unique_sft_sources, sft_source_fingerprint
@@ -29,7 +30,7 @@ def preflight_sft_inventory() -> dict[str, Any]:
     """Validate every SFT source, regardless of the requested generation slice."""
     _require_catalog_keys(SFT_SOURCE_CATALOG, TASK_FAMILIES, "SFT task family")
     _validate_declared_sources(SFT_SOURCE_CATALOG, kind="SFT")
-    specs = build_complete_sft_inventory()
+    specs = build_complete_sft_inventory(planner=FINITE_SFT_SPEC_PLANNER)
     require_unique_sft_sources(specs)
     _reject_near_duplicate_specs(specs, sft_source_fingerprint, kind="SFT")
     _require_sft_axis_coverage(specs)
@@ -126,7 +127,7 @@ def _require_sft_axis_coverage(specs: list[dict[str, Any]]) -> None:
 
 
 def _require_dpo_is_independent(dpo_specs: list[dict[str, Any]]) -> None:
-    sft_specs = build_complete_sft_inventory()
+    sft_specs = build_complete_sft_inventory(planner=FINITE_SFT_SPEC_PLANNER)
     sft_text = {_task_text(spec) for spec in sft_specs}
     for spec in dpo_specs:
         text = _task_text(spec)
