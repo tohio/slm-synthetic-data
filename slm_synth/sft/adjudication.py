@@ -8,27 +8,52 @@ from typing import Any
 
 from slm_synth.model_contract import PlainTextBackend, call_plain_parsed, parse_judge_decision, parse_review_decision
 from slm_synth.quality_telemetry import combine_telemetry
-from slm_synth.sft.specs import teacher_visible_sft_spec, validate_sft_spec
+from slm_synth.sft.specs import validate_sft_spec
 
 
-def _judge_prompt(spec: Mapping[str, Any], row: Mapping[str, Any]) -> str:
-    payload = {"brief": dict(spec), "candidate": dict(row)}
+def _public_evidence(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only evidence the semantic quality roles are allowed to judge.
+
+    The public conversation is authoritative for task requirements. Repository-owned
+    planning metadata, hidden variables, taxonomy labels, and exact output constraints
+    are deliberately excluded. Exact/structural constraints have already passed local
+    deterministic validation before semantic adjudication begins.
+    """
+    return {
+        "public_conversation": list(row.get("messages", [])),
+        "deterministic_validation": {
+            "status": "passed",
+            "instruction": (
+                "Repository-owned exact and structural checks already passed. "
+                "Do not recount, reinterpret, or override them."
+            ),
+        },
+    }
+
+
+def _judge_prompt(row: Mapping[str, Any]) -> str:
+    payload = _public_evidence(row)
     return (
         "Decide whether this candidate is unambiguous, answerable from its public conversation, correct, grounded, "
-        "complete, and compliant with every instruction and constraint. Reject it if the task or evidence is ambiguous, "
-        "insufficient, contradictory, or cannot be evaluated reliably. Never guess and never repair the candidate.\n\n"
+        "complete, and compliant with requirements actually stated in that public conversation. Reject it if the public "
+        "task or evidence is ambiguous, insufficient, contradictory, or cannot be evaluated reliably. Do not treat hidden "
+        "repository metadata, variables, taxonomy labels, or planning fields as independent requirements. Repository-owned "
+        "exact and structural checks have already passed; do not recount or second-guess them. Never guess and never repair "
+        "the candidate.\n\n"
         "Return exactly three labeled lines:\nASSESSABLE: YES or NO\nDECISION: ACCEPT or REJECT\n"
         "REASON: one concise evidence-based reason\n\n"
-        f"Candidate:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
+        f"Candidate evidence:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 
 
-def _review_prompt(spec: Mapping[str, Any], row: Mapping[str, Any], judge: Mapping[str, Any]) -> str:
-    payload = {"brief": dict(spec), "candidate": dict(row), "judge": dict(judge)}
+def _review_prompt(row: Mapping[str, Any], judge: Mapping[str, Any]) -> str:
+    payload = {**_public_evidence(row), "judge": dict(judge)}
     return (
-        "Review only whether the judge's ACCEPT decision is justified by the supplied brief and candidate. "
-        "Disagree if the judge missed ambiguity, missing evidence, an incorrect claim, or any unmet constraint. "
-        "Do not repair the candidate and do not introduce new requirements.\n\n"
+        "Review only whether the judge's ACCEPT decision is justified by the public conversation and candidate. "
+        "Disagree if the judge missed ambiguity, missing evidence, an incorrect claim, or an unmet requirement actually "
+        "stated in the public conversation. Do not invent requirements from hidden repository metadata, variables, "
+        "taxonomy labels, or planning fields. Repository-owned exact and structural checks have already passed; do not "
+        "recount or second-guess them. Do not repair the candidate.\n\n"
         "Return exactly two labeled lines:\nAGREE: YES or NO\nREASON: one concise evidence-based reason\n\n"
         f"Review item:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -45,10 +70,9 @@ def adjudicate_sft_rows(
     judge_telemetry: list[dict[str, Any]] = []
     reviewer_telemetry: list[dict[str, Any]] = []
     for spec, row in zip(validated_specs, rendered_rows, strict=True):
-        visible_spec = teacher_visible_sft_spec(spec)
         judged, call_telemetry = call_plain_parsed(
             backend, system_prompt="You are a conservative dataset quality judge. Use only supplied evidence.",
-            prompt=_judge_prompt(visible_spec, row),
+            prompt=_judge_prompt(row),
             parser=parse_judge_decision,
         )
         judge_telemetry.append(call_telemetry)
@@ -60,7 +84,7 @@ def adjudicate_sft_rows(
         if judged.accepted:
             reviewed, review_telemetry = call_plain_parsed(
                 reviewer_backend, system_prompt="You independently audit dataset acceptance decisions.",
-                prompt=_review_prompt(visible_spec, row, decision),
+                prompt=_review_prompt(row, decision),
                 parser=parse_review_decision,
             )
             reviewer_telemetry.append(review_telemetry)
