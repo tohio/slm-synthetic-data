@@ -91,8 +91,14 @@ def _build_spec(plan: SFTCandidatePlan) -> dict[str, Any]:
         )
     constraints.extend(source.get("quality_requirements", ()))
     variables: dict[str, Any]
+    instruction = source["instruction"]
     if plan.is_derived:
         profile = dict(plan.derivation_profile or {})
+        instruction = _materialize_derived_instruction(
+            family=family,
+            archetype_instruction=source["instruction"],
+            profile=profile,
+        )
         variables = {
             "archetype_seed": dict(source["variables"]),
             "derivation_profile": profile,
@@ -110,7 +116,7 @@ def _build_spec(plan: SFTCandidatePlan) -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "id": f"sft_{family}_{index:06d}",
-        "instruction": source["instruction"],
+        "instruction": instruction,
         "metadata": {"task_family": family, **dict(source["metadata"])},
         "variables": variables,
         "constraints": constraints,
@@ -127,3 +133,34 @@ def _build_spec(plan: SFTCandidatePlan) -> dict[str, Any]:
             source["public_prompt_requirements"]
         )
     return result
+
+
+def _materialize_derived_instruction(
+    *,
+    family: str,
+    archetype_instruction: str,
+    profile: dict[str, str],
+) -> str:
+    """Return a teacher-visible brief that is distinct from the seed task.
+
+    The archetype remains a capability anchor only. Derived candidates must
+    expose their variation profile in the top-level instruction so planning
+    capacity corresponds to distinct teacher-visible generation briefs rather
+    than new IDs attached to the same seed instruction.
+    """
+    family_label = family.replace("_", " ")
+    return (
+        f"Create a fresh, concrete {family_label} training task and produce the "
+        "assistant response for that new task. Do not answer or reproduce the "
+        "archetype task literally; use it only as a capability anchor. "
+        f"Capability anchor: {archetype_instruction} "
+        f"New task context: {profile['context_lens']}. "
+        f"Required variation: {profile['variation_lens']}. "
+        f"Evidence requirement: {profile['evidence_lens']}. "
+        "The public conversation must contain the complete newly instantiated "
+        "task, including every fact or source needed to answer it. Preserve the "
+        "archetype's capability, interaction mode, output mode, safety posture, "
+        "and applicable output constraints, while changing the concrete task "
+        "content substantially enough that it is not a renamed or number-swapped "
+        "version of the archetype."
+    )
