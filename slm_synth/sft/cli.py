@@ -42,10 +42,13 @@ def cmd_report_coverage(args: argparse.Namespace) -> int:
 
 
 def cmd_generate_llm_run(args: argparse.Namespace) -> int:
-    candidate_counts = _parse_named_counts(args.candidate_counts, name="family")
+    candidate_counts = _parse_named_counts(args.candidate_counts, name="family candidate")
+    accepted_targets = _parse_named_counts(args.accepted_targets, name="family accepted target")
     result = generate_llm_run(
         families=args.families,
         candidate_counts_by_family=candidate_counts,
+        accepted_targets_by_family=accepted_targets,
+        candidate_wave_size=args.candidate_wave_size,
         batch_size=args.batch_size,
         output_dir=args.output_dir,
         manifest_dir=args.manifest_dir,
@@ -97,12 +100,24 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["all", *sorted(SFT_SPEC_FAMILIES)],
         help="SFT spec families to generate, or 'all'.",
     )
-    generate_run_parser.add_argument(
+    planning_group = generate_run_parser.add_mutually_exclusive_group(required=True)
+    planning_group.add_argument(
         "--candidate-counts",
-        required=True,
         nargs="+",
         metavar="FAMILY=COUNT",
         help="Explicit candidate count for every requested family.",
+    )
+    planning_group.add_argument(
+        "--accepted-targets",
+        nargs="+",
+        metavar="FAMILY=COUNT",
+        help="Accepted-row target for every requested family.",
+    )
+    generate_run_parser.add_argument(
+        "--candidate-wave-size",
+        type=int,
+        default=1000,
+        help="Maximum fresh candidate specs to consume per family in each accepted-target wave.",
     )
     generate_run_parser.add_argument("--batch-size", required=True, type=int)
     generate_run_parser.add_argument("--output-dir", required=True)
@@ -156,15 +171,15 @@ def _parse_named_counts(values: list[str] | None, *, name: str) -> dict[str, int
         key, separator, raw_count = value.partition("=")
         key = key.strip().lower()
         if not separator or not key:
-            raise ValueError(f"invalid {name} candidate count '{value}'; expected {name}=COUNT")
+            raise ValueError(f"invalid {name} count '{value}'; expected FAMILY=COUNT")
         if key in counts:
-            raise ValueError(f"duplicate candidate count for {name} '{key}'")
+            raise ValueError(f"duplicate {name} count for family '{key}'")
         try:
             count = int(raw_count)
         except ValueError as exc:
-            raise ValueError(f"candidate count for {name} '{key}' must be an integer") from exc
+            raise ValueError(f"{name} count for family '{key}' must be an integer") from exc
         if count < 1:
-            raise ValueError(f"candidate count for {name} '{key}' must be positive")
+            raise ValueError(f"{name} count for family '{key}' must be positive")
         counts[key] = count
     return counts
 

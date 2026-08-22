@@ -119,6 +119,8 @@ SFT_INSPECT_RUN ?= $(SFT_REPORT_RUN)
 SFT_FAMILIES ?= all
 SFT_SMOKE_FAMILIES ?= grounded_qa_and_reading
 SFT_CANDIDATE_COUNTS ?=
+SFT_ACCEPTED_TARGETS ?=
+SFT_CANDIDATE_WAVE_SIZE ?= 1000
 SFT_SMOKE_CANDIDATE_COUNTS ?= grounded_qa_and_reading=2
 SFT_BATCH_SIZE ?= 16
 SFT_SMOKE_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
@@ -263,6 +265,8 @@ help:
 > @echo "  DISTILLATION_DPO_HF_NAMESPACE=$(DISTILLATION_DPO_HF_NAMESPACE)"
 > @echo "  DISTILLATION_DPO_HF_REPO=$(DISTILLATION_DPO_HF_REPO)"
 > @echo "  SFT_CANDIDATE_COUNTS=$(SFT_CANDIDATE_COUNTS)"
+> @echo "  SFT_ACCEPTED_TARGETS=$(SFT_ACCEPTED_TARGETS)"
+> @echo "  SFT_CANDIDATE_WAVE_SIZE=$(SFT_CANDIDATE_WAVE_SIZE)"
 > @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
 > @echo "  DPO_CANDIDATE_COUNTS=$(DPO_CANDIDATE_COUNTS)"
 > @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
@@ -488,10 +492,11 @@ sft-smoke:
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
-> @test -n "$(strip $(SFT_CANDIDATE_COUNTS))" || (echo "SFT_CANDIDATE_COUNTS is required (family=count ...)" >&2; exit 2)
+> @test -n "$(strip $(SFT_CANDIDATE_COUNTS))$(strip $(SFT_ACCEPTED_TARGETS))" || (echo "set exactly one of SFT_CANDIDATE_COUNTS or SFT_ACCEPTED_TARGETS" >&2; exit 2)
+> @test -z "$(strip $(SFT_CANDIDATE_COUNTS))" -o -z "$(strip $(SFT_ACCEPTED_TARGETS))" || (echo "SFT_CANDIDATE_COUNTS and SFT_ACCEPTED_TARGETS are mutually exclusive" >&2; exit 2)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_FAMILIES) \
->   --candidate-counts $(SFT_CANDIDATE_COUNTS) \
+>   $(if $(strip $(SFT_ACCEPTED_TARGETS)),--accepted-targets $(SFT_ACCEPTED_TARGETS) --candidate-wave-size $(SFT_CANDIDATE_WAVE_SIZE),--candidate-counts $(SFT_CANDIDATE_COUNTS)) \
 >   --batch-size $(SFT_BATCH_SIZE) \
 >   --output-dir $(SFT_RUN_ROOT)/$(SFT_GENERATION_RUN)/datasets \
 >   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_GENERATION_RUN)/manifests \
