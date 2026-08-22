@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -200,7 +201,7 @@ def generate_llm_batch(
         ) from exc
 
     try:
-        evaluate_sft_output_constraints(specs=validated_specs, rows=rows)
+        deterministic_validation = evaluate_sft_output_constraints(specs=validated_specs, rows=rows)
     except OutputConstraintError as exc:
         raise SFTBatchAcceptanceError(
             str(exc),
@@ -251,6 +252,13 @@ def generate_llm_batch(
             telemetry=combine_telemetry(telemetry, adjudication_telemetry),
         ) from exc
 
+    rejected_audit_path = _write_rejected_candidate_audit(
+        specs=validated_specs,
+        rows=rows,
+        decisions=decisions,
+        deterministic_validation=deterministic_validation,
+        manifest_path=manifest_path,
+    )
     accepted_ids = {item_id for item_id, decision in decisions.items() if decision["accepted"]}
     accepted_specs = [spec for spec in validated_specs if spec["id"] in accepted_ids]
     accepted_rows = [row for row in rows if row["id"] in accepted_ids]
@@ -263,6 +271,7 @@ def generate_llm_batch(
             metadata={
                 "generation_mode": "live_llm_batch", "spec_count": len(validated_specs),
                 "accepted_count": 0, "semantic_rejected_count": rejected_count,
+                "rejected_audit_path": str(rejected_audit_path) if rejected_audit_path else None,
                 "llm_telemetry": combined_telemetry,
                 "llm_stage_telemetry": {"renderer": telemetry, "quality_pipeline": adjudication_telemetry},
                 "adjudicator_model": adjudicator_model or teacher_model,
@@ -285,6 +294,7 @@ def generate_llm_batch(
                 "spec_count": len(validated_specs),
                 "accepted_count": len(accepted_specs),
                 "semantic_rejected_count": rejected_count,
+                "rejected_audit_path": str(rejected_audit_path) if rejected_audit_path else None,
                 "llm_telemetry": combined_telemetry,
                 "llm_stage_telemetry": {
                     "renderer": telemetry,
@@ -310,6 +320,65 @@ def generate_llm_batch(
             failure_type="materialization_validation_error",
             telemetry=combined_telemetry,
         ) from exc
+
+
+def _write_rejected_candidate_audit(
+    *,
+    specs: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    decisions: Mapping[str, Mapping[str, Any]],
+    deterministic_validation: Any,
+    manifest_path: str | Path,
+) -> Path | None:
+    """Persist rejected candidate evidence outside the publishable dataset."""
+    rejected_ids = [
+        item_id for item_id, decision in decisions.items() if not decision.get("accepted", False)
+    ]
+    if not rejected_ids:
+        return None
+
+    specs_by_id = {spec["id"]: spec for spec in specs}
+    rows_by_id = {row["id"]: row for row in rows}
+    validation_by_id: dict[str, Any] = {}
+    if isinstance(deterministic_validation, Mapping):
+        validation_by_id = dict(deterministic_validation)
+
+    manifest = Path(manifest_path)
+    run_dir = manifest.parent.parent
+    audit_dir = run_dir / "audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    stem = manifest.name
+    if stem.endswith(".manifest.json"):
+        stem = stem[: -len(".manifest.json")]
+    else:
+        stem = manifest.stem
+    audit_path = audit_dir / f"{stem}.rejected.jsonl"
+
+    with audit_path.open("w", encoding="utf-8") as handle:
+        for item_id in rejected_ids:
+            decision = dict(decisions[item_id])
+            record = {
+                "id": item_id,
+                "spec": specs_by_id.get(item_id),
+                "candidate": rows_by_id.get(item_id),
+                "deterministic_validation": validation_by_id.get(item_id, deterministic_validation),
+                "judge": {
+                    "assessable": decision.get("assessable"),
+                    "accepted": decision.get("judge_accepted"),
+                    "reason": decision.get("judge_reason"),
+                },
+                "reviewer": {
+                    "reviewed": decision.get("reviewed", False),
+                    "agreed": decision.get("reviewer_agreed"),
+                    "reason": decision.get("reviewer_reason"),
+                },
+                "final_rejection_stage": (
+                    "judge" if not decision.get("judge_accepted", False) else "reviewer"
+                ),
+            }
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+    return audit_path
 
 
 def materialize_llm_batch(
