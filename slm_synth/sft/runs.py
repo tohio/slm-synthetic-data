@@ -145,9 +145,15 @@ def generate_llm_run(
     _validate_openrouter_batch_size(batch_size)
     _validate_positive_int(start_index, "start_index")
     _validate_openrouter_concurrency(concurrency)
+    _validate_openrouter_concurrency(adaptive_maximum_in_flight)
+    if adaptive_maximum_in_flight > concurrency:
+        raise ValueError("adaptive_maximum_in_flight cannot exceed concurrency")
+    _validate_openrouter_concurrency(adaptive_initial_in_flight)
+    adaptive_initial_in_flight = min(
+        adaptive_initial_in_flight, adaptive_maximum_in_flight
+    )
     _validate_positive_int(adaptive_initial_batch_size, "adaptive_initial_batch_size")
     _validate_positive_int(adaptive_batch_increase_successes, "adaptive_batch_increase_successes")
-    adaptive_maximum_in_flight = concurrency
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     checkpoint_path = Path(manifest_dir) / f"{generation_run}.checkpoint.json"
@@ -166,6 +172,9 @@ def generate_llm_run(
         adjudicator_max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
         reviewer_max_tokens=reviewer_max_tokens or adjudicator_max_tokens or max_tokens,
         batch_size=batch_size,
+        concurrency=concurrency,
+        adaptive_maximum_in_flight=adaptive_maximum_in_flight,
+        adaptive_initial_in_flight=adaptive_initial_in_flight,
         adaptive_initial_batch_size=adaptive_initial_batch_size,
         adaptive_batch_increase_successes=adaptive_batch_increase_successes,
         temperature=temperature,
@@ -340,6 +349,17 @@ def generate_llm_run(
     )
     next_batch_numbers = dict(initial_state["next_batch_numbers"])
     next_source_indexes = dict(initial_state["next_source_indexes"])
+    checkpoint_batch_sizes = dict(
+        initial_state.get("adaptive_batch_size_per_family", {})
+    )
+    adaptive_batch_size_per_family = {
+        family: (
+            int(checkpoint_batch_sizes.get(family, 0))
+            if int(checkpoint_batch_sizes.get(family, 0)) > 0
+            else adaptive_initial_batch_size
+        )
+        for family in resolved_families
+    }
     accepted_token_estimates_per_family = dict(
         initial_state.get(
             "accepted_token_estimates_per_family",
@@ -426,6 +446,7 @@ def generate_llm_run(
             complete=complete,
             next_source_indexes=next_source_indexes,
             next_batch_numbers=next_batch_numbers,
+            adaptive_batch_size_per_family=adaptive_batch_size_per_family,
             datasets=datasets,
             acceptance=output_acceptance,
             requested_candidate_rows_per_family=requested_candidate_rows_per_family,
@@ -445,12 +466,22 @@ def generate_llm_run(
         list[dict[str, Any]],
         dict[str, int],
         dict[str, dict[str, int]],
+        dict[str, dict[str, int]],
+        dict[str, list[dict[str, Any]]],
+        dict[str, list[dict[str, Any]]],
     ]:
         round_jobs: list[dict[str, Any]] = []
         rejected_rows_per_family = {family: 0 for family in resolved_families}
         rejection_reason_counts_per_family = {
             family: Counter() for family in resolved_families
         }
+        rejected_telemetry_per_family = {
+            family: [] for family in resolved_families
+        }
+        diagnostics_per_family = {
+            family: [] for family in resolved_families
+        }
+        round_next_batch_numbers = dict(next_batch_numbers)
         family_states: dict[str, dict[str, Any]] = {}
 
         for family in resolved_families:
@@ -468,11 +499,10 @@ def generate_llm_run(
                 count=requested_rows,
                 start_index=round_start_index,
             )
-            next_source_indexes[family] += requested_rows
             batch_controller = AdaptiveBatchSizeController(
                 maximum=batch_size,
                 minimum=1,
-                initial=adaptive_initial_batch_size,
+                initial=min(batch_size, adaptive_batch_size_per_family[family]),
                 increase_successes=adaptive_batch_increase_successes,
             )
             batch_controllers.append(batch_controller)
@@ -516,6 +546,7 @@ def generate_llm_run(
             controller = family_states[family]["batch_controller"]
             return min(
                 concurrency,
+                adaptive_maximum_in_flight,
                 max(1, adaptive_initial_in_flight, controller.current),
             )
 
@@ -546,8 +577,8 @@ def generate_llm_run(
                 size = min(controller.current, remaining)
                 if remaining > size:
                     pending_ranges.appendleft((offset + size, remaining - size))
-                batch_number = next_batch_numbers[family]
-                next_batch_numbers[family] += 1
+                batch_number = round_next_batch_numbers[family]
+                round_next_batch_numbers[family] += 1
                 job = make_job(
                     family=family,
                     batch_specs=state["specs"][offset : offset + size],
@@ -572,7 +603,7 @@ def generate_llm_run(
                     except Exception as exc:
                         controller.record_failure()
                         if isinstance(exc, SFTBatchAcceptanceError):
-                            rejected_llm_telemetry.append(exc.telemetry)
+                            rejected_telemetry_per_family[family].append(exc.telemetry)
                         print_batch_failure(
                             workflow="SFT",
                             group_key="family",
@@ -589,7 +620,7 @@ def generate_llm_run(
                                 rejection_reason_counts_per_family[family][
                                     exc.failure_type
                                 ] += 1
-                                rejection_diagnostics.append(
+                                diagnostics_per_family[family].append(
                                     {
                                         "id": job["specs"][0]["id"],
                                         "family": family,
@@ -657,6 +688,14 @@ def generate_llm_run(
                 item["batch_number"],
             )
         )
+        committed_state = {
+            family: {
+                "next_source_index": state["round_start_index"] + len(state["specs"]),
+                "next_batch_number": round_next_batch_numbers[family],
+                "adaptive_batch_size": state["batch_controller"].current,
+            }
+            for family, state in family_states.items()
+        }
         return (
             round_jobs,
             rejected_rows_per_family,
@@ -664,6 +703,9 @@ def generate_llm_run(
                 family: dict(rejection_reason_counts_per_family[family])
                 for family in resolved_families
             },
+            committed_state,
+            rejected_telemetry_per_family,
+            diagnostics_per_family,
         )
 
     def execute_round(request_counts: dict[str, int]) -> None:
@@ -671,9 +713,14 @@ def generate_llm_run(
         if not any(request_counts.values()):
             return
         planning_rounds += 1
-        round_jobs, round_rejected, round_rejection_reasons = run_generation(
-            request_counts
-        )
+        (
+            round_jobs,
+            round_rejected,
+            round_rejection_reasons,
+            round_commit_state,
+            round_rejected_telemetry,
+            round_diagnostics,
+        ) = run_generation(request_counts)
         for family in resolved_families:
             requested_rows = request_counts.get(family, 0)
             if requested_rows == 0:
@@ -696,7 +743,13 @@ def generate_llm_run(
                 seen_conversations=seen_conversations,
                 accepted_token_estimates_per_family=accepted_token_estimates_per_family,
             )
+            family_commit = round_commit_state[family]
+            next_source_indexes[family] = family_commit["next_source_index"]
+            next_batch_numbers[family] = family_commit["next_batch_number"]
+            adaptive_batch_size_per_family[family] = family_commit["adaptive_batch_size"]
             requested_candidate_rows_per_family[family] += requested_rows
+            rejected_llm_telemetry.extend(round_rejected_telemetry[family])
+            rejection_diagnostics.extend(round_diagnostics[family])
             write_checkpoint(changed_families=(family,))
 
     if count_plan is not None:
@@ -751,6 +804,14 @@ def generate_llm_run(
     duplicate_rows = output_acceptance["duplicate_rows"]
     rejected_rows = max(attempted_rows - accepted_rows - duplicate_rows, 0)
     estimated_tokens_per_family = dict(accepted_token_estimates_per_family)
+    planner_capacity_diagnostics = _planner_capacity_diagnostics(
+        families=resolved_families,
+        start_index=start_index,
+        requested_candidate_rows_per_family=requested_candidate_rows_per_family,
+        accepted_rows_per_family=output_acceptance["accepted_rows_per_family"],
+        accepted_targets_per_family=accepted_targets,
+        next_source_indexes=next_source_indexes,
+    )
     empty_families = sorted(
         family
         for family in resolved_families
@@ -808,6 +869,8 @@ def generate_llm_run(
             "accepted_targets_per_family": dict(accepted_targets or {}),
             "candidate_wave_size": candidate_wave_size if accepted_targets is not None else None,
             "planning_rounds": planning_rounds,
+            "planner_capacity": planner_capacity_diagnostics,
+            "adaptive_batch_size_per_family": dict(adaptive_batch_size_per_family),
             "checkpoint_path": str(checkpoint_path),
             "resumed_from_checkpoint": resumed_from_checkpoint,
             "batch_size": batch_size,
@@ -1152,6 +1215,7 @@ def _empty_run_state(*, families: tuple[str, ...], start_index: int) -> dict[str
         },
         "next_source_indexes": {family: start_index for family in families},
         "next_batch_numbers": {family: 1 for family in families},
+        "adaptive_batch_size_per_family": {family: 0 for family in families},
         "next_shard_numbers": {family: 1 for family in families},
         "accepted_token_estimates_per_family": dict(empty_counts),
         "requested_candidate_rows_per_family": dict(empty_counts),
@@ -1177,6 +1241,9 @@ def _run_checkpoint_signature(
     adjudicator_max_tokens: int,
     reviewer_max_tokens: int,
     batch_size: int,
+    concurrency: int,
+    adaptive_maximum_in_flight: int,
+    adaptive_initial_in_flight: int,
     adaptive_initial_batch_size: int,
     adaptive_batch_increase_successes: int,
     temperature: float | None,
@@ -1203,6 +1270,9 @@ def _run_checkpoint_signature(
         "adjudicator_max_tokens": adjudicator_max_tokens,
         "reviewer_max_tokens": reviewer_max_tokens,
         "batch_size": batch_size,
+        "concurrency": concurrency,
+        "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
+        "adaptive_initial_in_flight": adaptive_initial_in_flight,
         "adaptive_initial_batch_size": adaptive_initial_batch_size,
         "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
         "temperature": temperature,
@@ -1238,6 +1308,7 @@ def _write_run_checkpoint(
     complete: bool,
     next_source_indexes: dict[str, int],
     next_batch_numbers: dict[str, int],
+    adaptive_batch_size_per_family: dict[str, int],
     datasets: list[dict[str, Any]],
     acceptance: dict[str, Any],
     requested_candidate_rows_per_family: dict[str, int],
@@ -1251,7 +1322,7 @@ def _write_run_checkpoint(
     accepted_token_estimates_per_family: dict[str, int],
 ) -> Path:
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "dataset_type": "sft",
         "generation_run": signature["generation_run"],
@@ -1260,6 +1331,7 @@ def _write_run_checkpoint(
         "state": {
             "next_source_indexes": dict(next_source_indexes),
             "next_batch_numbers": dict(next_batch_numbers),
+            "adaptive_batch_size_per_family": dict(adaptive_batch_size_per_family),
             "next_shard_numbers": dict(next_shard_numbers),
             "accepted_token_estimates_per_family": dict(
                 accepted_token_estimates_per_family
@@ -1303,7 +1375,7 @@ def _load_run_checkpoint(
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"unable to read SFT checkpoint {path}: {exc}") from exc
-    if payload.get("schema_version") != 2 or payload.get("dataset_type") != "sft":
+    if payload.get("schema_version") != 3 or payload.get("dataset_type") != "sft":
         raise RuntimeError(f"unsupported or invalid SFT checkpoint: {path}")
     actual_signature = payload.get("signature")
     if actual_signature != expected_signature:
@@ -1374,6 +1446,12 @@ def _load_run_checkpoint(
         "next_batch_numbers": dict(
             state.get("next_batch_numbers", empty_state["next_batch_numbers"])
         ),
+        "adaptive_batch_size_per_family": dict(
+            state.get(
+                "adaptive_batch_size_per_family",
+                empty_state["adaptive_batch_size_per_family"],
+            )
+        ),
         "next_shard_numbers": dict(
             state.get("next_shard_numbers", empty_state["next_shard_numbers"])
         ),
@@ -1401,6 +1479,54 @@ def _load_run_checkpoint(
         ),
         "accepted_content_fingerprints_per_family": dict(expected_fingerprints),
     }
+
+
+def _planner_capacity_diagnostics(
+    *,
+    families: tuple[str, ...],
+    start_index: int,
+    requested_candidate_rows_per_family: dict[str, int],
+    accepted_rows_per_family: dict[str, int],
+    accepted_targets_per_family: dict[str, int] | None,
+    next_source_indexes: dict[str, int],
+) -> dict[str, dict[str, Any]]:
+    """Report exact headroom plus an explicitly labeled observed-yield projection."""
+    result: dict[str, dict[str, Any]] = {}
+    for family in families:
+        capacity = DEFAULT_SFT_SPEC_PLANNER.capacity(family)
+        total_available = max(capacity - start_index + 1, 0)
+        remaining_capacity = max(capacity - next_source_indexes[family] + 1, 0)
+        consumed = int(requested_candidate_rows_per_family.get(family, 0))
+        accepted = int(accepted_rows_per_family.get(family, 0))
+        target = (
+            int(accepted_targets_per_family[family])
+            if accepted_targets_per_family is not None
+            else None
+        )
+        observed_yield = accepted / consumed if consumed else None
+        projected_candidates = (
+            (target * consumed + accepted - 1) // accepted
+            if target is not None and accepted > 0
+            else None
+        )
+        result[family] = {
+            "planner_capacity": capacity,
+            "available_from_start_index": total_available,
+            "candidate_opportunities_consumed": consumed,
+            "remaining_candidate_capacity": remaining_capacity,
+            "accepted_rows": accepted,
+            "accepted_target": target,
+            "observed_acceptance_yield": (
+                round(observed_yield, 6) if observed_yield is not None else None
+            ),
+            "projected_candidates_for_target_at_observed_yield": projected_candidates,
+            "projection_exceeds_available_capacity": (
+                projected_candidates > total_available
+                if projected_candidates is not None
+                else None
+            ),
+        }
+    return result
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:

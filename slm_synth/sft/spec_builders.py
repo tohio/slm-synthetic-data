@@ -108,10 +108,14 @@ def _build_spec(plan: SFTCandidatePlan) -> dict[str, Any]:
     instruction = source["instruction"]
     if plan.is_derived:
         profile = dict(plan.derivation_profile or {})
+        derived_output_constraints = _derived_structural_output_constraints(
+            source.get("output_constraints")
+        )
         instruction = _materialize_derived_instruction(
             family=family,
             archetype_instruction=source["instruction"],
             profile=profile,
+            output_constraints=derived_output_constraints,
         )
         # Derived candidates must not carry seed facts as hidden obligations.
         # The capability anchor remains visible in the instruction, while the
@@ -144,9 +148,6 @@ def _build_spec(plan: SFTCandidatePlan) -> dict[str, Any]:
     if not plan.is_derived and "holdout_key" in source:
         result["holdout_key"] = dict(source["holdout_key"])
     if plan.is_derived:
-        derived_output_constraints = _derived_structural_output_constraints(
-            source.get("output_constraints")
-        )
         if derived_output_constraints:
             result["output_constraints"] = derived_output_constraints
     else:
@@ -176,6 +177,7 @@ def _materialize_derived_instruction(
     family: str,
     archetype_instruction: str,
     profile: dict[str, str],
+    output_constraints: dict[str, Any],
 ) -> str:
     """Return a teacher-visible brief that is distinct from the seed task.
 
@@ -185,6 +187,13 @@ def _materialize_derived_instruction(
     than new IDs attached to the same seed instruction.
     """
     family_label = family.replace("_", " ")
+    public_constraint_text = _public_output_constraint_text(output_constraints)
+    constraint_sentence = (
+        f" The newly instantiated user task must explicitly state these response "
+        f"requirements: {public_constraint_text}."
+        if public_constraint_text
+        else ""
+    )
     return (
         f"Create a fresh, concrete {family_label} training task and produce the "
         "assistant response for that new task. Do not answer or reproduce the "
@@ -199,4 +208,46 @@ def _materialize_derived_instruction(
         "and applicable output constraints, while changing the concrete task "
         "content substantially enough that it is not a renamed or number-swapped "
         "version of the archetype."
+        f"{constraint_sentence}"
     )
+
+
+def _public_output_constraint_text(constraints: dict[str, Any]) -> str:
+    """Render inherited structural constraints as public user-task requirements."""
+    parts: list[str] = []
+    if "min_words" in constraints and "max_words" in constraints:
+        parts.append(
+            f"the final assistant response must be {constraints['min_words']}–"
+            f"{constraints['max_words']} words"
+        )
+    else:
+        if "min_words" in constraints:
+            parts.append(
+                f"the final assistant response must contain at least "
+                f"{constraints['min_words']} words"
+            )
+        if "max_words" in constraints:
+            parts.append(
+                f"the final assistant response must contain at most "
+                f"{constraints['max_words']} words"
+            )
+    if "exact_list_items" in constraints:
+        parts.append(
+            f"the final assistant response must contain exactly "
+            f"{constraints['exact_list_items']} list items"
+        )
+    if "exact_nonempty_lines" in constraints:
+        parts.append(
+            f"the final assistant response must contain exactly "
+            f"{constraints['exact_nonempty_lines']} non-empty lines"
+        )
+    if "required_headings" in constraints:
+        headings = ", ".join(repr(item) for item in constraints["required_headings"])
+        parts.append(f"the final assistant response must use the headings {headings}")
+    if "exact_json_keys" in constraints:
+        keys = ", ".join(repr(item) for item in constraints["exact_json_keys"])
+        parts.append(f"the final JSON object must contain exactly the keys {keys}")
+    if "forbidden_terms" in constraints:
+        terms = ", ".join(repr(item) for item in constraints["forbidden_terms"])
+        parts.append(f"the final assistant response must not contain {terms}")
+    return "; ".join(parts)

@@ -41,38 +41,70 @@ def build_publication_quality_summary(rows: Iterable[Mapping[str, Any]]) -> dict
 def _near_duplicate_summary(
     rows: list[dict[str, Any]], fingerprint: Callable[[Mapping[str, Any]], str]
 ) -> dict[str, Any]:
+    """Return exact Jaccard near duplicates using prefix-index candidate blocking.
+
+    Exhaustive pairwise comparison is quadratic and becomes unusable at 100k
+    rows. For Jaccard threshold ``t``, the standard prefix filter guarantees
+    that any pair with similarity >= ``t`` shares at least one token in the
+    first ``|S| - ceil(t * |S|) + 1`` tokens when every set uses the same
+    global token ordering. We order rarer tokens first, build an inverted
+    index over those prefixes, then run the original exact Jaccard check only
+    on the resulting candidate pairs.
+    """
+    import math
+
     values = [(row["id"], fingerprint(row)) for row in rows]
     tokens = [frozenset(_TOKEN_RE.findall(value)) for _, value in values]
+    token_frequency = Counter(token for token_set in tokens for token in token_set)
+    ordered_tokens = [
+        tuple(sorted(token_set, key=lambda token: (token_frequency[token], token)))
+        for token_set in tokens
+    ]
+
+    inverted: dict[str, list[int]] = defaultdict(list)
+    candidate_pairs: set[tuple[int, int]] = set()
+    for right_index, right_tokens in enumerate(tokens):
+        right_size = len(right_tokens)
+        if right_size == 0:
+            continue
+        prefix_length = right_size - math.ceil(NEAR_DUPLICATE_THRESHOLD * right_size) + 1
+        for token in ordered_tokens[right_index][:prefix_length]:
+            for left_index in inverted[token]:
+                left_size = len(tokens[left_index])
+                largest = max(left_size, right_size)
+                if largest and min(left_size, right_size) / largest < NEAR_DUPLICATE_THRESHOLD:
+                    continue
+                candidate_pairs.add((left_index, right_index))
+            inverted[token].append(right_index)
+
     pairs: list[dict[str, Any]] = []
     involved: set[str] = set()
     pair_count = 0
-    for left_index, (left_id, left_value) in enumerate(values):
+    for left_index, right_index in sorted(candidate_pairs):
+        left_id, left_value = values[left_index]
+        right_id, right_value = values[right_index]
+        if left_value == right_value:
+            continue
         left_tokens = tokens[left_index]
-        for right_index in range(left_index + 1, len(values)):
-            right_id, right_value = values[right_index]
-            if left_value == right_value:
-                continue
-            right_tokens = tokens[right_index]
-            largest = max(len(left_tokens), len(right_tokens))
-            if largest and min(len(left_tokens), len(right_tokens)) / largest < NEAR_DUPLICATE_THRESHOLD:
-                continue
-            union = left_tokens | right_tokens
-            similarity = len(left_tokens & right_tokens) / len(union) if union else 1.0
-            if similarity < NEAR_DUPLICATE_THRESHOLD:
-                continue
-            pair_count += 1
-            involved.update((left_id, right_id))
-            if len(pairs) < MAX_REPORTED_PAIRS:
-                pairs.append(
-                    {
-                        "left_id": left_id,
-                        "right_id": right_id,
-                        "similarity": round(similarity, 6),
-                    }
-                )
+        right_tokens = tokens[right_index]
+        union = left_tokens | right_tokens
+        similarity = len(left_tokens & right_tokens) / len(union) if union else 1.0
+        if similarity < NEAR_DUPLICATE_THRESHOLD:
+            continue
+        pair_count += 1
+        involved.update((left_id, right_id))
+        if len(pairs) < MAX_REPORTED_PAIRS:
+            pairs.append(
+                {
+                    "left_id": left_id,
+                    "right_id": right_id,
+                    "similarity": round(similarity, 6),
+                }
+            )
     return {
         "pair_count": pair_count,
         "row_count": len(involved),
+        "candidate_pair_count": len(candidate_pairs),
         "pairs": pairs,
     }
 

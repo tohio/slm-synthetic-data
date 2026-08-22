@@ -67,7 +67,11 @@ def cmd_generate_llm_run(args: argparse.Namespace) -> int:
         max_request_retries=args.max_request_retries,
         max_retryable_request_attempts=args.max_retryable_request_attempts,
         retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=args.concurrency,
+        adaptive_maximum_in_flight=(
+            args.concurrency
+            if args.adaptive_maximum_in_flight is None
+            else args.adaptive_maximum_in_flight
+        ),
         adaptive_initial_in_flight=args.adaptive_initial_in_flight,
         adaptive_initial_batch_size=args.adaptive_initial_batch_size,
         adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
@@ -137,7 +141,15 @@ def build_parser() -> argparse.ArgumentParser:
     generate_run_parser.add_argument("--max-request-retries", type=int, default=3)
     generate_run_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
     generate_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
-    generate_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
+    generate_run_parser.add_argument(
+        "--adaptive-maximum-in-flight",
+        type=int,
+        default=None,
+        help=(
+            "Backend adaptive in-flight ceiling. Defaults to --concurrency; "
+            "may be set lower but not higher than the global concurrency ceiling."
+        ),
+    )
     generate_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
     generate_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE)
     generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES)
