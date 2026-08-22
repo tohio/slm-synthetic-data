@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter, deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -17,14 +18,17 @@ from slm_synth.adaptive_batch import (
 )
 from slm_synth.alignment_tokens import estimate_sft_tokens
 from slm_synth.planning import CountPlan
-from slm_synth.sft.acceptance import partition_unique_sft_rows
+from slm_synth.sft.acceptance import (
+    sft_conversation_fingerprint,
+    sft_prompt_fingerprint,
+)
 from slm_synth.sft.generation import (
     SFTBatchAcceptanceError,
     StructuredTeacherBackend,
     build_openrouter_backend,
     generate_llm_batch,
 )
-from slm_synth.sft.io import read_jsonl, write_jsonl
+from slm_synth.sft.io import read_jsonl
 from slm_synth.sft.manifest import write_manifest, write_run_manifest
 from slm_synth.sft.planning import DEFAULT_SFT_SPEC_PLANNER
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs, validate_spec_range
@@ -331,7 +335,22 @@ def generate_llm_run(
     )
     next_batch_numbers = dict(initial_state["next_batch_numbers"])
     next_source_indexes = dict(initial_state["next_source_indexes"])
-    accepted_rows_by_family = dict(initial_state["accepted_rows_by_family"])
+    accepted_token_estimates_per_family = dict(
+        initial_state.get(
+            "accepted_token_estimates_per_family",
+            {family: 0 for family in resolved_families},
+        )
+    )
+    next_shard_numbers = dict(
+        initial_state.get(
+            "next_shard_numbers",
+            {family: 1 for family in resolved_families},
+        )
+    )
+    seen_ids, seen_prompts, seen_conversations = _load_seen_acceptance_keys(
+        datasets=initial_state["datasets"],
+        families=resolved_families,
+    )
     datasets = list(initial_state["datasets"])
     output_acceptance = dict(initial_state["acceptance"])
     planning_rounds = int(initial_state.get("planning_rounds", 0))
@@ -353,10 +372,7 @@ def generate_llm_run(
     accepted_content_fingerprints = dict(
         initial_state.get(
             "accepted_content_fingerprints_per_family",
-            {
-                family: _rows_fingerprint(accepted_rows_by_family.get(family, []))
-                for family in resolved_families
-            },
+            {family: _empty_rows_fingerprint() for family in resolved_families},
         )
     )
 
@@ -367,8 +383,8 @@ def generate_llm_run(
     ) -> None:
         nonlocal checkpoint_llm_telemetry, checkpointed_rejected_telemetry_count
         for family in changed_families:
-            accepted_content_fingerprints[family] = _rows_fingerprint(
-                accepted_rows_by_family.get(family, [])
+            accepted_content_fingerprints[family] = _rows_fingerprint_from_dataset(
+                _dataset_for_family(datasets, family)
             )
         current_batch_manifests = [
             str(Path(path))
@@ -414,6 +430,8 @@ def generate_llm_run(
             llm_telemetry=checkpoint_llm_telemetry,
             checkpointed_rejected_telemetry_count=checkpointed_rejected_telemetry_count,
             accepted_content_fingerprints_per_family=accepted_content_fingerprints,
+            next_shard_numbers=next_shard_numbers,
+            accepted_token_estimates_per_family=accepted_token_estimates_per_family,
         )
 
     def run_generation(request_counts: dict[str, int]) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
@@ -548,7 +566,7 @@ def generate_llm_run(
         return round_jobs, rejected_rows_per_family, dict(rejection_reason_counts)
 
     def execute_round(request_counts: dict[str, int]) -> None:
-        nonlocal datasets, output_acceptance, accepted_rows_by_family, planning_rounds
+        nonlocal datasets, output_acceptance, planning_rounds
         if not any(request_counts.values()):
             return
         planning_rounds += 1
@@ -562,15 +580,20 @@ def generate_llm_run(
             round_jobs, round_rejected, round_rejection_reasons = run_generation(
                 {family: requested_rows}
             )
-            datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
+            datasets, output_acceptance = _commit_family_wave(
                 jobs=round_jobs,
                 output_dir=output_dir,
-                families=resolved_families,
-                accepted_rows_by_family=accepted_rows_by_family,
+                generation_run=generation_run,
+                family=family,
                 prior_datasets=datasets,
                 prior_acceptance=output_acceptance,
-                new_rejected_rows_per_family=round_rejected,
+                new_rejected_rows=round_rejected[family],
                 new_rejection_reason_counts=round_rejection_reasons,
+                next_shard_numbers=next_shard_numbers,
+                seen_ids=seen_ids,
+                seen_prompts=seen_prompts,
+                seen_conversations=seen_conversations,
+                accepted_token_estimates_per_family=accepted_token_estimates_per_family,
             )
             requested_candidate_rows_per_family[family] += requested_rows
             write_checkpoint(changed_families=(family,))
@@ -626,12 +649,11 @@ def generate_llm_run(
     attempted_rows = output_acceptance["attempted_rows"]
     duplicate_rows = output_acceptance["duplicate_rows"]
     rejected_rows = max(attempted_rows - accepted_rows - duplicate_rows, 0)
-    estimated_tokens_per_family = {
-        family: sum(estimate_sft_tokens(row) for row in accepted_rows_by_family[family])
-        for family in resolved_families
-    }
+    estimated_tokens_per_family = dict(accepted_token_estimates_per_family)
     empty_families = sorted(
-        family for family in resolved_families if not accepted_rows_by_family[family]
+        family
+        for family in resolved_families
+        if output_acceptance["accepted_rows_per_family"].get(family, 0) == 0
     )
     all_batch_manifests = [
         Path(path)
@@ -639,6 +661,11 @@ def generate_llm_run(
         for path in dataset.get("batch_manifests", [])
     ]
     judge_rejection_policy = summarize_judge_rejections(all_batch_manifests)
+    datasets = _finalize_public_family_files(
+        datasets=datasets,
+        output_dir=output_dir,
+        families=resolved_families,
+    )
 
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
@@ -670,7 +697,7 @@ def generate_llm_run(
             "duplicate_rows_per_family": output_acceptance["duplicate_rows_per_family"],
             "next_start_index_per_family": next_source_indexes,
             "accepted_content_fingerprints_per_family": {
-                family: _rows_fingerprint(accepted_rows_by_family[family])
+                family: _rows_fingerprint_from_dataset(_dataset_for_family(datasets, family))
                 for family in resolved_families
             },
             "generation_status": "complete",
@@ -767,84 +794,115 @@ def _write_llm_run_manifest(
     return path
 
 
-def _write_public_family_files(
+def _accepted_shard_root(output_dir: str | Path, generation_run: str) -> Path:
+    public_dir = Path(output_dir)
+    return public_dir.parent / "accepted_shards" / generation_run
+
+
+def _commit_family_wave(
     *,
     jobs: list[dict[str, Any]],
     output_dir: str | Path,
-    families: tuple[str, ...],
-    accepted_rows_by_family: dict[str, list[dict[str, Any]]],
+    generation_run: str,
+    family: str,
     prior_datasets: list[dict[str, Any]],
     prior_acceptance: dict[str, Any],
-    new_rejected_rows_per_family: dict[str, int],
+    new_rejected_rows: int,
     new_rejection_reason_counts: dict[str, int],
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, list[dict[str, Any]]]]:
-    candidate_rows = [
-        row
-        for family in families
-        for row in accepted_rows_by_family.get(family, [])
-    ]
-    new_candidate_rows_per_family = {family: 0 for family in families}
-    for family in families:
-        for job in [item for item in jobs if item["family"] == family]:
-            rows = read_jsonl(job["result"].dataset_path)
-            candidate_rows.extend(rows)
-            new_candidate_rows_per_family[family] += len(rows)
-    new_attempted_rows_per_family = {
-        family: new_candidate_rows_per_family[family] + new_rejected_rows_per_family[family]
-        for family in families
-    }
+    next_shard_numbers: dict[str, int],
+    seen_ids: set[str],
+    seen_prompts: set[str],
+    seen_conversations: set[str],
+    accepted_token_estimates_per_family: dict[str, int],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Commit one family-wave to an append-only accepted shard."""
+    candidate_rows: list[dict[str, Any]] = []
+    for job in jobs:
+        candidate_rows.extend(read_jsonl(job["result"].dataset_path))
 
-    accepted_rows, round_acceptance = partition_unique_sft_rows(candidate_rows)
-    current_rows_by_family = {
-        family: [row for row in accepted_rows if row["metadata"]["task_family"] == family]
-        for family in families
-    }
+    accepted_rows: list[dict[str, Any]] = []
+    pending_ids: set[str] = set()
+    pending_prompts: set[str] = set()
+    pending_conversations: set[str] = set()
+    duplicate_reason_counts: Counter[str] = Counter()
+    for row in candidate_rows:
+        prompt = sft_prompt_fingerprint(row)
+        conversation = sft_conversation_fingerprint(row)
+        reasons: list[str] = []
+        if row["id"] in seen_ids or row["id"] in pending_ids:
+            reasons.append("duplicate_id")
+        if prompt in seen_prompts or prompt in pending_prompts:
+            reasons.append("duplicate_prompt")
+        if conversation in seen_conversations or conversation in pending_conversations:
+            reasons.append("duplicate_conversation")
+        if reasons:
+            duplicate_reason_counts.update(reasons)
+            continue
+        accepted_rows.append(row)
+        pending_ids.add(row["id"])
+        pending_prompts.add(prompt)
+        pending_conversations.add(conversation)
+
     prior_datasets_by_family = {dataset["family"]: dataset for dataset in prior_datasets}
-    datasets: list[dict[str, Any]] = []
-    for family in families:
-        family_jobs = [job for job in jobs if job["family"] == family]
-        prior_dataset = prior_datasets_by_family.get(family, {})
-        batch_manifests = [Path(path) for path in prior_dataset.get("batch_manifests", [])]
-        batch_manifests.extend(job["result"].manifest_path for job in family_jobs)
-        rows = current_rows_by_family[family]
-        dataset_path = Path(output_dir) / f"{family}.jsonl"
-        row_count = write_jsonl(rows, dataset_path)
-        datasets.append(
+    prior_dataset = dict(prior_datasets_by_family.get(family, {}))
+    accepted_shards = list(prior_dataset.get("accepted_shards", []))
+    if accepted_rows:
+        shard_number = next_shard_numbers[family]
+        shard_path = (
+            _accepted_shard_root(output_dir, generation_run)
+            / family
+            / f"part-{shard_number:06d}.jsonl"
+        )
+        shard_row_count, shard_sha256 = _write_jsonl_atomic(accepted_rows, shard_path)
+        accepted_shards.append(
             {
-                "family": family,
-                "dataset_path": dataset_path,
-                "row_count": row_count,
-                "batch_count": len(batch_manifests),
-                "batch_manifests": batch_manifests,
+                "path": str(shard_path),
+                "row_count": shard_row_count,
+                "sha256": shard_sha256,
             }
         )
+        next_shard_numbers[family] += 1
+        seen_ids.update(pending_ids)
+        seen_prompts.update(pending_prompts)
+        seen_conversations.update(pending_conversations)
+        accepted_token_estimates_per_family[family] += sum(
+            estimate_sft_tokens(row) for row in accepted_rows
+        )
+
+    batch_manifests = [Path(path) for path in prior_dataset.get("batch_manifests", [])]
+    batch_manifests.extend(job["result"].manifest_path for job in jobs)
+    row_count = int(prior_dataset.get("row_count", 0)) + len(accepted_rows)
+    updated_dataset = {
+        "family": family,
+        "dataset_path": Path(output_dir) / f"{family}.jsonl",
+        "row_count": row_count,
+        "batch_count": len(batch_manifests),
+        "batch_manifests": batch_manifests,
+        "accepted_shards": accepted_shards,
+    }
+    datasets = [
+        dict(dataset)
+        for dataset in prior_datasets
+        if dataset["family"] != family
+    ]
+    datasets.append(updated_dataset)
+    datasets.sort(key=lambda item: item["family"])
 
     prior_attempted = prior_acceptance.get("attempted_rows_per_family", {})
     prior_duplicates = prior_acceptance.get("duplicate_rows_per_family", {})
     prior_rejected = prior_acceptance.get("rejected_rows_per_family", {})
-    attempted_rows_per_family = {
-        family: prior_attempted.get(family, 0) + new_attempted_rows_per_family[family]
-        for family in families
-    }
-    accepted_rows_per_family = {family: len(current_rows_by_family[family]) for family in families}
-    new_duplicate_rows_per_family = {
-        family: (
-            len(accepted_rows_by_family.get(family, []))
-            + new_candidate_rows_per_family[family]
-            - accepted_rows_per_family[family]
-        )
-        for family in families
-    }
-    duplicate_rows_per_family = {
-        family: prior_duplicates.get(family, 0) + new_duplicate_rows_per_family[family]
-        for family in families
-    }
-    rejected_rows_per_family = {
-        family: prior_rejected.get(family, 0) + new_rejected_rows_per_family[family]
-        for family in families
-    }
+    prior_accepted = prior_acceptance.get("accepted_rows_per_family", {})
+    attempted_rows_per_family = dict(prior_attempted)
+    duplicate_rows_per_family = dict(prior_duplicates)
+    rejected_rows_per_family = dict(prior_rejected)
+    accepted_rows_per_family = dict(prior_accepted)
+    attempted_rows_per_family[family] = prior_attempted.get(family, 0) + len(candidate_rows) + new_rejected_rows
+    duplicate_rows_per_family[family] = prior_duplicates.get(family, 0) + (len(candidate_rows) - len(accepted_rows))
+    rejected_rows_per_family[family] = prior_rejected.get(family, 0) + new_rejected_rows
+    accepted_rows_per_family[family] = row_count
+
     reason_counts = Counter(prior_acceptance.get("duplicate_reason_counts", {}))
-    reason_counts.update(round_acceptance["duplicate_reason_counts"])
+    reason_counts.update(duplicate_reason_counts)
     rejection_reasons = Counter(prior_acceptance.get("rejection_reason_counts", {}))
     rejection_reasons.update(new_rejection_reason_counts)
     acceptance = {
@@ -852,27 +910,133 @@ def _write_public_family_files(
         "accepted_rows": sum(accepted_rows_per_family.values()),
         "duplicate_rows": sum(duplicate_rows_per_family.values()),
         "duplicate_reason_counts": {
-            reason: reason_counts[reason]
-            for reason in sorted(reason_counts)
+            reason: reason_counts[reason] for reason in sorted(reason_counts)
         },
         "rejection_reason_counts": {
-            reason: rejection_reasons[reason]
-            for reason in sorted(rejection_reasons)
+            reason: rejection_reasons[reason] for reason in sorted(rejection_reasons)
         },
         "attempted_rows_per_family": attempted_rows_per_family,
         "accepted_rows_per_family": accepted_rows_per_family,
         "duplicate_rows_per_family": duplicate_rows_per_family,
         "rejected_rows_per_family": rejected_rows_per_family,
     }
-    return datasets, acceptance, current_rows_by_family
+    return datasets, acceptance
 
+
+def _write_jsonl_atomic(rows: list[dict[str, Any]], path: Path) -> tuple[int, str]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    hasher = sha256()
+    with temporary_path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            line = json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+            handle.write(line)
+            hasher.update(line.encode("utf-8"))
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary_path.replace(path)
+    return len(rows), hasher.hexdigest()
+
+
+def _finalize_public_family_files(
+    *,
+    datasets: list[dict[str, Any]],
+    output_dir: str | Path,
+    families: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    """Atomically consolidate accepted shards into the stable public family files."""
+    datasets_by_family = {dataset["family"]: dict(dataset) for dataset in datasets}
+    finalized: list[dict[str, Any]] = []
+    for family in families:
+        dataset = datasets_by_family.get(
+            family,
+            {
+                "family": family,
+                "row_count": 0,
+                "batch_count": 0,
+                "batch_manifests": [],
+                "accepted_shards": [],
+            },
+        )
+        dataset_path = Path(output_dir) / f"{family}.jsonl"
+        dataset_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = dataset_path.with_name(f".{dataset_path.name}.tmp")
+        rows_written = 0
+        with temporary_path.open("w", encoding="utf-8") as output_handle:
+            for shard in dataset.get("accepted_shards", []):
+                shard_path = Path(shard["path"])
+                with shard_path.open("r", encoding="utf-8") as input_handle:
+                    for line in input_handle:
+                        output_handle.write(line)
+                        rows_written += 1
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+        if rows_written != int(dataset.get("row_count", 0)):
+            temporary_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"SFT accepted shard row count mismatch for {family}: "
+                f"expected={dataset.get('row_count', 0)} actual={rows_written}"
+            )
+        temporary_path.replace(dataset_path)
+        dataset["dataset_path"] = dataset_path
+        finalized.append(dataset)
+    return finalized
+
+
+def _dataset_for_family(datasets: list[dict[str, Any]], family: str) -> dict[str, Any]:
+    for dataset in datasets:
+        if dataset["family"] == family:
+            return dataset
+    return {"family": family, "row_count": 0, "accepted_shards": []}
+
+
+def _load_seen_acceptance_keys(
+    *, datasets: list[dict[str, Any]], families: tuple[str, ...]
+) -> tuple[set[str], set[str], set[str]]:
+    # Preserve the original dataset-wide uniqueness semantics: an ID, prompt,
+    # or full conversation already accepted in one family is also considered
+    # seen for every other family.
+    seen_ids: set[str] = set()
+    seen_prompts: set[str] = set()
+    seen_conversations: set[str] = set()
+    for family in families:
+        dataset = _dataset_for_family(datasets, family)
+        for shard in dataset.get("accepted_shards", []):
+            for row in read_jsonl(shard["path"]):
+                seen_ids.add(row["id"])
+                seen_prompts.add(sft_prompt_fingerprint(row))
+                seen_conversations.add(sft_conversation_fingerprint(row))
+    return seen_ids, seen_prompts, seen_conversations
+
+
+def _empty_rows_fingerprint() -> str:
+    return sha256(b"[]").hexdigest()
+
+
+def _rows_fingerprint_from_dataset(dataset: dict[str, Any]) -> str:
+    hasher = sha256()
+    hasher.update(b"[")
+    first = True
+    for shard in dataset.get("accepted_shards", []):
+        for row in read_jsonl(shard["path"]):
+            if not first:
+                hasher.update(b",")
+            payload = json.dumps(
+                row,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            hasher.update(payload)
+            first = False
+    hasher.update(b"]")
+    return hasher.hexdigest()
 
 def _empty_run_state(*, families: tuple[str, ...], start_index: int) -> dict[str, Any]:
     empty_counts = {family: 0 for family in families}
     return {
         "complete": False,
         "accepted_rows": 0,
-        "accepted_rows_by_family": {family: [] for family in families},
         "datasets": [],
         "acceptance": {
             "attempted_rows": 0,
@@ -887,6 +1051,8 @@ def _empty_run_state(*, families: tuple[str, ...], start_index: int) -> dict[str
         },
         "next_source_indexes": {family: start_index for family in families},
         "next_batch_numbers": {family: 1 for family in families},
+        "next_shard_numbers": {family: 1 for family in families},
+        "accepted_token_estimates_per_family": dict(empty_counts),
         "requested_candidate_rows_per_family": dict(empty_counts),
         "planning_rounds": 0,
         "rejection_diagnostics": [],
@@ -951,6 +1117,14 @@ def _serialize_checkpoint_datasets(datasets: list[dict[str, Any]]) -> list[dict[
             "row_count": int(item["row_count"]),
             "batch_count": int(item["batch_count"]),
             "batch_manifests": [str(Path(path)) for path in item["batch_manifests"]],
+            "accepted_shards": [
+                {
+                    "path": str(Path(shard["path"])),
+                    "row_count": int(shard["row_count"]),
+                    "sha256": str(shard["sha256"]),
+                }
+                for shard in item.get("accepted_shards", [])
+            ],
         }
         for item in datasets
     ]
@@ -972,9 +1146,11 @@ def _write_run_checkpoint(
     llm_telemetry: dict[str, Any],
     checkpointed_rejected_telemetry_count: int,
     accepted_content_fingerprints_per_family: dict[str, str],
+    next_shard_numbers: dict[str, int],
+    accepted_token_estimates_per_family: dict[str, int],
 ) -> Path:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "dataset_type": "sft",
         "generation_run": signature["generation_run"],
@@ -983,6 +1159,10 @@ def _write_run_checkpoint(
         "state": {
             "next_source_indexes": dict(next_source_indexes),
             "next_batch_numbers": dict(next_batch_numbers),
+            "next_shard_numbers": dict(next_shard_numbers),
+            "accepted_token_estimates_per_family": dict(
+                accepted_token_estimates_per_family
+            ),
             "datasets": _serialize_checkpoint_datasets(datasets),
             "acceptance": acceptance,
             "requested_candidate_rows_per_family": dict(
@@ -1022,7 +1202,7 @@ def _load_run_checkpoint(
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"unable to read SFT checkpoint {path}: {exc}") from exc
-    if payload.get("schema_version") != 1 or payload.get("dataset_type") != "sft":
+    if payload.get("schema_version") != 2 or payload.get("dataset_type") != "sft":
         raise RuntimeError(f"unsupported or invalid SFT checkpoint: {path}")
     actual_signature = payload.get("signature")
     if actual_signature != expected_signature:
@@ -1035,33 +1215,48 @@ def _load_run_checkpoint(
         raise RuntimeError(f"SFT checkpoint is missing state: {path}")
 
     datasets = list(state.get("datasets", []))
-    datasets_by_family = {item["family"]: item for item in datasets}
-    accepted_rows_by_family: dict[str, list[dict[str, Any]]] = {}
     expected_fingerprints = state.get("accepted_content_fingerprints_per_family", {})
-    for family in families:
-        dataset = datasets_by_family.get(family)
-        if dataset is None:
-            rows: list[dict[str, Any]] = []
-        else:
-            dataset_path = Path(dataset["dataset_path"])
-            if not dataset_path.exists():
-                raise RuntimeError(
-                    f"SFT checkpoint expects dataset file for {family}, but it is missing: "
-                    f"{dataset_path}"
-                )
-            rows = read_jsonl(dataset_path)
-            if len(rows) != int(dataset["row_count"]):
-                raise RuntimeError(
-                    f"SFT checkpoint row count mismatch for {family}: "
-                    f"checkpoint={dataset['row_count']} file={len(rows)}"
-                )
-        expected_fingerprint = expected_fingerprints.get(family)
-        if expected_fingerprint is not None and _rows_fingerprint(rows) != expected_fingerprint:
+    for dataset in datasets:
+        family = dataset.get("family")
+        if family not in families:
             raise RuntimeError(
-                f"SFT checkpoint content fingerprint mismatch for {family}; "
-                "refusing to resume from modified public output"
+                f"SFT checkpoint contains unexpected family {family!r}: {path}"
             )
-        accepted_rows_by_family[family] = rows
+        observed_rows = 0
+        for shard in dataset.get("accepted_shards", []):
+            shard_path = Path(shard["path"])
+            if not shard_path.exists():
+                raise RuntimeError(
+                    f"SFT checkpoint expects accepted shard for {family}, but it is missing: "
+                    f"{shard_path}"
+                )
+            raw = shard_path.read_bytes()
+            actual_sha256 = sha256(raw).hexdigest()
+            if actual_sha256 != shard.get("sha256"):
+                raise RuntimeError(
+                    f"SFT checkpoint accepted shard checksum mismatch for {family}: "
+                    f"{shard_path}"
+                )
+            shard_rows = sum(1 for line in raw.splitlines() if line.strip())
+            if shard_rows != int(shard.get("row_count", -1)):
+                raise RuntimeError(
+                    f"SFT checkpoint accepted shard row count mismatch for {family}: "
+                    f"checkpoint={shard.get('row_count')} file={shard_rows} path={shard_path}"
+                )
+            observed_rows += shard_rows
+        if observed_rows != int(dataset.get("row_count", 0)):
+            raise RuntimeError(
+                f"SFT checkpoint accepted row count mismatch for {family}: "
+                f"checkpoint={dataset.get('row_count', 0)} shards={observed_rows}"
+            )
+        expected_fingerprint = expected_fingerprints.get(family)
+        if expected_fingerprint is not None:
+            actual_fingerprint = _rows_fingerprint_from_dataset(dataset)
+            if actual_fingerprint != expected_fingerprint:
+                raise RuntimeError(
+                    f"SFT checkpoint content fingerprint mismatch for {family}; "
+                    "refusing to resume from modified accepted shards"
+                )
 
     empty_state = _empty_run_state(
         families=families,
@@ -1070,7 +1265,6 @@ def _load_run_checkpoint(
     return {
         **empty_state,
         "complete": bool(payload.get("complete", False)),
-        "accepted_rows_by_family": accepted_rows_by_family,
         "datasets": datasets,
         "acceptance": dict(state.get("acceptance", empty_state["acceptance"])),
         "next_source_indexes": dict(
@@ -1078,6 +1272,15 @@ def _load_run_checkpoint(
         ),
         "next_batch_numbers": dict(
             state.get("next_batch_numbers", empty_state["next_batch_numbers"])
+        ),
+        "next_shard_numbers": dict(
+            state.get("next_shard_numbers", empty_state["next_shard_numbers"])
+        ),
+        "accepted_token_estimates_per_family": dict(
+            state.get(
+                "accepted_token_estimates_per_family",
+                empty_state["accepted_token_estimates_per_family"],
+            )
         ),
         "requested_candidate_rows_per_family": dict(
             state.get(
@@ -1097,11 +1300,6 @@ def _load_run_checkpoint(
         ),
         "accepted_content_fingerprints_per_family": dict(expected_fingerprints),
     }
-
-
-def _rows_fingerprint(rows: list[dict[str, Any]]) -> str:
-    payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    return sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _validate_positive_int(value: int, field_name: str) -> None:
