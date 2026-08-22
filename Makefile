@@ -127,9 +127,9 @@ SFT_SMOKE_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
 SFT_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
 SFT_GENERATION_CONCURRENCY ?= 8
 SFT_RUN_ROOT ?= data/sft/runs
-SFT_MODEL ?= $(MODEL)
-SFT_ADJUDICATOR_MODEL ?= $(SFT_MODEL)
-SFT_REVIEWER_MODEL ?= $(SFT_ADJUDICATOR_MODEL)
+SFT_MODEL ?=
+SFT_ADJUDICATOR_MODEL ?=
+SFT_REVIEWER_MODEL ?=
 SFT_INITIAL_CONCURRENCY ?= 8
 SFT_INITIAL_BATCH_SIZE ?= 4
 SFT_BATCH_INCREASE_SUCCESSES ?= 4
@@ -470,6 +470,9 @@ dpo-preflight:
 > $(PYTHON) -m slm_synth.alignment_preflight --kind dpo
 
 sft-smoke:
+> @test -n "$(strip $(SFT_MODEL))" || (echo "SFT_MODEL is required" >&2; exit 2)
+> @test -n "$(strip $(SFT_ADJUDICATOR_MODEL))" || (echo "SFT_ADJUDICATOR_MODEL is required" >&2; exit 2)
+> @test -n "$(strip $(SFT_REVIEWER_MODEL))" || (echo "SFT_REVIEWER_MODEL is required" >&2; exit 2)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
 >   --families $(SFT_SMOKE_FAMILIES_EFFECTIVE) \
 >   --candidate-counts $(SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE) \
@@ -492,6 +495,9 @@ sft-smoke:
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
+> @test -n "$(strip $(SFT_MODEL))" || (echo "SFT_MODEL is required" >&2; exit 2)
+> @test -n "$(strip $(SFT_ADJUDICATOR_MODEL))" || (echo "SFT_ADJUDICATOR_MODEL is required" >&2; exit 2)
+> @test -n "$(strip $(SFT_REVIEWER_MODEL))" || (echo "SFT_REVIEWER_MODEL is required" >&2; exit 2)
 > @test -n "$(strip $(SFT_CANDIDATE_COUNTS))$(strip $(SFT_ACCEPTED_TARGETS))" || (echo "set exactly one of SFT_CANDIDATE_COUNTS or SFT_ACCEPTED_TARGETS" >&2; exit 2)
 > @test -z "$(strip $(SFT_CANDIDATE_COUNTS))" -o -z "$(strip $(SFT_ACCEPTED_TARGETS))" || (echo "SFT_CANDIDATE_COUNTS and SFT_ACCEPTED_TARGETS are mutually exclusive" >&2; exit 2)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
