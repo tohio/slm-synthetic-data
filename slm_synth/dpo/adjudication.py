@@ -48,8 +48,9 @@ def _judge_prompt(spec: Mapping[str, Any], row: Mapping[str, Any]) -> str:
         "because another interpretation is possible, wording could be improved, or you would personally prefer a different "
         "answer. Do not invent requirements from hidden repository variables, taxonomy labels, or planning fields. "
         "Deterministic checks are supporting evidence; review the whole pair, but do not invent conflicting facts about "
-        "those checks. Never guess or repair the pair. When rejecting, identify the specific branch content and preference "
-        "requirement or evidence that makes the defect material.\n\nReturn exactly three labeled lines:\nASSESSABLE: YES or NO\n"
+        "those checks. Do not invent stronger coverage requirements than the public task explicitly requests. Never guess "
+        "or repair the pair. When rejecting, identify the specific branch content and preference requirement or evidence "
+        "that makes the defect material.\n\nReturn exactly three labeled lines:\nASSESSABLE: YES or NO\n"
         "DECISION: ACCEPT or REJECT\nREASON: one concise evidence-based reason\n\n"
         f"Pair evidence:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -65,7 +66,9 @@ def _review_prompt(spec: Mapping[str, Any], row: Mapping[str, Any], judge: Mappi
         "repository variables, taxonomy labels, or planning fields. Deterministic checks are supporting evidence; review the "
         "whole pair without inventing conflicting facts about those checks. If you disagree, identify the specific branch "
         "content and preference requirement or evidence that makes the judge's acceptance materially wrong. Do not repair "
-        "the pair or include self-deliberation.\n\nReturn exactly two labeled lines:\nAGREE: YES or NO\n"
+        "the pair or include self-deliberation. Your AGREE label must match your reason: if your reason says the judge's "
+        "acceptance is reasonably justified, output AGREE: YES; output AGREE: NO only when your reason identifies a clear "
+        "material defect the judge missed.\n\nReturn exactly two labeled lines:\nAGREE: YES or NO\n"
         "REASON: one concise evidence-based reason\n\n"
         f"Review item:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
