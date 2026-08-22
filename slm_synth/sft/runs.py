@@ -26,6 +26,7 @@ from slm_synth.sft.generation import (
 )
 from slm_synth.sft.io import read_jsonl, write_jsonl
 from slm_synth.sft.manifest import write_manifest, write_run_manifest
+from slm_synth.sft.planning import DEFAULT_SFT_SPEC_PLANNER
 from slm_synth.sft.spec_builders import SFT_SPEC_FAMILIES, build_specs, validate_spec_range
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 from slm_synth.telemetry import aggregate_llm_telemetry, aggregate_llm_telemetry_from_manifests
@@ -61,7 +62,9 @@ def default_batch_output_dir(output_dir: str | Path) -> Path:
 def generate_llm_run(
     *,
     families: list[str] | tuple[str, ...] | None,
-    candidate_counts_by_family: dict[str, int],
+    candidate_counts_by_family: dict[str, int] | None = None,
+    accepted_targets_by_family: dict[str, int] | None = None,
+    candidate_wave_size: int = 1000,
     batch_size: int = 1,
     output_dir: str | Path,
     manifest_dir: str | Path,
@@ -96,18 +99,43 @@ def generate_llm_run(
 ) -> SFTLLMRunResult:
     """Build specs and generate SFT datasets across families and batches."""
     resolved_families = resolve_spec_families(families)
-    normalized_counts = {
-        str(family).strip().lower(): count
-        for family, count in candidate_counts_by_family.items()
-    }
-    if set(normalized_counts) != set(resolved_families):
-        raise ValueError("candidate_counts_by_family must contain exactly the requested families")
-    for family, count in normalized_counts.items():
-        _validate_positive_int(count, f"candidate count for {family}")
-    count_plan = CountPlan(
-        planning_mode="candidate_counts_by_family",
-        counts_by_key={family: normalized_counts[family] for family in resolved_families},
-    )
+    if (candidate_counts_by_family is None) == (accepted_targets_by_family is None):
+        raise ValueError(
+            "provide exactly one of candidate_counts_by_family or accepted_targets_by_family"
+        )
+
+    count_plan: CountPlan | None = None
+    accepted_targets: dict[str, int] | None = None
+    if candidate_counts_by_family is not None:
+        normalized_counts = {
+            str(family).strip().lower(): count
+            for family, count in candidate_counts_by_family.items()
+        }
+        if set(normalized_counts) != set(resolved_families):
+            raise ValueError(
+                "candidate_counts_by_family must contain exactly the requested families"
+            )
+        for family, count in normalized_counts.items():
+            _validate_positive_int(count, f"candidate count for {family}")
+        count_plan = CountPlan(
+            planning_mode="candidate_counts_by_family",
+            counts_by_key={
+                family: normalized_counts[family] for family in resolved_families
+            },
+        )
+    else:
+        accepted_targets = {
+            str(family).strip().lower(): count
+            for family, count in (accepted_targets_by_family or {}).items()
+        }
+        if set(accepted_targets) != set(resolved_families):
+            raise ValueError(
+                "accepted_targets_by_family must contain exactly the requested families"
+            )
+        for family, count in accepted_targets.items():
+            _validate_positive_int(count, f"accepted target for {family}")
+        _validate_positive_int(candidate_wave_size, "candidate_wave_size")
+
     _validate_openrouter_batch_size(batch_size)
     _validate_positive_int(start_index, "start_index")
     _validate_openrouter_concurrency(concurrency)
@@ -117,12 +145,32 @@ def generate_llm_run(
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
     initial_state = _empty_run_state(families=resolved_families, start_index=start_index)
-    for family in resolved_families:
-        validate_spec_range(
-            family=family,
-            count=count_plan.counts_by_key[family],
-            start_index=start_index,
-        )
+    if count_plan is not None:
+        for family in resolved_families:
+            validate_spec_range(
+                family=family,
+                count=count_plan.counts_by_key[family],
+                start_index=start_index,
+            )
+    else:
+        # Accepted-target mode validates only each bounded wave before it is
+        # consumed. This lets normal rejection/duplication draw fresh unique
+        # candidate opportunities without reserving or regenerating rejected
+        # specs up front.
+        assert accepted_targets is not None
+        for family in resolved_families:
+            available_capacity = DEFAULT_SFT_SPEC_PLANNER.capacity(family) - start_index + 1
+            if accepted_targets[family] > available_capacity:
+                raise ValueError(
+                    f"accepted target for {family} is {accepted_targets[family]}, but only "
+                    f"{available_capacity} candidate opportunities are available from "
+                    f"start_index={start_index}"
+                )
+            validate_spec_range(
+                family=family,
+                count=min(candidate_wave_size, accepted_targets[family]),
+                start_index=start_index,
+            )
 
     # Validate the full finite inventory before credentials are read or a
     # provider backend can be constructed. A clean requested slice cannot hide
@@ -368,21 +416,67 @@ def generate_llm_run(
         round_jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
         return round_jobs, rejected_rows_per_family, dict(rejection_reason_counts)
 
-    initial_counts = dict(count_plan.counts_by_key)
-    if any(initial_counts.values()):
-        initial_jobs, initial_rejected, initial_rejection_reasons = run_generation(initial_counts)
+    planning_rounds = 0
+    requested_candidate_rows_per_family = {family: 0 for family in resolved_families}
+
+    def execute_round(request_counts: dict[str, int]) -> None:
+        nonlocal datasets, output_acceptance, accepted_rows_by_family, planning_rounds
+        if not any(request_counts.values()):
+            return
+        round_jobs, round_rejected, round_rejection_reasons = run_generation(request_counts)
         datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
-            jobs=initial_jobs,
+            jobs=round_jobs,
             output_dir=output_dir,
             families=resolved_families,
             accepted_rows_by_family=accepted_rows_by_family,
             prior_datasets=datasets,
             prior_acceptance=output_acceptance,
-            new_rejected_rows_per_family=initial_rejected,
-            new_rejection_reason_counts=initial_rejection_reasons,
+            new_rejected_rows_per_family=round_rejected,
+            new_rejection_reason_counts=round_rejection_reasons,
         )
+        for family in resolved_families:
+            requested_candidate_rows_per_family[family] += request_counts.get(family, 0)
+        planning_rounds += 1
 
-    candidate_rows = count_plan.planned_count
+    if count_plan is not None:
+        execute_round(dict(count_plan.counts_by_key))
+        planning_mode = count_plan.planning_mode
+    else:
+        assert accepted_targets is not None
+        planning_mode = "accepted_targets_by_family"
+        while True:
+            accepted_now = output_acceptance["accepted_rows_per_family"]
+            remaining = {
+                family: max(accepted_targets[family] - accepted_now.get(family, 0), 0)
+                for family in resolved_families
+            }
+            if not any(remaining.values()):
+                break
+
+            request_counts: dict[str, int] = {}
+            for family in resolved_families:
+                if remaining[family] == 0:
+                    request_counts[family] = 0
+                    continue
+                available_capacity = (
+                    DEFAULT_SFT_SPEC_PLANNER.capacity(family)
+                    - next_source_indexes[family]
+                    + 1
+                )
+                if available_capacity <= 0:
+                    raise RuntimeError(
+                        "SFT accepted-target planning exhausted candidate capacity before "
+                        f"reaching the target for {family}: "
+                        f"accepted={accepted_now.get(family, 0)}, "
+                        f"target={accepted_targets[family]}, "
+                        f"next_start_index={next_source_indexes[family]}"
+                    )
+                request_counts[family] = min(
+                    candidate_wave_size, remaining[family], available_capacity
+                )
+            execute_round(request_counts)
+
+    candidate_rows = sum(requested_candidate_rows_per_family.values())
     accepted_rows = sum(dataset["row_count"] for dataset in datasets)
     attempted_rows = output_acceptance["attempted_rows"]
     duplicate_rows = output_acceptance["duplicate_rows"]
@@ -410,7 +504,7 @@ def generate_llm_run(
             "adjudicator_model": adjudicator_model if adjudicator_model is not None else teacher_model,
             "reviewer_model": reviewer_model or adjudicator_model or teacher_model,
             "adjudicator_max_tokens": adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
-            "planning_mode": count_plan.planning_mode,
+            "planning_mode": planning_mode,
             "candidate_rows": candidate_rows,
             "attempted_rows": attempted_rows,
             "accepted_rows": accepted_rows,
@@ -434,7 +528,10 @@ def generate_llm_run(
             "generation_status": "complete",
             "publish_ready": not empty_families,
             "empty_families": empty_families,
-            "candidate_rows_per_family": dict(count_plan.counts_by_key),
+            "candidate_rows_per_family": dict(requested_candidate_rows_per_family),
+            "accepted_targets_per_family": dict(accepted_targets or {}),
+            "candidate_wave_size": candidate_wave_size if accepted_targets is not None else None,
+            "planning_rounds": planning_rounds,
             "batch_size": batch_size,
             "concurrency": concurrency,
             "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
