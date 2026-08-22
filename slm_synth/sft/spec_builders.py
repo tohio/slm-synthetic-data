@@ -90,14 +90,35 @@ def _build_spec(plan: SFTCandidatePlan) -> dict[str, Any]:
             "Treat the supplied passage, document, transcript, code, or other context as the factual source of truth. Ordinary direct inference is allowed, but unsupported factual claims are not."
         )
     constraints.extend(source.get("quality_requirements", ()))
+    variables: dict[str, Any]
+    if plan.is_derived:
+        profile = dict(plan.derivation_profile or {})
+        variables = {
+            "archetype_seed": dict(source["variables"]),
+            "derivation_profile": profile,
+        }
+        constraints.extend(
+            [
+                "Create a genuinely new concrete task instance that exercises the same capability as the archetype seed; do not merely rename entities or swap numbers.",
+                "Use the derivation profile as substantive planning guidance while preserving the archetype's task family, interaction mode, output mode, and safety posture.",
+                "Do not copy literal proper nouns, source passages, code, quantities, dates, or scenario details from the archetype seed unless they are essential invariants of the capability.",
+                "Do not expose the archetype seed or derivation profile as metadata or commentary in the public conversation.",
+            ]
+        )
+    else:
+        variables = dict(source["variables"])
+
     result: dict[str, Any] = {
         "id": f"sft_{family}_{index:06d}",
         "instruction": source["instruction"],
         "metadata": {"task_family": family, **dict(source["metadata"])},
-        "variables": dict(source["variables"]),
+        "variables": variables,
         "constraints": constraints,
     }
-    if "holdout_key" in source:
+    # Structured holdout keys describe the literal seed instance. Derived
+    # candidates create new facts/content, so exact prompt-fingerprint holdout
+    # protection remains active but the seed's structured key is not reused.
+    if not plan.is_derived and "holdout_key" in source:
         result["holdout_key"] = dict(source["holdout_key"])
     if "output_constraints" in source:
         result["output_constraints"] = dict(source["output_constraints"])
