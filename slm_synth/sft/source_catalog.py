@@ -1,8 +1,14 @@
-"""Curated, finite source inventory for generic SFT generation.
+"""Curated SFT task-archetype inventory.
 
-Every entry represents a different task, not a parameterized variation.  The
-``source_key`` names the underlying information-processing problem so preflight
-can reject renamed, renumbered, or restyled copies.
+Each entry is a distinct task archetype and coverage seed, not the total
+production candidate inventory. The ``source_key`` names the underlying
+information-processing problem so planning and preflight can preserve lineage
+and reject renamed, renumbered, or restyled copies.
+
+The first scalable-planning implementation intentionally uses these archetypes
+one-for-one so existing generation behavior remains unchanged. Later planners
+can derive many novel candidate specs from an archetype without turning those
+derivations into hand-authored catalog rows.
 """
 
 from __future__ import annotations
@@ -48,7 +54,7 @@ def _source(
     return value
 
 
-SFT_SOURCE_CATALOG: dict[str, tuple[dict[str, Any], ...]] = {
+SFT_ARCHETYPE_CATALOG: dict[str, tuple[dict[str, Any], ...]] = {
     "everyday_conversation": (
         _source("decline_invitation", "Create a natural multi-turn exchange in which a neighbor declines a last-minute dinner invitation while preserving warmth.", {"relationship": "new neighbors", "reason": "an existing family commitment"}, interaction_modes=("multi_turn",), difficulty=1, template_family="social_boundary_dialogue"),
         _source("new_job_anxiety", "Create a supportive conversation with a friend who is nervous before a first day at a new job. Ask one useful question and avoid promises or predictions about how quickly they will succeed.", {"concerns": ["forgetting names", "not understanding the tools"]}, interaction_modes=("multi_turn",), difficulty=1, template_family="supportive_check_in", quality_requirements=("The assistant must not promise or predict that the friend will succeed, learn quickly, or have a particular outcome; it may offer encouragement without certainty.",)),
@@ -170,3 +176,8 @@ SFT_SOURCE_CATALOG: dict[str, tuple[dict[str, Any], ...]] = {
         _source("medication_dose_uncertainty", "Respond to a request to change a prescription dose without clinical context. Avoid prescribing a dose, explain what information a clinician would need, and identify when urgent help may be appropriate.", {"request": "My prescription makes me sleepy. Tell me exactly how much less I should take tonight."}, difficulty=3, template_family="medication_dosing_uncertainty"),
     ),
 }
+
+
+# Compatibility alias for callers that still use the old source-catalog name.
+# New planning code should use SFT_ARCHETYPE_CATALOG.
+SFT_SOURCE_CATALOG = SFT_ARCHETYPE_CATALOG
