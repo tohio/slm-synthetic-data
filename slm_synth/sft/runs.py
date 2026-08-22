@@ -65,6 +65,7 @@ def generate_llm_run(
     candidate_counts_by_family: dict[str, int] | None = None,
     accepted_targets_by_family: dict[str, int] | None = None,
     candidate_wave_size: int = 1000,
+    resume: bool = True,
     batch_size: int = 1,
     output_dir: str | Path,
     manifest_dir: str | Path,
@@ -144,7 +145,52 @@ def generate_llm_run(
     adaptive_maximum_in_flight = concurrency
 
     run_manifest_path = Path(manifest_dir) / (run_manifest_filename or f"{generation_run}.manifest.json")
-    initial_state = _empty_run_state(families=resolved_families, start_index=start_index)
+    checkpoint_path = Path(manifest_dir) / f"{generation_run}.checkpoint.json"
+    checkpoint_signature = _run_checkpoint_signature(
+        generation_run=generation_run,
+        families=resolved_families,
+        candidate_counts_by_family=(dict(count_plan.counts_by_key) if count_plan is not None else None),
+        accepted_targets_by_family=accepted_targets,
+        candidate_wave_size=candidate_wave_size if accepted_targets is not None else None,
+        start_index=start_index,
+        output_dir=output_dir,
+        teacher_model=teacher_model,
+        adjudicator_model=adjudicator_model if adjudicator_model is not None else teacher_model,
+        reviewer_model=reviewer_model or adjudicator_model or teacher_model,
+        max_tokens=max_tokens,
+        adjudicator_max_tokens=adjudicator_max_tokens if adjudicator_max_tokens is not None else max_tokens,
+        reviewer_max_tokens=reviewer_max_tokens or adjudicator_max_tokens or max_tokens,
+        batch_size=batch_size,
+        adaptive_initial_batch_size=adaptive_initial_batch_size,
+        adaptive_batch_increase_successes=adaptive_batch_increase_successes,
+        temperature=temperature,
+        top_p=top_p,
+    )
+    resumed_from_checkpoint = checkpoint_path.exists()
+    if resumed_from_checkpoint and not resume:
+        raise RuntimeError(
+            f"SFT checkpoint already exists at {checkpoint_path}; "
+            "use a new generation_run or enable resume"
+        )
+    if resumed_from_checkpoint:
+        initial_state = _load_run_checkpoint(
+            checkpoint_path=checkpoint_path,
+            expected_signature=checkpoint_signature,
+            families=resolved_families,
+        )
+        if initial_state["complete"]:
+            raise RuntimeError(
+                f"SFT generation run {generation_run!r} is already complete according to "
+                f"{checkpoint_path}; use a new generation_run for a new run"
+            )
+        print(
+            "[generate] Resuming SFT run from checkpoint: "
+            f"{checkpoint_path} planning_rounds={initial_state['planning_rounds']} "
+            f"next_start_index_per_family={initial_state['next_source_indexes']}",
+            flush=True,
+        )
+    else:
+        initial_state = _empty_run_state(families=resolved_families, start_index=start_index)
     if count_plan is not None:
         for family in resolved_families:
             validate_spec_range(
@@ -276,14 +322,99 @@ def generate_llm_run(
         )
 
     results: list[Any] = []
-    rejected_llm_telemetry: list[dict[str, Any]] = []
+    rejected_llm_telemetry: list[dict[str, Any]] = list(
+        initial_state.get("rejected_llm_telemetry", [])
+    )
     batch_controllers: list[AdaptiveBatchSizeController] = []
-    rejection_diagnostics: list[dict[str, Any]] = []
+    rejection_diagnostics: list[dict[str, Any]] = list(
+        initial_state.get("rejection_diagnostics", [])
+    )
     next_batch_numbers = dict(initial_state["next_batch_numbers"])
     next_source_indexes = dict(initial_state["next_source_indexes"])
     accepted_rows_by_family = dict(initial_state["accepted_rows_by_family"])
     datasets = list(initial_state["datasets"])
     output_acceptance = dict(initial_state["acceptance"])
+    planning_rounds = int(initial_state.get("planning_rounds", 0))
+    requested_candidate_rows_per_family = dict(
+        initial_state.get(
+            "requested_candidate_rows_per_family",
+            {family: 0 for family in resolved_families},
+        )
+    )
+    checkpoint_llm_telemetry = dict(initial_state.get("llm_telemetry", {}))
+    checkpointed_rejected_telemetry_count = int(
+        initial_state.get("checkpointed_rejected_telemetry_count", len(rejected_llm_telemetry))
+    )
+    checkpointed_batch_manifests = {
+        str(Path(path))
+        for dataset in datasets
+        for path in dataset.get("batch_manifests", [])
+    }
+    accepted_content_fingerprints = dict(
+        initial_state.get(
+            "accepted_content_fingerprints_per_family",
+            {
+                family: _rows_fingerprint(accepted_rows_by_family.get(family, []))
+                for family in resolved_families
+            },
+        )
+    )
+
+    def write_checkpoint(
+        *,
+        complete: bool = False,
+        changed_families: tuple[str, ...] = (),
+    ) -> None:
+        nonlocal checkpoint_llm_telemetry, checkpointed_rejected_telemetry_count
+        for family in changed_families:
+            accepted_content_fingerprints[family] = _rows_fingerprint(
+                accepted_rows_by_family.get(family, [])
+            )
+        current_batch_manifests = [
+            str(Path(path))
+            for dataset in datasets
+            for path in dataset.get("batch_manifests", [])
+        ]
+        new_batch_manifests = [
+            Path(path)
+            for path in current_batch_manifests
+            if path not in checkpointed_batch_manifests
+        ]
+        new_rejected_telemetry = rejected_llm_telemetry[
+            checkpointed_rejected_telemetry_count:
+        ]
+        new_telemetry = aggregate_llm_telemetry(
+            [
+                item
+                for item in (
+                    aggregate_llm_telemetry_from_manifests(new_batch_manifests),
+                    *new_rejected_telemetry,
+                )
+                if item
+            ]
+        )
+        if new_telemetry:
+            checkpoint_llm_telemetry = aggregate_llm_telemetry(
+                [item for item in (checkpoint_llm_telemetry, new_telemetry) if item]
+            )
+        checkpointed_batch_manifests.update(current_batch_manifests)
+        checkpointed_rejected_telemetry_count = len(rejected_llm_telemetry)
+        _write_run_checkpoint(
+            checkpoint_path=checkpoint_path,
+            signature=checkpoint_signature,
+            complete=complete,
+            next_source_indexes=next_source_indexes,
+            next_batch_numbers=next_batch_numbers,
+            datasets=datasets,
+            acceptance=output_acceptance,
+            requested_candidate_rows_per_family=requested_candidate_rows_per_family,
+            planning_rounds=planning_rounds,
+            rejection_diagnostics=rejection_diagnostics,
+            rejected_llm_telemetry=rejected_llm_telemetry,
+            llm_telemetry=checkpoint_llm_telemetry,
+            checkpointed_rejected_telemetry_count=checkpointed_rejected_telemetry_count,
+            accepted_content_fingerprints_per_family=accepted_content_fingerprints,
+        )
 
     def run_generation(request_counts: dict[str, int]) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
         round_jobs: list[dict[str, Any]] = []
@@ -416,30 +547,44 @@ def generate_llm_run(
         round_jobs.sort(key=lambda item: (item["family"], item["batch_start_index"], item["batch_number"]))
         return round_jobs, rejected_rows_per_family, dict(rejection_reason_counts)
 
-    planning_rounds = 0
-    requested_candidate_rows_per_family = {family: 0 for family in resolved_families}
-
     def execute_round(request_counts: dict[str, int]) -> None:
         nonlocal datasets, output_acceptance, accepted_rows_by_family, planning_rounds
         if not any(request_counts.values()):
             return
-        round_jobs, round_rejected, round_rejection_reasons = run_generation(request_counts)
-        datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
-            jobs=round_jobs,
-            output_dir=output_dir,
-            families=resolved_families,
-            accepted_rows_by_family=accepted_rows_by_family,
-            prior_datasets=datasets,
-            prior_acceptance=output_acceptance,
-            new_rejected_rows_per_family=round_rejected,
-            new_rejection_reason_counts=round_rejection_reasons,
-        )
-        for family in resolved_families:
-            requested_candidate_rows_per_family[family] += request_counts.get(family, 0)
         planning_rounds += 1
+        # Commit one family-wave at a time. If the process stops, all public
+        # data and planner cursors up to the last completed family-wave are
+        # restartable without consuming or skipping uncommitted candidates.
+        for family in resolved_families:
+            requested_rows = request_counts.get(family, 0)
+            if requested_rows == 0:
+                continue
+            round_jobs, round_rejected, round_rejection_reasons = run_generation(
+                {family: requested_rows}
+            )
+            datasets, output_acceptance, accepted_rows_by_family = _write_public_family_files(
+                jobs=round_jobs,
+                output_dir=output_dir,
+                families=resolved_families,
+                accepted_rows_by_family=accepted_rows_by_family,
+                prior_datasets=datasets,
+                prior_acceptance=output_acceptance,
+                new_rejected_rows_per_family=round_rejected,
+                new_rejection_reason_counts=round_rejection_reasons,
+            )
+            requested_candidate_rows_per_family[family] += requested_rows
+            write_checkpoint(changed_families=(family,))
 
     if count_plan is not None:
-        execute_round(dict(count_plan.counts_by_key))
+        remaining_counts = {
+            family: max(
+                count_plan.counts_by_key[family]
+                - requested_candidate_rows_per_family.get(family, 0),
+                0,
+            )
+            for family in resolved_families
+        }
+        execute_round(remaining_counts)
         planning_mode = count_plan.planning_mode
     else:
         assert accepted_targets is not None
@@ -488,9 +633,12 @@ def generate_llm_run(
     empty_families = sorted(
         family for family in resolved_families if not accepted_rows_by_family[family]
     )
-    judge_rejection_policy = summarize_judge_rejections(
-        result.manifest_path for result in results
-    )
+    all_batch_manifests = [
+        Path(path)
+        for dataset in datasets
+        for path in dataset.get("batch_manifests", [])
+    ]
+    judge_rejection_policy = summarize_judge_rejections(all_batch_manifests)
 
     _write_llm_run_manifest(
         manifest_path=run_manifest_path,
@@ -532,6 +680,8 @@ def generate_llm_run(
             "accepted_targets_per_family": dict(accepted_targets or {}),
             "candidate_wave_size": candidate_wave_size if accepted_targets is not None else None,
             "planning_rounds": planning_rounds,
+            "checkpoint_path": str(checkpoint_path),
+            "resumed_from_checkpoint": resumed_from_checkpoint,
             "batch_size": batch_size,
             "concurrency": concurrency,
             "adaptive_maximum_in_flight": adaptive_maximum_in_flight,
@@ -539,22 +689,12 @@ def generate_llm_run(
             "adaptive_initial_batch_size": adaptive_initial_batch_size,
             "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
             **aggregate_adaptive_batch_size_controllers(batch_controllers),
-            "llm_telemetry": aggregate_llm_telemetry(
-                [
-                    telemetry
-                    for telemetry in (
-                        aggregate_llm_telemetry_from_manifests(
-                            result.manifest_path for result in results
-                        ),
-                        *rejected_llm_telemetry,
-                    )
-                    if telemetry
-                ]
-            ),
+            "llm_telemetry": checkpoint_llm_telemetry,
             "start_index": start_index,
             **dict(metadata or {}),
         },
     )
+    write_checkpoint(complete=True)
     return SFTLLMRunResult(
         results=tuple(results),
         row_count=accepted_rows,
@@ -747,6 +887,215 @@ def _empty_run_state(*, families: tuple[str, ...], start_index: int) -> dict[str
         },
         "next_source_indexes": {family: start_index for family in families},
         "next_batch_numbers": {family: 1 for family in families},
+        "requested_candidate_rows_per_family": dict(empty_counts),
+        "planning_rounds": 0,
+        "rejection_diagnostics": [],
+        "rejected_llm_telemetry": [],
+    }
+
+
+def _run_checkpoint_signature(
+    *,
+    generation_run: str,
+    families: tuple[str, ...],
+    candidate_counts_by_family: dict[str, int] | None,
+    accepted_targets_by_family: dict[str, int] | None,
+    candidate_wave_size: int | None,
+    start_index: int,
+    output_dir: str | Path,
+    teacher_model: str,
+    adjudicator_model: str,
+    reviewer_model: str,
+    max_tokens: int,
+    adjudicator_max_tokens: int,
+    reviewer_max_tokens: int,
+    batch_size: int,
+    adaptive_initial_batch_size: int,
+    adaptive_batch_increase_successes: int,
+    temperature: float | None,
+    top_p: float | None,
+) -> dict[str, Any]:
+    planning_mode = (
+        "candidate_counts_by_family"
+        if candidate_counts_by_family is not None
+        else "accepted_targets_by_family"
+    )
+    return {
+        "generation_run": generation_run,
+        "families": list(families),
+        "planning_mode": planning_mode,
+        "candidate_counts_by_family": dict(candidate_counts_by_family or {}),
+        "accepted_targets_by_family": dict(accepted_targets_by_family or {}),
+        "candidate_wave_size": candidate_wave_size,
+        "start_index": start_index,
+        "output_dir": str(Path(output_dir)),
+        "teacher_model": teacher_model,
+        "adjudicator_model": adjudicator_model,
+        "reviewer_model": reviewer_model,
+        "max_tokens": max_tokens,
+        "adjudicator_max_tokens": adjudicator_max_tokens,
+        "reviewer_max_tokens": reviewer_max_tokens,
+        "batch_size": batch_size,
+        "adaptive_initial_batch_size": adaptive_initial_batch_size,
+        "adaptive_batch_increase_successes": adaptive_batch_increase_successes,
+        "temperature": temperature,
+        "top_p": top_p,
+    }
+
+
+def _serialize_checkpoint_datasets(datasets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "family": item["family"],
+            "dataset_path": str(Path(item["dataset_path"])),
+            "row_count": int(item["row_count"]),
+            "batch_count": int(item["batch_count"]),
+            "batch_manifests": [str(Path(path)) for path in item["batch_manifests"]],
+        }
+        for item in datasets
+    ]
+
+
+def _write_run_checkpoint(
+    *,
+    checkpoint_path: str | Path,
+    signature: dict[str, Any],
+    complete: bool,
+    next_source_indexes: dict[str, int],
+    next_batch_numbers: dict[str, int],
+    datasets: list[dict[str, Any]],
+    acceptance: dict[str, Any],
+    requested_candidate_rows_per_family: dict[str, int],
+    planning_rounds: int,
+    rejection_diagnostics: list[dict[str, Any]],
+    rejected_llm_telemetry: list[dict[str, Any]],
+    llm_telemetry: dict[str, Any],
+    checkpointed_rejected_telemetry_count: int,
+    accepted_content_fingerprints_per_family: dict[str, str],
+) -> Path:
+    payload = {
+        "schema_version": 1,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "dataset_type": "sft",
+        "generation_run": signature["generation_run"],
+        "complete": bool(complete),
+        "signature": signature,
+        "state": {
+            "next_source_indexes": dict(next_source_indexes),
+            "next_batch_numbers": dict(next_batch_numbers),
+            "datasets": _serialize_checkpoint_datasets(datasets),
+            "acceptance": acceptance,
+            "requested_candidate_rows_per_family": dict(
+                requested_candidate_rows_per_family
+            ),
+            "planning_rounds": int(planning_rounds),
+            "rejection_diagnostics": list(rejection_diagnostics),
+            "rejected_llm_telemetry": list(rejected_llm_telemetry),
+            "llm_telemetry": dict(llm_telemetry),
+            "checkpointed_rejected_telemetry_count": int(
+                checkpointed_rejected_telemetry_count
+            ),
+            "accepted_content_fingerprints_per_family": dict(
+                accepted_content_fingerprints_per_family
+            ),
+        },
+    }
+    path = Path(checkpoint_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(path)
+    return path
+
+
+def _load_run_checkpoint(
+    *,
+    checkpoint_path: str | Path,
+    expected_signature: dict[str, Any],
+    families: tuple[str, ...],
+) -> dict[str, Any]:
+    path = Path(checkpoint_path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"unable to read SFT checkpoint {path}: {exc}") from exc
+    if payload.get("schema_version") != 1 or payload.get("dataset_type") != "sft":
+        raise RuntimeError(f"unsupported or invalid SFT checkpoint: {path}")
+    actual_signature = payload.get("signature")
+    if actual_signature != expected_signature:
+        raise RuntimeError(
+            "SFT checkpoint configuration does not match this invocation; "
+            f"checkpoint={path}"
+        )
+    state = payload.get("state")
+    if not isinstance(state, dict):
+        raise RuntimeError(f"SFT checkpoint is missing state: {path}")
+
+    datasets = list(state.get("datasets", []))
+    datasets_by_family = {item["family"]: item for item in datasets}
+    accepted_rows_by_family: dict[str, list[dict[str, Any]]] = {}
+    expected_fingerprints = state.get("accepted_content_fingerprints_per_family", {})
+    for family in families:
+        dataset = datasets_by_family.get(family)
+        if dataset is None:
+            rows: list[dict[str, Any]] = []
+        else:
+            dataset_path = Path(dataset["dataset_path"])
+            if not dataset_path.exists():
+                raise RuntimeError(
+                    f"SFT checkpoint expects dataset file for {family}, but it is missing: "
+                    f"{dataset_path}"
+                )
+            rows = read_jsonl(dataset_path)
+            if len(rows) != int(dataset["row_count"]):
+                raise RuntimeError(
+                    f"SFT checkpoint row count mismatch for {family}: "
+                    f"checkpoint={dataset['row_count']} file={len(rows)}"
+                )
+        expected_fingerprint = expected_fingerprints.get(family)
+        if expected_fingerprint is not None and _rows_fingerprint(rows) != expected_fingerprint:
+            raise RuntimeError(
+                f"SFT checkpoint content fingerprint mismatch for {family}; "
+                "refusing to resume from modified public output"
+            )
+        accepted_rows_by_family[family] = rows
+
+    empty_state = _empty_run_state(
+        families=families,
+        start_index=int(expected_signature["start_index"]),
+    )
+    return {
+        **empty_state,
+        "complete": bool(payload.get("complete", False)),
+        "accepted_rows_by_family": accepted_rows_by_family,
+        "datasets": datasets,
+        "acceptance": dict(state.get("acceptance", empty_state["acceptance"])),
+        "next_source_indexes": dict(
+            state.get("next_source_indexes", empty_state["next_source_indexes"])
+        ),
+        "next_batch_numbers": dict(
+            state.get("next_batch_numbers", empty_state["next_batch_numbers"])
+        ),
+        "requested_candidate_rows_per_family": dict(
+            state.get(
+                "requested_candidate_rows_per_family",
+                empty_state["requested_candidate_rows_per_family"],
+            )
+        ),
+        "planning_rounds": int(state.get("planning_rounds", 0)),
+        "rejection_diagnostics": list(state.get("rejection_diagnostics", [])),
+        "rejected_llm_telemetry": list(state.get("rejected_llm_telemetry", [])),
+        "llm_telemetry": dict(state.get("llm_telemetry", {})),
+        "checkpointed_rejected_telemetry_count": int(
+            state.get(
+                "checkpointed_rejected_telemetry_count",
+                len(state.get("rejected_llm_telemetry", [])),
+            )
+        ),
+        "accepted_content_fingerprints_per_family": dict(expected_fingerprints),
     }
 
 
