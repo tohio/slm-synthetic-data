@@ -13,7 +13,7 @@ SFT_SPEC_REQUIRED_FIELDS = frozenset({"id", "instruction", "metadata"})
 SFT_SPEC_OPTIONAL_FIELDS = frozenset(
     {
         "variables", "constraints", "output_constraints",
-        "public_prompt_requirements", "holdout_key",
+        "public_prompt_requirements", "public_task_messages", "holdout_key",
     }
 )
 SFT_SPEC_FIELDS = SFT_SPEC_REQUIRED_FIELDS | SFT_SPEC_OPTIONAL_FIELDS
@@ -55,6 +55,10 @@ def validate_sft_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         validated["public_prompt_requirements"] = _validate_string_list(
             spec["public_prompt_requirements"], "public_prompt_requirements"
         )
+    if "public_task_messages" in spec:
+        validated["public_task_messages"] = _validate_public_task_messages(
+            spec["public_task_messages"]
+        )
     if "holdout_key" in spec:
         validated["holdout_key"] = _validate_mapping(spec["holdout_key"], "holdout_key")
     return validated
@@ -80,6 +84,8 @@ def teacher_visible_sft_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         visible["output_constraints"] = validated["output_constraints"]
     if "public_prompt_requirements" in validated:
         visible["public_prompt_requirements"] = validated["public_prompt_requirements"]
+    if "public_task_messages" in validated:
+        visible["public_task_messages"] = validated["public_task_messages"]
     return visible
 
 
@@ -130,3 +136,26 @@ def _validate_string_list(value: Any, field_name: str) -> list[str]:
     for item in value:
         result.append(_require_non_empty_string(item, field_name))
     return result
+
+
+def _validate_public_task_messages(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise TypeError("public_task_messages must be a list")
+    messages: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping) or set(item) != {"role", "content"}:
+            raise ValueError(
+                f"public_task_messages[{index}] must contain only role and content"
+            )
+        role = _require_non_empty_string(item["role"], "public_task_messages role")
+        if role not in {"system", "user", "assistant"}:
+            raise ValueError(
+                "public_task_messages may contain only system, user, and assistant roles"
+            )
+        content = _require_non_empty_string(
+            item["content"], "public_task_messages content"
+        )
+        messages.append({"role": role, "content": content})
+    if not messages:
+        raise ValueError("public_task_messages must not be empty")
+    return messages

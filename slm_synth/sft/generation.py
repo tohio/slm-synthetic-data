@@ -12,9 +12,12 @@ from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
 )
 from slm_synth.sft.batches import (
+    attach_and_validate_sft_task_materializations,
     attach_sft_code_fields,
     render_sft_batch_prompt,
+    render_sft_task_materialization_prompt,
     validate_sft_batch_response,
+    validate_sft_generated_task_prefixes,
     validate_sft_rows_against_specs,
 )
 from slm_synth.sft.io import write_jsonl
@@ -117,17 +120,60 @@ def generate_teacher_batch_response_with_metadata(
     specs: Iterable[Mapping[str, Any]],
     backend: StructuredTeacherBackend,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Call a teacher backend and return the response object plus operational telemetry."""
+    """Materialize derived public tasks, then generate only their final answers."""
     validated_specs = [validate_sft_spec(spec) for spec in specs]
-    rendered_prompt = render_sft_batch_prompt(validated_specs)
-    parsed, telemetry = call_plain_parsed(
+    prepared_specs, materializer_telemetry = _materialize_derived_public_tasks(
+        specs=validated_specs, backend=backend
+    )
+    rendered_prompt = render_sft_batch_prompt(prepared_specs)
+    parsed, renderer_telemetry = call_plain_parsed(
         backend,
         system_prompt="Generate dataset content. Return one valid JSON object and no commentary.",
         prompt=rendered_prompt,
         parser=parse_json_object,
     )
-    data = attach_sft_code_fields(parsed, validated_specs)
+    validate_sft_generated_task_prefixes(parsed, prepared_specs)
+    data = attach_sft_code_fields(parsed, prepared_specs)
+    telemetry = combine_telemetry(materializer_telemetry, renderer_telemetry)
+    telemetry["role_telemetry"] = {
+        "task_materializer": materializer_telemetry,
+        "renderer": renderer_telemetry,
+    }
     return data, telemetry
+
+
+def _materialize_derived_public_tasks(
+    *,
+    specs: list[dict[str, Any]],
+    backend: StructuredTeacherBackend,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    derived_positions = [
+        index
+        for index, spec in enumerate(specs)
+        if isinstance(spec.get("variables"), Mapping)
+        and "derivation_profile" in spec["variables"]
+        and "public_task_messages" not in spec
+    ]
+    if not derived_positions:
+        return specs, {}
+
+    derived_specs = [specs[index] for index in derived_positions]
+    parsed, telemetry = call_plain_parsed(
+        backend,
+        system_prompt=(
+            "Materialize concrete public dataset tasks. Return one valid JSON object and "
+            "no commentary. Do not answer the final tasks."
+        ),
+        prompt=render_sft_task_materialization_prompt(derived_specs),
+        parser=parse_json_object,
+    )
+    materialized = attach_and_validate_sft_task_materializations(
+        parsed, derived_specs
+    )
+    prepared = list(specs)
+    for position, spec in zip(derived_positions, materialized, strict=True):
+        prepared[position] = validate_sft_spec(spec)
+    return prepared, telemetry
 
 
 def generate_llm_batch(

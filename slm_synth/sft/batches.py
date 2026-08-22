@@ -60,6 +60,179 @@ def build_sft_teacher_request_object(specs: Iterable[Mapping[str, Any]]) -> dict
     return {"items": build_sft_teacher_request_items(specs)}
 
 
+
+def render_sft_task_materialization_prompt(
+    specs: Iterable[Mapping[str, Any]],
+) -> str:
+    """Render derived spec plans into concrete public conversation prefixes."""
+    request_json = json.dumps(
+        build_sft_teacher_request_object(specs), ensure_ascii=False, indent=2
+    )
+    return (
+        "Materialize one concrete public SFT task for each input plan. Do not answer the "
+        "final task. Return exactly one JSON object shaped as "
+        '{"items":[{"messages":[{"role":"user","content":"..."}]}]}. '
+        "Return items in input order and do not add fields outside messages. The returned "
+        "messages are the exact public conversation prefix that will later be given to the "
+        "answer generator. Replace the capability-anchor/meta planning brief with a genuinely "
+        "new concrete task: instantiate fresh actors, facts, source passages, code, quantities, "
+        "dates, examples, or other task material as appropriate. Do not merely rename entities "
+        "or swap numbers. Every fact, source, rubric, label set, and response requirement needed "
+        "for the final answer must appear explicitly in these public messages. Never expose "
+        "variables, derivation_profile, capability-anchor language, repository metadata, or "
+        "planning commentary. Preserve the declared task family, interaction mode, output mode, "
+        "safety posture, and structural response requirements. When public_prompt_requirements is "
+        "present, copy every listed phrase exactly into a system or user message in the materialized "
+        "prefix; repository validation checks those phrases literally. If the instruction says the "
+        "newly instantiated user task must state particular response requirements, state them "
+        "explicitly in a user message. For single_turn, return exactly one user message, plus a "
+        "leading system "
+        "message if and only if system_conditioned is declared. For multi_turn, return at least two "
+        "user messages with assistant context turns between them as needed, plus a leading system "
+        "message if and only if system_conditioned is declared. In every case, end the prefix with "
+        "a user message whose request is ready for the final assistant answer. Do not include that "
+        "final assistant answer.\n\n"
+        f"Input plans:\n{request_json}"
+    )
+
+
+def attach_and_validate_sft_task_materializations(
+    response_object: Mapping[str, Any], specs: Iterable[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Attach concrete public task prefixes to derived specs and validate their roles."""
+    validated_specs = [dict(spec) for spec in specs]
+    if not isinstance(response_object, Mapping) or set(response_object) != {"items"}:
+        raise ValueError("SFT task materializer response must contain only an items field")
+    items = response_object["items"]
+    if not isinstance(items, list):
+        raise TypeError("SFT task materializer items must be a list")
+    if len(items) != len(validated_specs):
+        raise ValueError("SFT task materializer item count must match the input spec count")
+
+    materialized: list[dict[str, Any]] = []
+    for raw, spec in zip(items, validated_specs, strict=True):
+        if not isinstance(raw, Mapping) or set(raw) != {"messages"}:
+            raise ValueError("SFT task materializer item must contain only messages")
+        messages = raw["messages"]
+        _validate_public_task_prefix(
+            messages, interaction_modes=list(spec["metadata"]["interaction_modes"])
+        )
+        _validate_materialized_prompt_requirements(
+            messages, spec.get("public_prompt_requirements", [])
+        )
+        updated = dict(spec)
+        updated["public_task_messages"] = [dict(message) for message in messages]
+        materialized.append(updated)
+    return materialized
+
+
+def validate_sft_generated_task_prefixes(
+    response_object: Mapping[str, Any], specs: Iterable[Mapping[str, Any]]
+) -> None:
+    """Require the answer generator to preserve each materialized task exactly."""
+    items = response_object.get("items") if isinstance(response_object, Mapping) else None
+    if not isinstance(items, list):
+        raise ValueError("SFT generator items must be a list")
+    validated_specs = list(specs)
+    if len(items) != len(validated_specs):
+        raise ValueError("SFT generator item count must match the input spec count")
+    for raw, spec in zip(items, validated_specs, strict=True):
+        prefix = spec.get("public_task_messages")
+        if prefix is None:
+            continue
+        if not isinstance(raw, Mapping) or set(raw) != {"messages"}:
+            raise ValueError("SFT generator item must contain only messages")
+        messages = raw["messages"]
+        if not isinstance(messages, list):
+            raise TypeError("SFT generator messages must be a list")
+        if len(messages) != len(prefix) + 1:
+            raise ValueError(
+                "SFT generator must preserve the materialized public task prefix and append "
+                "exactly one final assistant response"
+            )
+        if messages[: len(prefix)] != prefix:
+            raise ValueError(
+                "SFT generator changed the materialized public task prefix"
+            )
+        final = messages[-1]
+        if not isinstance(final, Mapping) or final.get("role") != "assistant":
+            raise ValueError("SFT generator final message must be from assistant")
+
+
+
+def _validate_materialized_prompt_requirements(
+    messages: list[Mapping[str, Any]], requirements: Any
+) -> None:
+    if not requirements:
+        return
+    if not isinstance(requirements, list):
+        raise TypeError("public_prompt_requirements must be a list")
+    public_text = "\n".join(
+        str(message.get("content", "")) for message in messages
+    ).casefold()
+    missing = [
+        requirement
+        for requirement in requirements
+        if not isinstance(requirement, str)
+        or requirement.casefold() not in public_text
+    ]
+    if missing:
+        raise ValueError(
+            "SFT task materializer omitted public prompt requirement(s): "
+            + repr(missing)
+        )
+
+
+def _validate_public_task_prefix(
+    messages: Any, *, interaction_modes: list[str]
+) -> None:
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("SFT task materializer messages must be a non-empty list")
+    normalized: list[dict[str, str]] = []
+    for index, message in enumerate(messages):
+        if not isinstance(message, Mapping) or set(message) != {"role", "content"}:
+            raise ValueError(
+                f"SFT task materializer message {index} must contain only role and content"
+            )
+        role = message.get("role")
+        content = message.get("content")
+        if role not in {"system", "user", "assistant"}:
+            raise ValueError(
+                "SFT task materializer messages may contain only system, user, and assistant"
+            )
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("SFT task materializer message content must be non-empty")
+        normalized.append({"role": role, "content": content})
+
+    roles = [message["role"] for message in normalized]
+    system_conditioned = "system_conditioned" in interaction_modes
+    if (roles[0] == "system") != system_conditioned:
+        raise ValueError(
+            "SFT task materializer system message must match system_conditioned"
+        )
+    conversational_roles = roles[1:] if system_conditioned else roles
+    if not conversational_roles or conversational_roles[0] != "user":
+        raise ValueError("SFT task materializer conversation must start with user")
+    if conversational_roles[-1] != "user":
+        raise ValueError("SFT task materializer prefix must end with user")
+    if any(
+        left == right
+        for left, right in zip(
+            conversational_roles, conversational_roles[1:], strict=False
+        )
+    ):
+        raise ValueError("SFT task materializer user/assistant roles must alternate")
+    user_turns = conversational_roles.count("user")
+    if "multi_turn" in interaction_modes:
+        if user_turns < 2:
+            raise ValueError(
+                "multi_turn SFT task materializer prefix requires at least two user messages"
+            )
+    elif user_turns != 1 or len(conversational_roles) != 1:
+        raise ValueError(
+            "single_turn SFT task materializer prefix requires exactly one user message"
+        )
+
 def render_sft_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
     request_json = json.dumps(build_sft_teacher_request_object(specs), ensure_ascii=False, indent=2)
     return (
@@ -75,7 +248,10 @@ def render_sft_batch_prompt(specs: Iterable[Mapping[str, Any]]) -> str:
         "Every message object must include content. System, user, tool, and ordinary assistant messages require non-empty "
         "string content; only an assistant message containing tool_calls may use null content. The final message must always "
         "be an assistant message. Include a leading system message if and only if interaction_modes contains "
-        "system_conditioned. For single_turn, use exactly one user message followed by the final assistant response (with an "
+        "system_conditioned. When public_task_messages is present, copy that list exactly as the conversation prefix, "
+        "without rewriting, reordering, adding, or deleting prefix messages, and append exactly one final assistant "
+        "response. The concrete task has already been materialized; do not invent a replacement task or expose the "
+        "planning brief. For single_turn, use exactly one user message followed by the final assistant response (with an "
         "optional leading system message only when system_conditioned is declared). For multi_turn, use at least two user "
         "messages, with assistant turns between them as needed, and end with the final assistant response. Never end on a user "
         "message. Do not add tools, tool_calls, or tool messages unless interaction_modes contains tool_mediated. For derived "

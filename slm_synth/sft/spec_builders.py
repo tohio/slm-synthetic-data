@@ -150,6 +150,11 @@ def _build_spec(plan: SFTCandidatePlan) -> dict[str, Any]:
     if plan.is_derived:
         if derived_output_constraints:
             result["output_constraints"] = derived_output_constraints
+            public_constraint_text = _public_output_constraint_text(
+                derived_output_constraints
+            )
+            if public_constraint_text:
+                result["public_prompt_requirements"] = [public_constraint_text]
     else:
         if "output_constraints" in source:
             result["output_constraints"] = dict(source["output_constraints"])
