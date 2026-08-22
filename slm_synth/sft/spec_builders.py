@@ -192,13 +192,6 @@ def _materialize_derived_instruction(
     than new IDs attached to the same seed instruction.
     """
     family_label = family.replace("_", " ")
-    public_constraint_text = _public_output_constraint_text(output_constraints)
-    constraint_sentence = (
-        f" The newly instantiated user task must explicitly state these response "
-        f"requirements: {public_constraint_text}."
-        if public_constraint_text
-        else ""
-    )
     return (
         f"Create a fresh, concrete {family_label} training task and produce the "
         "assistant response for that new task. Do not answer or reproduce the "
@@ -213,7 +206,6 @@ def _materialize_derived_instruction(
         "and applicable output constraints, while changing the concrete task "
         "content substantially enough that it is not a renamed or number-swapped "
         "version of the archetype."
-        f"{constraint_sentence}"
     )
 
 

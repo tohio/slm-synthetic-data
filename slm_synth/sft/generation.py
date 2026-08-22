@@ -17,7 +17,6 @@ from slm_synth.sft.batches import (
     render_sft_batch_prompt,
     render_sft_task_materialization_prompt,
     validate_sft_batch_response,
-    validate_sft_generated_task_prefixes,
     validate_sft_rows_against_specs,
 )
 from slm_synth.sft.io import write_jsonl
@@ -132,7 +131,6 @@ def generate_teacher_batch_response_with_metadata(
         prompt=rendered_prompt,
         parser=parse_json_object,
     )
-    validate_sft_generated_task_prefixes(parsed, prepared_specs)
     data = attach_sft_code_fields(parsed, prepared_specs)
     telemetry = combine_telemetry(materializer_telemetry, renderer_telemetry)
     telemetry["role_telemetry"] = {
