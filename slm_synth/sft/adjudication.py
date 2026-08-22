@@ -20,6 +20,7 @@ def _public_evidence(row: Mapping[str, Any]) -> dict[str, Any]:
     deterministic validation before semantic adjudication begins.
     """
     return {
+        "evaluation_target": "assistant_response",
         "public_conversation": list(row.get("messages", [])),
         "deterministic_validation": {
             "status": "passed",
@@ -34,16 +35,22 @@ def _public_evidence(row: Mapping[str, Any]) -> dict[str, Any]:
 def _judge_prompt(row: Mapping[str, Any]) -> str:
     payload = _public_evidence(row)
     return (
-        "Decide whether this candidate is suitable training data from the public conversation and candidate content. "
-        "Evaluate correctness, grounding, completeness, instruction adherence, and material ambiguity. Reject only when "
-        "there is a concrete, material defect supported by the supplied evidence. Do not reject merely because another "
-        "interpretation is possible, wording could be improved, an unstated detail could be more explicit, or you would "
-        "personally answer differently. Do not treat hidden repository metadata, variables, taxonomy labels, or planning "
-        "fields as independent requirements. Deterministic checks are supplied as supporting evidence; review the whole "
-        "candidate, but do not invent conflicting facts about those checks. Never guess and never repair the candidate. "
-        "Do not invent stronger coverage requirements than the user explicitly requested; a valid demonstration of a "
-        "required condition is sufficient unless exhaustive coverage is explicitly requested. When rejecting, identify the "
-        "specific candidate content and public requirement or evidence that makes the defect material.\n\n"
+        "Evaluate the ASSISTANT response or responses in the supplied public conversation as training data. First identify "
+        "what the user asked, what source or context the user supplied, and what the assistant actually did. User messages "
+        "are task and context evidence, not assistant behavior. A user may intentionally request unsafe, private, unsupported, "
+        "incorrect, impossible, or adversarial content; do not reject merely because such content appears in a user message. "
+        "Judge whether the assistant handled the request appropriately. Evaluate correctness, grounding, completeness, "
+        "instruction adherence, and material ambiguity. Reject only when there is a concrete, material defect supported by "
+        "the supplied evidence. Do not reject merely because another interpretation is possible, wording could be improved, "
+        "an unstated detail could be more explicit, or you would personally answer differently. Do not treat hidden repository "
+        "metadata, variables, taxonomy labels, or planning fields as independent requirements. Deterministic checks are "
+        "supplied as supporting evidence; review the whole candidate, but do not invent conflicting facts about those checks. "
+        "Do not invent stronger coverage requirements than the user explicitly requested; a valid demonstration of a required "
+        "condition is sufficient unless exhaustive coverage is explicitly requested. Before REJECT, verify that the claimed "
+        "defect is actually present: identify the exact assistant content and the exact public instruction or evidence it "
+        "violates. Do not invent values, examples, execution behavior, requirements, or facts absent from the supplied "
+        "conversation. If the proposed rejection reason is contradicted by the visible conversation, do not reject for that "
+        "reason. Never guess and never repair the candidate.\n\n"
         "Return exactly three labeled lines:\nASSESSABLE: YES or NO\nDECISION: ACCEPT or REJECT\n"
         "REASON: one concise evidence-based reason\n\n"
         f"Candidate evidence:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"

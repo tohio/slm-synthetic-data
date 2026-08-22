@@ -24,6 +24,7 @@ def _public_evidence(spec: Mapping[str, Any], row: Mapping[str, Any]) -> dict[st
     if isinstance(metadata, Mapping):
         preference_dimension = metadata.get("preference_dimension")
     payload: dict[str, Any] = {
+        "evaluation_target": "chosen_and_rejected_assistant_responses",
         "candidate": dict(row),
         "deterministic_validation": {
             "status": "passed",
@@ -41,16 +42,21 @@ def _public_evidence(spec: Mapping[str, Any], row: Mapping[str, Any]) -> dict[st
 def _judge_prompt(spec: Mapping[str, Any], row: Mapping[str, Any]) -> str:
     payload = _public_evidence(spec, row)
     return (
-        "Decide whether this DPO pair is suitable preference-training data from the public pair evidence. The chosen branch "
-        "must be correct, grounded, complete, and materially better on the supplied preference dimension. The rejected "
-        "branch must remain plausible while exhibiting the intended controlled weakness without unrelated corruption. "
-        "Reject only when there is a concrete, material defect supported by the supplied evidence. Do not reject merely "
-        "because another interpretation is possible, wording could be improved, or you would personally prefer a different "
-        "answer. Do not invent requirements from hidden repository variables, taxonomy labels, or planning fields. "
-        "Deterministic checks are supporting evidence; review the whole pair, but do not invent conflicting facts about "
-        "those checks. Do not invent stronger coverage requirements than the public task explicitly requests. Never guess "
-        "or repair the pair. When rejecting, identify the specific branch content and preference requirement or evidence "
-        "that makes the defect material.\n\nReturn exactly three labeled lines:\nASSESSABLE: YES or NO\n"
+        "Evaluate the CHOSEN and REJECTED assistant responses in this DPO pair using only the supplied public pair evidence. "
+        "First identify the public user request or context, what the chosen assistant response does, and what the rejected "
+        "assistant response does. User or source content is task evidence, not assistant behavior; do not attribute unsafe, "
+        "private, unsupported, incorrect, impossible, or adversarial user content to either assistant branch. The chosen branch "
+        "must be correct, grounded, complete, and materially better on the supplied preference dimension. The rejected branch "
+        "must remain plausible while exhibiting the intended controlled weakness without unrelated corruption. Reject only when "
+        "there is a concrete, material defect supported by the supplied evidence. Do not reject merely because another "
+        "interpretation is possible, wording could be improved, or you would personally prefer a different answer. Do not "
+        "invent requirements from hidden repository variables, taxonomy labels, or planning fields. Deterministic checks are "
+        "supporting evidence; review the whole pair, but do not invent conflicting facts about those checks. Do not invent "
+        "stronger coverage requirements than the public task explicitly requests. Before REJECT, verify that the claimed defect "
+        "is actually present: identify the exact branch content and the exact public instruction, preference requirement, or "
+        "evidence it violates. Do not invent values, examples, execution behavior, requirements, or facts absent from the "
+        "supplied pair evidence. If the proposed rejection reason is contradicted by the visible evidence, do not reject for "
+        "that reason. Never guess or repair the pair.\n\nReturn exactly three labeled lines:\nASSESSABLE: YES or NO\n"
         "DECISION: ACCEPT or REJECT\nREASON: one concise evidence-based reason\n\n"
         f"Pair evidence:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
