@@ -74,41 +74,8 @@ def test_make_openrouter_backed_defaults_match_pretrain_posture():
     assert "--concurrency $(DPO_TARGET_CONCURRENCY)" in makefile
 
 
-def test_generic_run_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one():
-    from slm_synth.dpo.cli import build_parser as build_dpo_parser
+def test_distillation_run_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one():
     from slm_synth.distillation_sft.cli import build_parser as build_distillation_parser
-
-    common_run_args = [
-        "--batch-size",
-        "1",
-        "--output-dir",
-        "datasets",
-        "--manifest-dir",
-        "manifests",
-        "--teacher-model",
-        "openai/gpt-4.1-mini",
-        "--generation-run",
-        "run-smoke",
-        "--max-tokens",
-        "1024",
-    ]
-    generic_args = (
-        (
-            build_dpo_parser,
-            [
-                "generate-llm-run",
-                "--preference-dimensions",
-                "helpfulness_and_completeness",
-                "--candidate-counts",
-                "helpfulness_and_completeness=1",
-                *common_run_args,
-            ],
-        ),
-    )
-    for parser_builder, parser_args in generic_args:
-        args = parser_builder().parse_args(parser_args)
-        assert args.adaptive_initial_in_flight == DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT
-        assert args.concurrency == DEFAULT_OPENROUTER_SMOKE_CONCURRENCY
 
     distillation_args = build_distillation_parser().parse_args(
         [

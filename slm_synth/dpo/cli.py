@@ -5,26 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from slm_synth.throughput_defaults import (
-    DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
-    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE,
-    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
-    DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
-)
-from slm_synth.run_summary import print_dpo_run_summary
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
-from slm_synth.dpo.runs import generate_llm_run
-from slm_synth.dpo.spec_builders import DPO_PREFERENCE_DIMENSIONS
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
-
-
-def _openrouter_routing_kwargs(args: argparse.Namespace) -> dict[str, str | None]:
-    kwargs: dict[str, str | None] = {}
-    if getattr(args, "openrouter_routing_mode", None) is not None:
-        kwargs["openrouter_routing_mode"] = args.openrouter_routing_mode
-    if getattr(args, "openrouter_provider", None) is not None:
-        kwargs["openrouter_provider"] = args.openrouter_provider
-    return kwargs
 
 
 def cmd_report_coverage(args: argparse.Namespace) -> int:
@@ -41,98 +23,12 @@ def cmd_report_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_generate_llm_run(args: argparse.Namespace) -> int:
-    candidate_counts = _parse_named_counts(args.candidate_counts, name="preference dimension")
-    result = generate_llm_run(
-        preference_dimensions=args.preference_dimensions,
-        candidate_counts_by_dimension=candidate_counts,
-        batch_size=args.batch_size,
-        output_dir=args.output_dir,
-        manifest_dir=args.manifest_dir,
-        teacher_model=args.teacher_model,
-        teacher_provider=args.teacher_provider,
-        generation_run=args.generation_run,
-        max_tokens=args.max_tokens,
-        adjudicator_model=args.adjudicator_model,
-        adjudicator_max_tokens=args.adjudicator_max_tokens,
-        reviewer_model=args.reviewer_model,
-        reviewer_max_tokens=args.reviewer_max_tokens,
-        start_index=args.start_index,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        request_timeout=args.request_timeout,
-        max_request_retries=args.max_request_retries,
-        max_retryable_request_attempts=args.max_retryable_request_attempts,
-        retry_max_elapsed_seconds=args.retry_max_elapsed_seconds,
-        adaptive_maximum_in_flight=args.concurrency,
-        adaptive_initial_in_flight=args.adaptive_initial_in_flight,
-        adaptive_initial_batch_size=args.adaptive_initial_batch_size,
-        adaptive_batch_increase_successes=args.adaptive_batch_increase_successes,
-        concurrency=args.concurrency,
-        run_manifest_filename=args.run_manifest_filename,
-        holdout_registry=_load_holdout_registry(args.holdout_registry),
-        **_openrouter_routing_kwargs(args),
-    )
-    print(
-        "generated "
-        f"{result.row_count} LLM-generated DPO row(s) across "
-        f"{len(result.preference_dimensions)} preference dimension(s) "
-        f"for run {result.generation_run}; run manifest: {result.manifest_path}"
-    )
-    print_dpo_run_summary(result.manifest_path)
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m slm_synth.dpo.cli",
-        description="Synthetic DPO dataset helpers.",
+        description="Synthetic DPO dataset reporting helpers.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    generate_run_parser = subparsers.add_parser("generate-llm-run")
-    generate_run_parser.add_argument(
-        "--preference-dimensions",
-        nargs="+",
-        default=["all"],
-        choices=["all", *sorted(DPO_PREFERENCE_DIMENSIONS)],
-        help="DPO preference dimensions to generate, or 'all'.",
-    )
-    generate_run_parser.add_argument(
-        "--candidate-counts",
-        required=True,
-        nargs="+",
-        metavar="DIMENSION=COUNT",
-        help="Explicit candidate count for every requested preference dimension.",
-    )
-    generate_run_parser.add_argument("--batch-size", required=True, type=int)
-    generate_run_parser.add_argument("--output-dir", required=True)
-    generate_run_parser.add_argument("--manifest-dir", required=True)
-    generate_run_parser.add_argument("--teacher-model", required=True)
-    generate_run_parser.add_argument("--teacher-provider", default="openrouter")
-    generate_run_parser.add_argument("--generation-run", required=True)
-    generate_run_parser.add_argument("--max-tokens", required=True, type=int)
-    generate_run_parser.add_argument("--adjudicator-model", default=None)
-    generate_run_parser.add_argument("--adjudicator-max-tokens", type=int, default=None)
-    generate_run_parser.add_argument("--reviewer-model", default=None)
-    generate_run_parser.add_argument("--reviewer-max-tokens", type=int, default=None)
-    generate_run_parser.add_argument("--start-index", type=int, default=1)
-    generate_run_parser.add_argument("--temperature", type=float, default=None)
-    generate_run_parser.add_argument("--top-p", type=float, default=None)
-    generate_run_parser.add_argument("--request-timeout", type=float, default=None)
-    generate_run_parser.add_argument("--max-request-retries", type=int, default=3)
-    generate_run_parser.add_argument("--max-retryable-request-attempts", type=int, default=20)
-    generate_run_parser.add_argument("--retry-max-elapsed-seconds", type=float, default=1800.0)
-    generate_run_parser.add_argument("--adaptive-maximum-in-flight", type=int, default=1)
-    generate_run_parser.add_argument("--adaptive-initial-in-flight", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT)
-    generate_run_parser.add_argument("--adaptive-initial-batch-size", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_BATCH_SIZE)
-    generate_run_parser.add_argument("--adaptive-batch-increase-successes", type=int, default=DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES)
-    generate_run_parser.add_argument("--concurrency", type=int, default=DEFAULT_OPENROUTER_SMOKE_CONCURRENCY)
-    generate_run_parser.add_argument("--run-manifest-filename", default=None)
-    generate_run_parser.add_argument("--openrouter-routing-mode", choices=["auto", "prefer", "strict"], default=None)
-    generate_run_parser.add_argument("--openrouter-provider", default=None)
-    generate_run_parser.add_argument("--holdout-registry", default=None)
-    generate_run_parser.set_defaults(func=cmd_generate_llm_run)
 
     coverage_parser = subparsers.add_parser("report-coverage")
     coverage_parser.add_argument(
@@ -147,25 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.set_defaults(func=cmd_report_coverage)
 
     return parser
-
-
-def _parse_named_counts(values: list[str], *, name: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for value in values:
-        key, separator, raw_count = value.partition("=")
-        key = key.strip().lower()
-        if not separator or not key:
-            raise ValueError(f"invalid {name} candidate count '{value}'; expected DIMENSION=COUNT")
-        if key in counts:
-            raise ValueError(f"duplicate candidate count for {name} '{key}'")
-        try:
-            count = int(raw_count)
-        except ValueError as exc:
-            raise ValueError(f"candidate count for {name} '{key}' must be an integer") from exc
-        if count < 1:
-            raise ValueError(f"candidate count for {name} '{key}' must be positive")
-        counts[key] = count
-    return counts
 
 
 def _load_holdout_registry(path: str | None) -> HoldoutRegistry | None:

@@ -14,11 +14,6 @@ from slm_synth.dpo.generation import (
 from slm_synth.dpo.io import read_jsonl, write_jsonl
 from slm_synth.dpo.manifest import build_manifest_payload, write_manifest, write_run_manifest
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
-from slm_synth.dpo.runs import (
-    DPOLLMRunResult,
-    generate_llm_run,
-    resolve_preference_dimensions,
-)
 from slm_synth.dpo.schema import validate_dpo_row, validate_message_list
 from slm_synth.dpo.spec_builders import (
     DPO_PREFERENCE_DIMENSIONS,
@@ -27,7 +22,6 @@ from slm_synth.dpo.spec_builders import (
 from slm_synth.dpo.specs import teacher_visible_dpo_spec, validate_dpo_spec
 
 __all__ = [
-    "DPOLLMRunResult",
     "DPO_PREFERENCE_DIMENSIONS",
     "DPOLLMBatchResult",
     "build_coverage_report",
@@ -37,10 +31,8 @@ __all__ = [
     "build_dpo_teacher_request_items",
     "build_dpo_teacher_request_object",
     "generate_llm_batch",
-    "generate_llm_run",
     "materialize_llm_batch",
     "read_jsonl",
-    "resolve_preference_dimensions",
     "teacher_visible_dpo_spec",
     "validate_dpo_batch_response",
     "validate_dpo_row",
