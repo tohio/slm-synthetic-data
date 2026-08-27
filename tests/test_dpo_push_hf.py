@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from slm_synth.cards import build_dataset_card
-from slm_synth.alignment_tokens import estimate_dpo_tokens
+from slm_synth.runtime.reporting import estimate_dpo_tokens
 from slm_synth.dpo.push_hf import count_and_validate_jsonl, discover_jsonl_files, push_dpo_run
 from slm_synth.dpo.report import build_coverage_report, write_coverage_report
 from slm_synth.taxonomy.holdouts import HoldoutRegistry

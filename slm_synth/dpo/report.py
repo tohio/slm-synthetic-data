@@ -7,14 +7,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from slm_synth.alignment_evidence import (
+from slm_synth.runtime.reporting import (
     build_deterministic_output_validation_summary,
     build_quality_decision_summary,
     deterministic_validation_blockers,
     filter_validation_summary,
     quality_decision_blockers,
+    estimate_dpo_tokens,
 )
-from slm_synth.alignment_tokens import estimate_dpo_tokens
 from slm_synth.dpo.acceptance import build_dpo_content_summary, partition_unique_dpo_rows
 from slm_synth.dpo.io import read_jsonl
 from slm_synth.taxonomy.holdouts import HoldoutRegistry

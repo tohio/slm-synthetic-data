@@ -12,7 +12,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
-from slm_synth.accepted_target import require_publish_ready_manifest
+from slm_synth.hf_push import require_publish_ready_manifest
 from slm_synth.distillation_sft.schema import validate_public_row
 from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text
 from slm_synth.distillation_sft.response_diversity import (

@@ -1,6 +1,6 @@
 import pytest
 
-from slm_synth.alignment_tokens import estimate_dpo_tokens, estimate_sft_tokens
+from slm_synth.runtime.reporting import estimate_dpo_tokens, estimate_sft_tokens
 
 
 def test_alignment_token_estimates_ignore_ids_and_audit_metadata():

@@ -7,14 +7,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from slm_synth.alignment_evidence import (
+from slm_synth.runtime.reporting import (
     build_quality_decision_summary,
     build_deterministic_output_validation_summary,
     deterministic_validation_blockers,
     filter_validation_summary,
     quality_decision_blockers,
+    estimate_sft_tokens,
 )
-from slm_synth.alignment_tokens import estimate_sft_tokens
 from slm_synth.sft.acceptance import build_sft_content_summary, partition_unique_sft_rows
 from slm_synth.sft.publication_quality import build_publication_quality_summary
 from slm_synth.sft.schema import validate_sft_row

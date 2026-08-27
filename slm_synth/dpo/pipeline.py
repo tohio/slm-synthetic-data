@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from slm_synth.alignment_tokens import estimate_dpo_tokens
+from slm_synth.runtime.reporting import estimate_dpo_tokens
 from slm_synth.dpo.schema import validate_dpo_row as validate_public_dpo_row
 
 from slm_synth.runtime import (

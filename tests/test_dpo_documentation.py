@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from slm_synth.dpo.spec_builders import DPO_PREFERENCE_DIMENSIONS
+from slm_synth.dpo.pipeline import DPO_DIMENSIONS as DPO_PREFERENCE_DIMENSIONS
 
 
 ROOT = Path(__file__).resolve().parents[1]

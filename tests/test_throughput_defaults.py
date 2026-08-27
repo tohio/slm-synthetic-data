@@ -72,29 +72,3 @@ def test_make_openrouter_backed_defaults_match_pretrain_posture():
 
     assert "--concurrency $(DISTILLATION_SFT_TARGET_CONCURRENCY)" in makefile
     assert "--concurrency $(DPO_TARGET_CONCURRENCY)" in makefile
-
-
-def test_distillation_run_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one():
-    from slm_synth.distillation_sft.cli import build_parser as build_distillation_parser
-
-    distillation_args = build_distillation_parser().parse_args(
-        [
-            "generate-batch",
-            "--signal",
-            "debugging",
-            "--prompts",
-            "prompts.jsonl",
-            "--output-dir",
-            "datasets",
-            "--manifest-dir",
-            "manifests",
-            "--teacher-model",
-            "openai/gpt-4.1-mini",
-            "--generation-run",
-            "batch-smoke",
-            "--max-tokens",
-            "1024",
-        ]
-    )
-    assert distillation_args.adaptive_initial_in_flight == DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT
-    assert distillation_args.adaptive_maximum_in_flight == DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT

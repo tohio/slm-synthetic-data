@@ -11,7 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, create_repo
 
-from slm_synth.accepted_target import discover_run_manifest, require_publish_ready_manifest
+from slm_synth.hf_push import discover_run_manifest, require_publish_ready_manifest
 from slm_synth.dpo.card import require_dpo_dataset_card_configs
 from slm_synth.dpo.report import build_coverage_report, require_publish_ready_report
 from slm_synth.dpo.schema import validate_dpo_row
