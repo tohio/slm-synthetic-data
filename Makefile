@@ -231,8 +231,8 @@ HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_R
 	alignment-preflight sft-preflight dpo-preflight \
 	sft-smoke sft-generate sft-report sft-inspect sft-push \
 	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
-	model-qualify model-qualify-pretrain model-qualify-alignment \
-	model-qualify-distillation model-qualify-all estimate-generation-cost \
+	model-qualify model-qualify-pretrain model-qualify-sft model-qualify-dpo \
+	model-qualify-distillation-sft model-qualify-distillation-dpo model-qualify-all estimate-generation-cost \
 	hf-delete-datasets hf-delete-distillation hf-delete-legacy-distillation-dpo \
 	test clean
 
@@ -754,16 +754,23 @@ model-qualify:
 >   --roles $(QUALIFY_ROLES) \
 >   --max-tokens $(QUALIFY_MAX_TOKENS) \
 >   --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE) \
+>   $(OPENROUTER_PROVIDER_ARG) \
 >   --output $(QUALIFY_OUTPUT)
 
 model-qualify-pretrain:
-> $(MAKE) model-qualify QUALIFY_ROLES=pretrain-generator
+> $(MAKE) model-qualify QUALIFY_ROLES=pretrain
 
-model-qualify-alignment:
-> $(MAKE) model-qualify QUALIFY_ROLES=sft-generator,sft-judge,sft-reviewer,dpo-generator,dpo-judge,dpo-reviewer
+model-qualify-sft:
+> $(MAKE) model-qualify QUALIFY_ROLES=sft
 
-model-qualify-distillation:
-> $(MAKE) model-qualify QUALIFY_ROLES=distillation-sft-generator,distillation-sft-judge,distillation-sft-reviewer,distillation-dpo-generator,distillation-dpo-judge,distillation-dpo-reviewer
+model-qualify-dpo:
+> $(MAKE) model-qualify QUALIFY_ROLES=dpo
+
+model-qualify-distillation-sft:
+> $(MAKE) model-qualify QUALIFY_ROLES=distillation-sft
+
+model-qualify-distillation-dpo:
+> $(MAKE) model-qualify QUALIFY_ROLES=distillation-dpo
 
 model-qualify-all:
 > $(MAKE) model-qualify QUALIFY_ROLES=all

@@ -95,24 +95,57 @@ def test_cost_estimator_counts_reviewer_only_after_judge_acceptance(tmp_path):
     assert report["role_costs_usd"]["reviewer"] == pytest.approx(50 * 110 * 0.000001)
 
 
-def test_model_qualification_uses_the_same_plain_contract(monkeypatch):
+def test_model_qualification_uses_the_same_structured_contract(monkeypatch):
     class Backend:
-        judge_attempts = 0
-
-        def generate_text_with_metadata(self, *, prompt, system_prompt):
-            if "ASSESSABLE" in prompt:
-                self.judge_attempts += 1
-                if self.judge_attempts == 1:
-                    text = "ASSESSABLE: NO\nDECISION: REJECT"
-                else:
-                    text = "ASSESSABLE: NO\nDECISION: REJECT\nREASON: insufficient context"
-            elif "AGREE" in prompt:
-                text = "AGREE: NO\nREASON: the answer was unsupported"
+        def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
+            if "pretrain_judge" in schema_name:
+                data = {
+                    "decisions": {
+                        "probe": {
+                            "assessable": False,
+                            "quality_valid": False,
+                            "signal_aligned": False,
+                            "natural_and_useful": False,
+                            "reason": "insufficient evidence",
+                        }
+                    }
+                }
+            elif "judge" in schema_name:
+                data = {
+                    "decisions": {
+                        "probe": {
+                            "assessable": False,
+                            "accepted": False,
+                            "reason": "insufficient evidence",
+                        }
+                    }
+                }
+            elif "reviewer" in schema_name:
+                data = {
+                    "decisions": {
+                        "probe": {
+                            "agreed": False,
+                            "reason": "unsupported claim",
+                        }
+                    }
+                }
             else:
-                text = '{"items":[{"content":"Grounded answer."}]}'
-            return {"text": text, "telemetry": {"request_count": 1}}
+                data = {"items": [{"content": "Grounded answer."}]}
+            return {"data": data, "telemetry": {"request_count": 1}}
 
-    monkeypatch.setattr("slm_synth.qualify_model.LLMBackend", lambda **kwargs: Backend())
+    class Suitability:
+        def as_dict(self):
+            return {
+                "model": "example/model",
+                "reasoning_capable": False,
+                "reasoning_mandatory": False,
+                "reasoning_disable_supported": True,
+                "reasoning_policy_pass": True,
+                "source": "OpenRouter",
+            }
+
+    monkeypatch.setattr("slm_synth.qualify_model.get_reasoning_suitability", lambda model: Suitability())
+    monkeypatch.setattr("slm_synth.qualify_model.build_backend", lambda **kwargs: Backend())
     report = qualify(
         model="example/model",
         roles=["sft-generator", "sft-judge", "sft-reviewer"],
@@ -120,13 +153,10 @@ def test_model_qualification_uses_the_same_plain_contract(monkeypatch):
         routing_mode="auto",
     )
 
-    assert report["contract"] == "portable_plain_text_v1"
-    assert report["schema_version"] == 2
+    assert report["contract"] == "openrouter_strict_json_schema_v1"
+    assert report["schema_version"] == 6
     assert report["passed"] is True
     assert all(result["passed"] for result in report["roles"].values())
-    assert report["roles"]["sft-judge"]["transport_compatible"] is True
-    assert report["roles"]["sft-judge"]["contract_pass"] is True
-    assert report["roles"]["sft-judge"]["telemetry"]["batch_count"] == 2
 
 
 def test_plain_parser_error_retains_transport_evidence_after_bounded_retries():
