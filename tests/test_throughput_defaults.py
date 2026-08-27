@@ -64,20 +64,18 @@ def test_make_openrouter_backed_defaults_match_pretrain_posture():
     assert f"PRETRAIN_CONCURRENCY ?= {DEFAULT_OPENROUTER_SMOKE_CONCURRENCY}" in makefile
     assert f"PRETRAIN_TARGET_CONCURRENCY ?= {DEFAULT_OPENROUTER_TARGET_CONCURRENCY}" in makefile
 
-    for name in ("DISTILLATION_SFT", "SFT", "DPO"):
+    for name in ("DISTILLATION_SFT", "DPO"):
         assert f"{name}_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)" in makefile
         assert f"{name}_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)" in makefile
         assert f"{name}_TARGET_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)" in makefile
         assert f"{name}_BATCH_INCREASE_SUCCESSES ?= {DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES}" in makefile
 
     assert "--concurrency $(DISTILLATION_SFT_TARGET_CONCURRENCY)" in makefile
-    assert "--concurrency $(SFT_TARGET_CONCURRENCY)" in makefile
     assert "--concurrency $(DPO_TARGET_CONCURRENCY)" in makefile
 
 
 def test_generic_run_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one():
     from slm_synth.dpo.cli import build_parser as build_dpo_parser
-    from slm_synth.sft.cli import build_parser as build_sft_parser
     from slm_synth.distillation_sft.cli import build_parser as build_distillation_parser
 
     common_run_args = [
@@ -95,17 +93,6 @@ def test_generic_run_cli_defaults_do_not_clamp_adaptive_initial_in_flight_to_one
         "1024",
     ]
     generic_args = (
-        (
-            build_sft_parser,
-            [
-                "generate-llm-run",
-                "--families",
-                "everyday_conversation",
-                "--candidate-counts",
-                "everyday_conversation=1",
-                *common_run_args,
-            ],
-        ),
         (
             build_dpo_parser,
             [

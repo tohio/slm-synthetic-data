@@ -2,9 +2,13 @@ import json
 
 import pytest
 
-from slm_synth.sft.io import write_jsonl
+from slm_synth.runtime import write_jsonl as _runtime_write_jsonl
 from slm_synth.sft.report import build_coverage_report, require_publish_ready_report, write_coverage_report
 from slm_synth.taxonomy.holdouts import HoldoutRecord, HoldoutRegistry
+
+
+def write_jsonl(rows, path):
+    _runtime_write_jsonl(path, rows)
 
 
 def _quality_decision(accepted=True):
