@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -66,6 +67,16 @@ def _signals_from_args(validated_dir: Path, signal: str | None) -> list[str]:
     return signals
 
 
+def _record_sha256(row: Mapping[str, Any]) -> str:
+    payload = json.dumps(
+        dict(row),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _load_validated_rows(validated_dir: Path, signal: str) -> list[dict[str, Any]]:
     path = validated_dir / signal_to_filename(signal)
     if not path.exists():
@@ -81,10 +92,39 @@ def _load_validated_rows(validated_dir: Path, signal: str) -> list[dict[str, Any
             {
                 "artifact_id": f"{signal}:{line_number:09d}",
                 "signal": signal,
+                "record_sha256": _record_sha256(row),
                 "record": row,
             }
         )
     return rows
+
+
+def _load_decision_cache(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+
+    cache: dict[str, dict[str, Any]] = {}
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Invalid cached quality decision at {path}:{line_number}: {exc}"
+            ) from exc
+        if not isinstance(row, dict):
+            raise ValueError(
+                f"Cached quality decision must be an object at {path}:{line_number}"
+            )
+        artifact_id = row.get("artifact_id")
+        record_sha256 = row.get("record_sha256")
+        if isinstance(artifact_id, str) and isinstance(record_sha256, str):
+            cache[artifact_id] = row
+    return cache
 
 
 def judge_schema(expected_ids: Sequence[str]) -> dict[str, Any]:
@@ -419,7 +459,21 @@ def run_quality(
         rows = _load_validated_rows(validated_dir, current_signal)
         totals["validated"] += len(rows)
 
-        judge_batches = chunked(rows, judge_batch_size)
+        rows_by_id = {row["artifact_id"]: row for row in rows}
+        judge_cache_path = manifest_dir / f"{current_signal}.judge.jsonl"
+        cached_judge = _load_decision_cache(judge_cache_path)
+        judge_decisions: dict[str, dict[str, Any]] = {
+            artifact_id: decision
+            for artifact_id, decision in cached_judge.items()
+            if artifact_id in rows_by_id
+            and decision.get("record_sha256")
+            == rows_by_id[artifact_id]["record_sha256"]
+        }
+        uncached_judge_rows = [
+            row for row in rows if row["artifact_id"] not in judge_decisions
+        ]
+
+        judge_batches = chunked(uncached_judge_rows, judge_batch_size)
         judge_results, judge_failures = run_model_stage_with_isolation(
             stage=f"pretrain-judge:{current_signal}",
             batches=judge_batches,
@@ -435,11 +489,11 @@ def run_quality(
             max_attempts=stage_batch_attempts,
         ) if judge_batches else ([], [])
 
-        judge_decisions: dict[str, dict[str, Any]] = {}
         for result in judge_results:
             judge_decisions.update(result)
+        for artifact_id, decision in judge_decisions.items():
+            decision["record_sha256"] = rows_by_id[artifact_id]["record_sha256"]
 
-        rows_by_id = {row["artifact_id"]: row for row in rows}
         missing_judge = [
             artifact_id
             for artifact_id in rows_by_id
@@ -457,7 +511,22 @@ def run_quality(
         ]
 
         review_rows = [rows_by_id[artifact_id] for artifact_id in judge_accepted_ids]
-        reviewer_batches = chunked(review_rows, reviewer_batch_size)
+        reviewer_cache_path = manifest_dir / f"{current_signal}.reviewer.jsonl"
+        cached_reviewer = _load_decision_cache(reviewer_cache_path)
+        reviewer_decisions: dict[str, dict[str, Any]] = {
+            artifact_id: decision
+            for artifact_id, decision in cached_reviewer.items()
+            if artifact_id in rows_by_id
+            and artifact_id in judge_accepted_ids
+            and decision.get("record_sha256")
+            == rows_by_id[artifact_id]["record_sha256"]
+        }
+        uncached_review_rows = [
+            row for row in review_rows
+            if row["artifact_id"] not in reviewer_decisions
+        ]
+
+        reviewer_batches = chunked(uncached_review_rows, reviewer_batch_size)
         reviewer_results, reviewer_failures = run_model_stage_with_isolation(
             stage=f"pretrain-reviewer:{current_signal}",
             batches=reviewer_batches,
@@ -474,9 +543,10 @@ def run_quality(
             max_attempts=stage_batch_attempts,
         ) if reviewer_batches else ([], [])
 
-        reviewer_decisions: dict[str, dict[str, Any]] = {}
         for result in reviewer_results:
             reviewer_decisions.update(result)
+        for artifact_id, decision in reviewer_decisions.items():
+            decision["record_sha256"] = rows_by_id[artifact_id]["record_sha256"]
 
         missing_reviewer = [
             artifact_id

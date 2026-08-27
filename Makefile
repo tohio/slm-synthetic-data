@@ -49,10 +49,19 @@ PRETRAIN_BATCH_SIZE ?= 32
 PRETRAIN_MAX_TOKENS ?= $(MAX_TOKENS)
 PRETRAIN_CONCURRENCY ?= 1
 PRETRAIN_TARGET_CONCURRENCY ?= 4
-PRETRAIN_MODEL ?= $(MODEL)
+PRETRAIN_MODEL ?= openai/gpt-5.6-luna-pro
 PRETRAIN_SIGNAL ?=
 PRETRAIN_SIGNAL_ARG := $(if $(PRETRAIN_SIGNAL),--signal $(PRETRAIN_SIGNAL),)
 PRETRAIN_STAGE ?= deduped
+PRETRAIN_JUDGE_MODEL ?= google/gemma-4-31b-it
+PRETRAIN_REVIEWER_MODEL ?= openai/gpt-5.6-luna-pro
+PRETRAIN_JUDGE_MAX_TOKENS ?= 4096
+PRETRAIN_REVIEWER_MAX_TOKENS ?= 4096
+PRETRAIN_JUDGE_BATCH_SIZE ?= 10
+PRETRAIN_REVIEWER_BATCH_SIZE ?= 10
+PRETRAIN_QUALITY_CONCURRENCY ?= 8
+PRETRAIN_STAGE_BATCH_ATTEMPTS ?= 3
+PRETRAIN_MAX_BACKFILL_ROUNDS ?= 4
 PRETRAIN_DIVERSITY_SAMPLE_SIZE ?= 10000
 PRETRAIN_DIVERSITY_THRESHOLD ?= 0.80
 HF_REPO ?=
@@ -228,7 +237,7 @@ help:
 > @echo "  make dpo-report          Rebuild DPO coverage and dataset card"
 > @echo ""
 > @echo "Push to Hugging Face:"
-> @echo "  make pretrain-push       Push pretraining deduped data"
+> @echo "  make pretrain-push       Push final accepted pretraining dataset"
 > @echo "  make distillation-sft-push        Push a distillation SFT run"
 > @echo "  make distillation-dpo-push        Push a distillation DPO run"
 > @echo "  make sft-push            Push one consolidated SFT dataset"
@@ -255,6 +264,14 @@ help:
 > @echo "  PRETRAIN_TOKENS=$(PRETRAIN_TOKENS)"
 > @echo "  PRETRAIN_TARGET_TOKENS=$(PRETRAIN_TARGET_TOKENS)"
 > @echo "  PRETRAIN_MAX_TOKENS=$(PRETRAIN_MAX_TOKENS)"
+> @echo "  PRETRAIN_MODEL=$(PRETRAIN_MODEL)"
+> @echo "  PRETRAIN_JUDGE_MODEL=$(PRETRAIN_JUDGE_MODEL)"
+> @echo "  PRETRAIN_REVIEWER_MODEL=$(PRETRAIN_REVIEWER_MODEL)"
+> @echo "  PRETRAIN_JUDGE_BATCH_SIZE=$(PRETRAIN_JUDGE_BATCH_SIZE)"
+> @echo "  PRETRAIN_REVIEWER_BATCH_SIZE=$(PRETRAIN_REVIEWER_BATCH_SIZE)"
+> @echo "  PRETRAIN_QUALITY_CONCURRENCY=$(PRETRAIN_QUALITY_CONCURRENCY)"
+> @echo "  PRETRAIN_STAGE_BATCH_ATTEMPTS=$(PRETRAIN_STAGE_BATCH_ATTEMPTS)"
+> @echo "  PRETRAIN_MAX_BACKFILL_ROUNDS=$(PRETRAIN_MAX_BACKFILL_ROUNDS)"
 > @echo "  PRETRAIN_DIVERSITY_SAMPLE_SIZE=$(PRETRAIN_DIVERSITY_SAMPLE_SIZE)"
 > @echo "  PRETRAIN_DIVERSITY_THRESHOLD=$(PRETRAIN_DIVERSITY_THRESHOLD)"
 > @echo "  DISTILLATION_SFT_CANDIDATE_COUNTS=$(DISTILLATION_SFT_CANDIDATE_COUNTS)"
@@ -287,7 +304,18 @@ pretrain-smoke:
 >   --run $(PRETRAIN_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.curate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.pipeline \
+>   --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG) \
+>   --judge-model $(PRETRAIN_JUDGE_MODEL) \
+>   --reviewer-model $(PRETRAIN_REVIEWER_MODEL) \
+>   --judge-max-tokens $(PRETRAIN_JUDGE_MAX_TOKENS) \
+>   --reviewer-max-tokens $(PRETRAIN_REVIEWER_MAX_TOKENS) \
+>   --judge-batch-size $(PRETRAIN_JUDGE_BATCH_SIZE) \
+>   --reviewer-batch-size $(PRETRAIN_REVIEWER_BATCH_SIZE) \
+>   --quality-concurrency $(PRETRAIN_QUALITY_CONCURRENCY) \
+>   --stage-batch-attempts $(PRETRAIN_STAGE_BATCH_ATTEMPTS) \
+>   --max-backfill-rounds $(PRETRAIN_MAX_BACKFILL_ROUNDS) \
+>   $(OPENROUTER_ROUTING_ARGS)
 > $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_RUN)
 
@@ -302,12 +330,23 @@ pretrain-generate:
 >   --run $(PRETRAIN_TARGET_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.curate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.pipeline \
+>   --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG) \
+>   --judge-model $(PRETRAIN_JUDGE_MODEL) \
+>   --reviewer-model $(PRETRAIN_REVIEWER_MODEL) \
+>   --judge-max-tokens $(PRETRAIN_JUDGE_MAX_TOKENS) \
+>   --reviewer-max-tokens $(PRETRAIN_REVIEWER_MAX_TOKENS) \
+>   --judge-batch-size $(PRETRAIN_JUDGE_BATCH_SIZE) \
+>   --reviewer-batch-size $(PRETRAIN_REVIEWER_BATCH_SIZE) \
+>   --quality-concurrency $(PRETRAIN_QUALITY_CONCURRENCY) \
+>   --stage-batch-attempts $(PRETRAIN_STAGE_BATCH_ATTEMPTS) \
+>   --max-backfill-rounds $(PRETRAIN_MAX_BACKFILL_ROUNDS) \
+>   $(OPENROUTER_ROUTING_ARGS)
 > $(PYTHON) -m slm_synth.pretrain.report_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(MAKE) pretrain-report PRETRAIN_REPORT_RUN=$(PRETRAIN_TARGET_RUN)
 
 pretrain-report:
-> $(PYTHON) -m slm_synth.pretrain.curate --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG) --verify-only
+> $(PYTHON) -m slm_synth.pretrain.pipeline --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG) --verify-only
 > $(PYTHON) -m slm_synth.pretrain.manifest \
 >   --config $(CONFIG_FILE) \
 >   --generation-run $(PRETRAIN_REPORT_RUN)
