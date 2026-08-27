@@ -4,32 +4,63 @@ Synthetic dataset generation for the SLM training stack.
 
 ## Overview
 
-This repository generates synthetic datasets for pretraining, supervised fine-tuning, preference tuning, and distillation workflows in the SLM stack. It owns data creation, validation, manifests, coverage reports, dataset cards, and Hugging Face publishing helpers. It does not train models, run trained-model evals, create checkpoints, export models, or produce logits artifacts.
+This repository produces exactly five synthetic dataset products:
+
+1. pretraining
+2. generic SFT
+3. generic DPO
+4. distillation SFT
+5. distillation DPO
+
+It owns generation, deterministic validation, model-based quality review, manifests, reporting, and Hugging Face publication. It does not train student models, run model evaluation, create checkpoints, export models, or generate logits.
 
 ## Architecture
 
-![Architecture](docs/architecture.png)
+All five products use one shared mechanical runtime under `slm_synth/runtime/`. Dataset packages own their prompts, schemas, deterministic validators, judge/reviewer semantics, final acceptance rules, reports, and publication contracts.
 
-OpenRouter-backed generation flows through `slm_synth/llm.py` for provider calls, retries, routing, structured outputs, and telemetry. Dataset-specific packages own their public row contracts, reports, and push surfaces. Pretraining uses grounded artifact builders; SFT, DPO, distillation SFT, and distillation DPO use structured provider generation. Distillation DPO uses deterministic preference specs as anchors for teacher-quality versus controlled-weak pairs.
+```text
+slm_synth/runtime/
+  backend.py      OpenRouter backend construction and routing
+  batching.py     batching and cardinality helpers
+  stages.py       concurrent stage execution, retries, recursive isolation
+  novelty.py      exact/near-duplicate filtering
+  io.py           JSON/JSONL helpers
+  reporting.py    shared report evidence/token helpers
 
-## Features
+slm_synth/
+  pretrain/
+  sft/
+  dpo/
+  distillation_sft/
+  distillation_dpo/
+```
 
-- Grounded synthetic pretraining signals consolidated into one globally duplicate-free dataset.
-- Generic SFT and DPO dataset generation.
-- Distillation SFT teacher prompt/response datasets.
-- Distillation DPO preference datasets for distilled-model alignment.
-- Adaptive request admission, adaptive batch sizing, retry telemetry, and OpenRouter routing policy.
-- Public dataset rows separated from manifests, scratch files, provider internals, batch shards, and retry artifacts.
+Supported production flows:
+
+```text
+Pretrain:
+grounded generation -> deterministic validation -> Gemma judge -> Luna reviewer
+-> final global dedup -> accepted-token accounting/backfill -> publish
+
+SFT:
+derivation -> task -> novelty -> answer -> deterministic validation
+-> Nemotron judge -> Gemma reviewer -> final dedup -> publish
+
+DPO:
+derivation -> task -> novelty -> pair -> deterministic validation
+-> Nemotron judge -> Gemma reviewer -> final dedup -> publish
+
+Distillation SFT:
+derivation -> student prompt -> novelty -> teacher response
+-> deterministic validation/response novelty -> Nemotron judge
+-> Gemma reviewer -> final prompt/response dedup -> publish
+
+Distillation DPO:
+derivation -> task -> novelty -> pair -> deterministic validation
+-> five-gate Gemma judge -> Luna reviewer -> final dedup -> publish
+```
 
 ## Getting Started
-
-### Prerequisites
-
-- Python 3.12 or newer.
-- An OpenRouter API key for live generation.
-- A Hugging Face token only when publishing datasets.
-
-### Installation
 
 ```bash
 git clone https://github.com/tohio/slm-synthetic-data.git
@@ -39,94 +70,55 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Configuration
-
-Create `.env`:
+Create `.env` with the credentials needed for live generation/publication:
 
 ```bash
 OPENROUTER_API_KEY=...
 HF_TOKEN=...
 ```
 
-The validated default live model is configured with an overrideable Make variable:
+OpenRouter routing defaults to `auto`, preserving provider fallback. Models and providers remain configurable through Make variables.
 
-```bash
-MODEL=deepseek/deepseek-v4-flash
+## Supported Commands
+
+Every dataset exposes the same five command shapes:
+
+```text
+<dataset>-smoke
+<dataset>-generate
+<dataset>-inspect
+<dataset>-report
+<dataset>-push
 ```
 
-Swap models for any run without editing the repository:
-
-```bash
-MODEL=<openrouter-model-id> make sft-smoke
-```
-
-OpenRouter routing defaults to `auto`, which preserves provider fallback when an endpoint is throttled. Use `prefer` to try a provider first while retaining fallback; use `strict` only when provider pinning is required.
-
-### Smoke Run
-
-Run a cheap SFT smoke job before any paid target run:
+For example:
 
 ```bash
 make sft-smoke
-make sft-inspect SFT_INSPECT_RUN=sft-smoke-001
+make sft-inspect
+make sft-report
 ```
 
-### Candidate Run
-
-Supply an explicit candidate plan. Accepted rows are the quality-filtered outcome:
+Model suitability can be checked per dataset:
 
 ```bash
-SFT_FAMILIES="basic_arithmetic_qa ai_concept_explanation" \
-SFT_CANDIDATE_COUNTS="basic_arithmetic_qa=4 ai_concept_explanation=2" \
-SFT_GENERATION_RUN=sft-candidate-001 \
-make sft-generate
+QUALIFY_MODEL=<openrouter-model-id> make model-qualify-sft
 ```
 
-Inspect the generated public rows and run manifest:
+Reasoning is disabled whenever a selected model supports disabling it. A model whose reasoning is mandatory/non-disableable is unsuitable for these generation roles.
 
-```bash
-make sft-inspect SFT_INSPECT_RUN=sft-candidate-001
-make sft-report SFT_REPORT_RUN=sft-candidate-001
-```
-
-Generated files are written under:
-
-```text
-data/sft/runs/sft-candidate-001/
-  datasets/    public JSONL files
-  manifests/   run and batch manifests
-  batches/     internal batch shards
-```
-
-Push only after inspecting the public dataset files and manifests:
-
-```bash
-make sft-push \
-  SFT_PUSH_RUN=sft-candidate-001 \
-  SFT_HF_REPO=tohio/slm-synthetic-sft
-```
-
-This publishes one consolidated dataset with default all-family loading and optional per-family configurations. Duplicate content, holdout collisions, unresolved quality failures, and stale acceptance reports block publication. Token budgets and model-size-specific consumption belong to the downstream training repository.
-
-For end-to-end workflows across every generation surface, see `docs/GENERATION_WORKFLOW.md`. For supported families and signals, see `docs/GENERATION_FAMILIES.md`. For Make target details, see `docs/COMMANDS.md`.
+See `docs/COMMANDS.md` for exact variables and `docs/GENERATION_WORKFLOW.md` for the run sequence.
 
 ## Project Structure
 
 ```text
-.
-├── configs/             # generation config templates and helpers
-├── docs/                # workflow, command, dataset, disk, and architecture docs
-├── slm_synth/           # Python package for generation and publishing
-├── tests/               # unit and integration tests
-├── Makefile             # supported command surface
-└── README.md            # project overview
+configs/       generation configuration
+slm_synth/     five dataset packages plus shared runtime
+scripts/       repository utilities
+docs/          supported workflow documentation
+tests/         test suite
+Makefile       supported command surface
 ```
-
-Important package folders have their own READMEs under `slm_synth/`.
-
-## Documentation
-
-See `docs/README.md` for the documentation index.
 
 ## Testing
 
@@ -134,18 +126,10 @@ See `docs/README.md` for the documentation index.
 make test
 ```
 
-Run focused tests while changing one artifact surface:
-
-```bash
-pytest -q tests/test_sft_*.py
-pytest -q tests/test_dpo_*.py
-pytest -q tests/test_distillation_*.py
-```
-
 ## Status
 
-The repository is ready for the run ladder: smoke runs, validation checks, small-scale target overrides, then full production runs after outputs pass inspection.
+The repository has one supported production path for each of the five dataset products. Legacy generation/orchestration paths have been removed.
 
 ## License
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+MIT. See `LICENSE`.

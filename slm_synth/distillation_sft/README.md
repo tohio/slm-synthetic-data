@@ -1,70 +1,35 @@
 # `slm_synth/distillation_sft`
 
-## Purpose
+Teacher prompt/response generation for response distillation.
 
-This package owns teacher response datasets for response distillation. It builds prompt records, calls the teacher through structured generation, applies prompt and response gates, writes per-signal public JSONL files, records manifests, reports coverage, and publishes `distillation-sft-*` artifacts.
-
-It does not create DPO pairs, sample student outputs, train models, export models, or create logits artifacts.
-
-## Contents
+## Production Path
 
 ```text
-distillation_sft/
-├── signals.py          # supported distillation signal names
-├── prompts.py          # prompt-record validation
-├── public_metadata.py  # public category/template/eval metadata mapping
-├── seeds.py            # smoke seed prompts
-├── spec_builders.py    # production prompt-spec builders
-├── prompt_quality.py   # duplicate/near-duplicate prompt preflight
-├── batches.py          # teacher batch prompt and response contract
-├── generation.py       # one-signal teacher generation
-├── response_quality.py # lightweight response gates
-├── response_diversity.py # aggregate/per-signal exact response diversity
-├── response_adjudication.py # member-level keep/reject decisions and quarantine
-├── orchestration.py    # multi-signal smoke and production runs
-├── schema.py           # public row and teacher-output validation
-├── io.py               # JSONL and manifest writers
-├── report.py           # coverage reporting
-├── card.py             # dataset card rendering
-├── push_hf.py          # Hugging Face publishing
-└── cli.py              # command-line entrypoint
+derivation
+-> student-appropriate prompt
+-> task novelty
+-> teacher response
+-> deterministic row/response validation
+-> response novelty
+-> Nemotron judge
+-> Gemma reviewer
+-> final exact prompt/response dedup
 ```
 
-## How It Fits In
+The final dedup rejects duplicate prompt+response pairs, duplicate prompts, and duplicate responses. Reviewer calibration includes contradiction checks and code-family calibration.
 
-Public artifacts use the `distillation-sft-*` naming surface. The Python package uses an underscore because Python packages cannot use hyphens. Downstream `slm-distillation` consumes the published response datasets.
+## Signals
 
-## Conventions
+`arithmetic`, `cloud`, `code`, `data_transform`, `database`, `debugging`, `educational_qa`, `factual_restraint`, `instruction`, `planning`.
 
-Public rows have this contract:
+## Public Commands
 
-```json
-{
-  "id": "string",
-  "prompt": "string",
-  "reasoning": null,
-  "response": "string",
-  "metadata": {
-    "category": "string",
-    "difficulty": 1,
-    "template_family": "string",
-    "eval_family": "string | null"
-  }
-}
+```bash
+make distillation-sft-smoke
+make distillation-sft-generate
+make distillation-sft-inspect
+make distillation-sft-report
+make distillation-sft-push
 ```
 
-Teacher/provider/run/cost/retry details stay in manifests. Public rows always use `reasoning: null`.
-
-## Candidate Planning
-
-Production runs require an explicit candidate count for every selected signal.
-Counts limit provider work and do not promise an accepted dataset size. Quality
-rejections and duplicates reduce the published row count without automatic
-replacement. Token accounting is descriptive here; downstream training
-repositories own token budgets and mixtures.
-
-Coverage reports include prompt and response diversity plus complete repeated-
-response cluster membership. Repeated responses are automatically cleared only
-when every member is independently machine-verifiable. Other clusters require
-explicit member-level adjudication and block publication while unresolved.
-Rejected members remain under the run's internal `rejected/` directory.
+Manual post-run adjudication is not a supported path; judge and reviewer stages are part of production generation.

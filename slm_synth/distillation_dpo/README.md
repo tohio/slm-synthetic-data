@@ -1,52 +1,38 @@
 # `slm_synth/distillation_dpo`
 
-## Purpose
+Preference-pair generation for post-distillation DPO alignment.
 
-This package owns distillation-specific preference dataset generation. It builds deterministic source specs, requests structured teacher preference rows, applies pair-quality gates, writes public JSONL files, records lineage manifests, reports coverage, and publishes `distillation-dpo-*` artifacts.
-
-It does not produce generic DPO data, response-distillation rows, student-sampled pairs, or model-training artifacts.
-
-## Contents
+## Production Path
 
 ```text
-distillation_dpo/
-├── seeds.py          # family definitions
-├── spec_builders.py  # source specs for teacher generation
-├── batches.py        # batch prompt and response contract
-├── pair_quality.py   # pair-quality gates
-├── acceptance.py     # uniqueness, coverage, and response-pattern reporting
-├── schema.py         # public row validation
-├── io.py             # JSONL and manifest writers
-├── runs.py           # multi-family LLM run orchestration
-├── report.py         # coverage reporting
-├── card.py           # dataset card rendering
-├── push_hf.py        # Hugging Face publishing
-└── cli.py            # command-line entrypoint
+derivation
+-> task
+-> task novelty
+-> chosen/rejected pair generation
+-> deterministic pair validation
+-> five-gate Gemma judge
+-> Luna reviewer
+-> final exact dedup
 ```
 
-## How It Fits In
+The judge requires all five gates:
 
-`distillation-dpo-*` artifacts are consumed by `slm-distillation` after response distillation when DPO alignment is needed. Generic DPO remains under `../dpo/`.
+- assessable
+- chosen complete
+- chosen correct
+- preference valid
+- dimension aligned
 
-## Conventions
+Distillation DPO uses distillation-specific derivation/task guidance, rejected-pair defect guidance, and reviewer calibration. It must remain semantically separate from generic DPO.
 
-Manifests record:
+## Public Commands
 
-```yaml
-dataset_type: distillation-dpo
-chosen_source: teacher
-rejected_source: controlled_weak
-target_consumer: slm-distillation
+```bash
+make distillation-dpo-smoke
+make distillation-dpo-generate
+make distillation-dpo-inspect
+make distillation-dpo-report
+make distillation-dpo-push
 ```
 
-Public rows omit provider, retry, cost, and run internals.
-
-The smoke target is 1,000 accepted pairs. The production target is 15,000
-accepted pairs. Source capacity supports larger validation runs without changing
-those approved defaults.
-
-Accepted pairs require unique normalized prompts and preference triples, exact
-source prompt/metadata binding, holdout separation, approved category and
-failure-mode coverage, and all applicable machine-verifiable response contracts.
-Response repetition, chosen/rejected similarity, and negative-construction
-patterns are inspection diagnostics rather than automatic semantic gates.
+The public product is one consolidated Distillation-DPO repository containing `teacher_response_preference.jsonl`.

@@ -1,10 +1,9 @@
 # Documentation
 
-Project-level guides and references for `slm-synthetic-data`.
+- [`COMMANDS.md`](COMMANDS.md) — supported Make targets and variables.
+- [`GENERATION_WORKFLOW.md`](GENERATION_WORKFLOW.md) — end-to-end run sequence for all five datasets.
+- [`GENERATION_FAMILIES.md`](GENERATION_FAMILIES.md) — supported SFT families, DPO dimensions, and distillation signals.
+- [`DATASET_PURPOSE.md`](DATASET_PURPOSE.md) — purpose, public contract, and downstream consumer for each dataset.
+- [`DISK_SETUP.md`](DISK_SETUP.md) — local storage setup.
 
-- `GENERATION_WORKFLOW.md` — end-to-end smoke, validation, small-scale, production, and push workflow for every generation surface.
-- `GENERATION_FAMILIES.md` — supported families/signals for pretraining, SFT, DPO, distillation SFT, and distillation DPO.
-- `COMMANDS.md` — Makefile command reference and common variables.
-- `DATASET_PURPOSE.md` — artifact families, public row contracts, taxonomy fields, and planning knobs.
-- `DISK_SETUP.md` — local disk and data-directory setup notes.
-- `architecture.png` — architecture diagram used by the root README.
+The supported architecture is five dataset products plus one shared runtime. Documentation for deleted legacy commands and modules is intentionally omitted.
