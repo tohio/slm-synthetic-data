@@ -52,7 +52,6 @@ PRETRAIN_TARGET_CONCURRENCY ?= 4
 PRETRAIN_MODEL ?= openai/gpt-5.6-luna-pro
 PRETRAIN_SIGNAL ?=
 PRETRAIN_SIGNAL_ARG := $(if $(PRETRAIN_SIGNAL),--signal $(PRETRAIN_SIGNAL),)
-PRETRAIN_STAGE ?= deduped
 PRETRAIN_JUDGE_MODEL ?= google/gemma-4-31b-it
 PRETRAIN_REVIEWER_MODEL ?= openai/gpt-5.6-luna-pro
 PRETRAIN_JUDGE_MAX_TOKENS ?= 4096
@@ -350,11 +349,9 @@ pretrain-report:
 > $(PYTHON) -m slm_synth.pretrain.manifest \
 >   --config $(CONFIG_FILE) \
 >   --generation-run $(PRETRAIN_REPORT_RUN)
-> $(PYTHON) -m slm_synth.pretrain.report_duplicates --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
-> $(PYTHON) -m slm_synth.pretrain.report_lengths --config $(CONFIG_FILE) --stage $(PRETRAIN_STAGE)
 > $(PYTHON) -m slm_synth.pretrain.report_diversity \
 >   --config $(CONFIG_FILE) \
->   --stage $(PRETRAIN_STAGE) \
+>   --stage deduped \
 >   --sample-size $(PRETRAIN_DIVERSITY_SAMPLE_SIZE) \
 >   --near-duplicate-threshold $(PRETRAIN_DIVERSITY_THRESHOLD) \
 >   --require-clean
