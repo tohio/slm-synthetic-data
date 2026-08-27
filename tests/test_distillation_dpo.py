@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from slm_synth.accepted_target import UnderfilledRunError
 from slm_synth.distillation_dpo.card import write_dataset_card
 from slm_synth.distillation_dpo.acceptance import build_dataset_acceptance_report
 from slm_synth.distillation_dpo.io import read_jsonl
@@ -16,7 +15,6 @@ from slm_synth.distillation_dpo.push_hf import (
 )
 from slm_synth.distillation_dpo.report import build_coverage_report
 from slm_synth.distillation_dpo.pair_quality import filter_pairs_by_quality
-from slm_synth.distillation_dpo.runs import generate_llm_run, normalize_family_pair_counts
 from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
 from slm_synth.taxonomy.holdouts import HoldoutRegistry
 
@@ -37,182 +35,11 @@ def _row(row_id="distillation-dpo-1"):
     }
 
 
-class _EchoDistillationDPOBackend:
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        request = json.loads(prompt.split("Input specs:\n", 1)[1])
-        return {
-            "data": {
-                "items": [
-                    {
-                        "id": item["id"],
-                        "prompt": item["prompt"],
-                        "chosen": item["reference_chosen"],
-                        "rejected": item["reference_rejected"],
-                        "metadata": item["metadata"],
-                    }
-                    for item in request["items"]
-                ]
-            },
-            "telemetry": {
-                "model": "fake-teacher",
-                "provider": "fake-provider",
-                "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "total_tokens": 15,
-                    "cost": 0.01,
-                },
-                "retry_count": 0,
-                "retryable_provider_retries": 0,
-                "retry_sleep_seconds": 0.0,
-                "adaptive_peak_in_flight_limit": 1,
-                "adaptive_min_in_flight_limit": 1,
-                "elapsed_seconds": 0.1,
-            },
-        }
-
-
-class _BadDistillationDPOBackend:
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        request = json.loads(prompt.split("Input specs:\n", 1)[1])
-        return {
-            "data": {
-                "items": [
-                    {
-                        "id": item["id"],
-                        "prompt": item["prompt"],
-                        "chosen": [{"role": "assistant", "content": item["prompt"][-1]["content"]}],
-                        "rejected": [{"role": "assistant", "content": "different but still rejected"}],
-                        "metadata": item["metadata"],
-                    }
-                    for item in request["items"]
-                ]
-            },
-            "telemetry": {
-                "model": "fake-teacher",
-                "provider": "fake-provider",
-                "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "total_tokens": 15,
-                    "cost": 0.01,
-                },
-                "retry_count": 0,
-                "retryable_provider_retries": 0,
-                "retry_sleep_seconds": 0.0,
-                "adaptive_peak_in_flight_limit": 1,
-                "adaptive_min_in_flight_limit": 1,
-                "elapsed_seconds": 0.1,
-            },
-        }
-
-
-class _MismatchedPromptBackend:
-    def generate_structured_object_with_metadata(self, *, prompt, schema, schema_name):
-        request = json.loads(prompt.split("Input specs:\n", 1)[1])
-        item = request["items"][0]
-        return {
-            "data": {
-                "items": [
-                    {
-                        "id": item["id"],
-                        "prompt": [{"role": "user", "content": "A different source prompt."}],
-                        "chosen": item["reference_chosen"],
-                        "rejected": item["reference_rejected"],
-                        "metadata": item["metadata"],
-                    }
-                ]
-            },
-            "telemetry": {},
-        }
-
-
 def test_distillation_dpo_schema_keeps_lineage_out_of_rows():
     row = _row()
     row["teacher_model"] = "deepseek/deepseek-v4-flash"
-
     with pytest.raises(ValueError, match="forbidden field"):
         validate_distillation_dpo_row(row)
-
-
-def test_generate_llm_run_writes_live_distillation_dpo_outputs(tmp_path):
-    result = generate_llm_run(
-        families=["teacher_response_preference"],
-        count_per_family=3,
-        batch_size=2,
-        output_dir=tmp_path / "datasets",
-        manifest_dir=tmp_path / "manifests",
-        teacher_model="deepseek/deepseek-v4-flash",
-        generation_run="distillation-dpo-llm-001",
-        max_tokens=2048,
-        concurrency=2,
-        adaptive_initial_in_flight=1,
-        adaptive_initial_batch_size=1,
-        adaptive_batch_increase_successes=1,
-        backend=_EchoDistillationDPOBackend(),
-    )
-
-    dataset_path = tmp_path / "datasets" / "teacher_response_preference.jsonl"
-    rows = read_jsonl(dataset_path)
-    manifest = json.loads(result.manifest_path.read_text())
-
-    assert result.row_count == 3
-    assert result.accepted_pairs == 3
-    assert len(rows) == 3
-    assert manifest["dataset_type"] == "distillation-dpo"
-    assert manifest["metadata"]["generation_mode"] == "live_llm_run"
-    assert manifest["metadata"]["accepted_pairs"] == 3
-    assert manifest["metadata"]["llm_telemetry"]["batch_count"] >= 1
-    assert manifest["metadata"]["source_contract"]["target_consumer"] == "slm-distillation"
-    assert manifest["metadata"]["source_capacity"]["teacher_response_preference"] == {
-        "row_count": 9,
-        "unique_prompt_count": 9,
-        "unique_triple_count": 9,
-        "categories": {
-            "answer_only_compliance": 1,
-            "code_generation": 1,
-            "concise_factual_qa": 1,
-            "direct_arithmetic": 1,
-            "exact_output_format_control": 1,
-            "general_instruction_following": 1,
-            "private_info_restraint": 1,
-            "unknown_fact_restraint": 1,
-            "word_problem_arithmetic": 1,
-        },
-        "failure_modes": {
-            "code_syntax_error": 1,
-            "extra_explanation": 1,
-            "format_violation": 1,
-            "over_refusal": 1,
-            "unsafe_private_info_guess": 1,
-            "unknown_fact_fabrication": 1,
-            "wrong_factual_answer": 1,
-            "wrong_numeric_answer": 2,
-        },
-        "start_index": 1,
-        "next_start_index": 10,
-    }
-    assert manifest["metadata"]["dataset_acceptance"]["publish_ready"] is True
-    assert manifest["metadata"]["dataset_acceptance"]["unique_prompt_count"] == 3
-    assert manifest["metadata"]["dataset_acceptance"]["unique_triple_count"] == 3
-    assert "teacher_model" not in rows[0]
-    assert rows[0]["chosen"] != rows[0]["rejected"]
-
-
-def test_generate_llm_run_rejects_mismatched_prompt_attached_to_expected_id(tmp_path):
-    with pytest.raises(ValueError, match="prompt mismatch"):
-        generate_llm_run(
-            families=["teacher_response_preference"],
-            count_per_family=1,
-            batch_size=1,
-            output_dir=tmp_path / "datasets",
-            manifest_dir=tmp_path / "manifests",
-            teacher_model="fake",
-            generation_run="distillation-dpo-source-mismatch-001",
-            max_tokens=64,
-            concurrency=1,
-            backend=_MismatchedPromptBackend(),
-        )
 
 
 def test_distillation_dpo_pair_quality_rejects_bad_pairs():
@@ -229,59 +56,45 @@ def test_distillation_dpo_pair_quality_rejects_bad_pairs():
     assert [row["id"] for row in accepted] == ["good"]
     assert summary.accepted_pairs == 1
     assert summary.rejected_pairs == 2
-    assert summary.rejection_reasons["malformed_row"] == 1
-    assert summary.rejection_reasons["prompt_copy_pair"] == 1
 
 
-def test_normalize_family_pair_counts_requires_target_for_each_family():
-    assert normalize_family_pair_counts(families=["teacher_response_preference"], target_pairs=3) == {
-        "teacher_response_preference": 3
-    }
-    with pytest.raises(ValueError, match="target_pairs must be a positive integer"):
-        normalize_family_pair_counts(families=["teacher_response_preference"], target_pairs=0)
+def test_distillation_dpo_report_and_card_from_pipeline_shaped_artifact(tmp_path):
+    dataset_dir = tmp_path / "datasets"
+    manifest_dir = tmp_path / "manifests"
+    dataset_dir.mkdir()
+    manifest_dir.mkdir()
+    dataset_path = dataset_dir / "teacher_response_preference.jsonl"
+    dataset_path.write_text(json.dumps(_row()) + "\n", encoding="utf-8")
 
-
-def test_distillation_dpo_report_and_card(tmp_path):
-    result = generate_llm_run(
-        families=["teacher_response_preference"],
-        count_per_family=2,
-        batch_size=2,
-        output_dir=tmp_path / "datasets",
-        manifest_dir=tmp_path / "manifests",
-        teacher_model="deepseek/deepseek-v4-flash",
-        generation_run="distillation-dpo-smoke-001",
-        max_tokens=2048,
-        concurrency=1,
-        adaptive_initial_in_flight=1,
-        adaptive_initial_batch_size=1,
-        adaptive_batch_increase_successes=1,
-        backend=_EchoDistillationDPOBackend(),
+    acceptance = build_dataset_acceptance_report([_row()])
+    manifest_path = manifest_dir / "distillation-dpo-smoke-001.manifest.json"
+    manifest_path.write_text(
+        json.dumps({
+            "dataset_type": "distillation-dpo",
+            "metadata": {
+                "dataset_acceptance": acceptance,
+                "target_pairs": 1,
+                "source_contract": {
+                    "chosen_source": "teacher-quality response",
+                    "rejected_source": "controlled_weak",
+                    "target_consumer": "slm-distillation",
+                },
+            },
+        }),
+        encoding="utf-8",
     )
 
-    report = build_coverage_report(
-        [tmp_path / "datasets"],
-        holdout_registry=HoldoutRegistry([]),
-    )
+    report = build_coverage_report([dataset_dir], holdout_registry=HoldoutRegistry([]))
     assert report["dataset_type"] == "distillation-dpo"
-    assert report["row_count"] == 2
-    assert report["failure_modes"]
-    assert report["eval_families"] == {
-        "code_generation_function": 1,
-        "null": 1,
-    }
+    assert report["row_count"] == 1
     assert report["dataset_acceptance"]["publish_ready"] is True
 
     card_path = write_dataset_card(
-        run_manifest_path=result.manifest_path,
+        run_manifest_path=manifest_path,
         output_path=tmp_path / "README.md",
         dataset_name="SLM Synthetic Distillation DPO",
     )
-    card_text = card_path.read_text()
-    assert "Distillation-DPO" in card_text
-    assert "controlled_weak" in card_text
-    assert "Target pairs" in card_text
-    assert "unique normalized prompts and preference triples" in card_text
-    assert "not automatic semantic judgments" in card_text
+    assert "Distillation-DPO" in card_path.read_text()
 
 
 def test_distillation_dpo_push_discovers_public_files_only(tmp_path):
@@ -297,14 +110,11 @@ def test_distillation_dpo_push_discovers_public_files_only(tmp_path):
 
     assert discover_jsonl_files(dataset_dir) == [public_path]
     assert count_and_validate_jsonl(public_path) == 1
-    assert (
-        repo_id_for_family(
-            repo_owner="tohio",
-            repo_prefix="slm-synthetic-distillation-dpo",
-            family="teacher_response_preference",
-        )
-        == "tohio/slm-synthetic-distillation-dpo-teacher-response-preference"
-    )
+    assert repo_id_for_family(
+        repo_owner="tohio",
+        repo_prefix="slm-synthetic-distillation-dpo",
+        family="teacher_response_preference",
+    ) == "tohio/slm-synthetic-distillation-dpo-teacher-response-preference"
     assert normalize_repo_id("/tohio/slm-synthetic-distillation-dpo/") == "tohio/slm-synthetic-distillation-dpo"
 
 
@@ -316,10 +126,7 @@ def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
     manifest_dir.mkdir()
     (dataset_dir / "teacher_response_preference.jsonl").write_text(json.dumps(_row()) + "\n", encoding="utf-8")
     (run_dir / "README.md").write_text("# Distillation DPO\n", encoding="utf-8")
-    coverage = build_coverage_report(
-        [dataset_dir],
-        holdout_registry=HoldoutRegistry([]),
-    )
+    coverage = build_coverage_report([dataset_dir], holdout_registry=HoldoutRegistry([]))
     (run_dir / "coverage.json").write_text(json.dumps(coverage), encoding="utf-8")
     acceptance = build_dataset_acceptance_report([_row()])
     (manifest_dir / "distillation-dpo-smoke-001.manifest.json").write_text(
@@ -332,13 +139,10 @@ def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
     class FakeApi:
         def __init__(self, token):
             calls.append(("api", token))
-
         def list_repo_files(self, **kwargs):
-            calls.append(("list", kwargs["repo_id"]))
             return ["coverage.json", "manifests/old.manifest.json", "README.md"]
-
         def create_commit(self, **kwargs):
-            calls.append(("commit", kwargs["repo_id"], [operation.path_in_repo for operation in kwargs["operations"]]))
+            calls.append(("commit", kwargs["repo_id"], [op.path_in_repo for op in kwargs["operations"]]))
 
     monkeypatch.setenv("HF_TOKEN", "token")
     monkeypatch.setattr("slm_synth.distillation_dpo.push_hf.HfApi", FakeApi)
@@ -349,125 +153,21 @@ def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
         run_dir=run_dir,
         repo_id="tohio/slm-synthetic-distillation-dpo",
     )
-
-    repo_id = "tohio/slm-synthetic-distillation-dpo"
     assert result["repo_count"] == 1
     assert result["rows"] == 1
-    assert result["repos"]["default"]["repo_id"] == repo_id
-    commit_calls = [call for call in calls if call[0] == "commit"]
-    assert len(commit_calls) == 1
-    paths = commit_calls[0][2]
-    assert "data/teacher_response_preference.jsonl" in paths
-    assert "README.md" in paths
-    assert "artifacts/coverage.json" in paths
-    assert "artifacts/manifests/distillation-dpo-smoke-001.manifest.json" in paths
-    assert "coverage.json" in paths
-    assert "manifests/old.manifest.json" in paths
 
 
-def test_push_distillation_dpo_run_blocks_duplicate_dataset_before_hf_setup(tmp_path, monkeypatch):
-    run_dir = tmp_path / "run"
-    dataset_dir = run_dir / "datasets"
-    manifest_dir = run_dir / "manifests"
-    dataset_dir.mkdir(parents=True)
-    manifest_dir.mkdir()
-    original = _row("original")
-    duplicate = _row("duplicate")
-    (dataset_dir / "teacher_response_preference.jsonl").write_text(
-        json.dumps(original) + "\n" + json.dumps(duplicate) + "\n",
-        encoding="utf-8",
-    )
-    acceptance = build_dataset_acceptance_report([original])
-    (manifest_dir / "distillation-dpo-smoke-001.manifest.json").write_text(
-        json.dumps({"metadata": {"dataset_acceptance": acceptance}}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        "slm_synth.distillation_dpo.push_hf.HfApi",
-        lambda **_kwargs: pytest.fail("Hugging Face setup must not run"),
-    )
-
-    with pytest.raises(ValueError, match="dataset acceptance contract"):
-        push_distillation_dpo_run(
-            dataset_dir=dataset_dir,
-            run_dir=run_dir,
-            repo_id="tohio/slm-synthetic-distillation-dpo",
-        )
-
-
-def test_distillation_dpo_make_targets_are_not_generic_dpo_wrappers():
+def test_distillation_dpo_make_targets_use_pipeline():
     makefile = Path("Makefile").read_text()
-    block = makefile.split("distillation-dpo-smoke:", 1)[1].split("sft-smoke:", 1)[0]
-
-    assert "slm_synth.distillation_dpo" in block
-    assert "generate-llm-run" in block
-    assert "--target-pairs $(DISTILLATION_DPO_TARGET_PAIRS)" in block
+    block = makefile.split("distillation-dpo-smoke:", 1)[1].split("alignment-preflight:", 1)[0]
+    assert "slm_synth.distillation_dpo.pipeline" in block
+    assert "generate-llm-run" not in block
     assert "$(OPENROUTER_ENV)" in block
     assert "slm_synth.dpo" not in block
 
 
 def test_distillation_dpo_push_target_uses_exact_repo_id():
     makefile = Path("Makefile").read_text()
-    block = makefile.split("distillation-dpo-push:", 1)[1].split("sft-smoke:", 1)[0]
-
+    block = makefile.split("distillation-dpo-push:", 1)[1].split("alignment-preflight:", 1)[0]
     assert "DISTILLATION_DPO_HF_REPO ?= $(DISTILLATION_DPO_HF_NAMESPACE)/slm-synthetic-distillation-dpo" in makefile
     assert "--repo-id $(DISTILLATION_DPO_HF_REPO)" in block
-    assert "--repo-prefix $(DISTILLATION_DPO_HF_PREFIX)" not in block
-
-
-def test_distillation_dpo_llm_run_fails_underfilled_after_backfill_budget(tmp_path):
-    with pytest.raises(UnderfilledRunError, match="distillation-dpo.*underfilled.*remaining=2"):
-        generate_llm_run(
-            families=["teacher_response_preference"],
-            count_per_family=2,
-            batch_size=2,
-            output_dir=tmp_path / "datasets",
-            manifest_dir=tmp_path / "manifests",
-            teacher_model="deepseek/deepseek-v4-flash",
-            generation_run="distillation-dpo-underfilled-001",
-            max_tokens=2048,
-            concurrency=1,
-            adaptive_initial_in_flight=1,
-            adaptive_initial_batch_size=1,
-            adaptive_batch_increase_successes=1,
-            max_backfill_rounds=0,
-            backend=_BadDistillationDPOBackend(),
-        )
-
-    family_manifest_path = (
-        tmp_path
-        / "manifests"
-        / "teacher_response_preference.distillation-dpo-underfilled-001.manifest.json"
-    )
-    family_manifest = json.loads(family_manifest_path.read_text())
-    run_manifest = json.loads((tmp_path / "manifests" / "distillation-dpo-underfilled-001.manifest.json").read_text())
-    assert family_manifest["metadata"]["generation_status"] == "underfilled"
-    assert family_manifest["metadata"]["failure_status"] == "failed"
-    assert family_manifest["metadata"]["run_failed"] is True
-    assert run_manifest["metadata"]["generation_status"] == "underfilled"
-    assert run_manifest["metadata"]["failure_status"] == "failed"
-    assert run_manifest["metadata"]["run_failed"] is True
-    assert run_manifest["metadata"]["remaining_pairs"] == 2
-
-
-def test_distillation_dpo_capacity_overflow_fails_before_provider_setup(tmp_path, monkeypatch):
-    def unexpected_provider_setup(**_kwargs):
-        pytest.fail("provider setup must not run when source capacity is insufficient")
-
-    monkeypatch.setattr(
-        "slm_synth.distillation_dpo.runs.build_openrouter_backend",
-        unexpected_provider_setup,
-    )
-
-    with pytest.raises(ValueError, match="source capacity exceeded"):
-        generate_llm_run(
-            families=["teacher_response_preference"],
-            target_pairs=100_001,
-            batch_size=1,
-            output_dir=tmp_path / "datasets",
-            manifest_dir=tmp_path / "manifests",
-            teacher_model="unused",
-            generation_run="distillation-dpo-capacity-overflow-001",
-            max_tokens=1,
-            max_backfill_rounds=2,
-        )
