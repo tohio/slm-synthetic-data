@@ -23,18 +23,6 @@ QUALIFY_MODEL ?= $(MODEL)
 QUALIFY_ROLES ?= all
 QUALIFY_MAX_TOKENS ?= 512
 QUALIFY_OUTPUT ?= data/model-qualification/$(subst /,_,$(QUALIFY_MODEL)).json
-COST_GENERATOR_MODEL ?= $(MODEL)
-COST_JUDGE_MODEL ?= $(MODEL)
-COST_REVIEWER_MODEL ?= $(MODEL)
-COST_CANDIDATES ?= 1000
-COST_TARGET_ACCEPTED ?=
-COST_TARGET_TOKENS ?=
-COST_AVERAGE_ACCEPTED_TOKENS ?= 500
-COST_TARGET_ACCEPTED_ARG := $(if $(COST_TARGET_ACCEPTED),--target-accepted $(COST_TARGET_ACCEPTED),)
-COST_TARGET_TOKENS_ARG := $(if $(COST_TARGET_TOKENS),--target-tokens $(COST_TARGET_TOKENS),)
-COST_OUTPUT ?=
-COST_OUTPUT_ARG := $(if $(COST_OUTPUT),--output $(COST_OUTPUT),)
-
 # Pretraining
 CONFIG_FILE ?= configs/synthetic.yaml
 DATA_DIR ?= data/runs
@@ -213,26 +201,14 @@ DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-dpo,))
 DPO_SMOKE_PREFERENCE_DIMENSIONS_EFFECTIVE := $(if $(filter file,$(origin DPO_PREFERENCE_DIMENSIONS)),$(DPO_SMOKE_PREFERENCE_DIMENSIONS),$(DPO_PREFERENCE_DIMENSIONS))
 
-# Hugging Face dataset deletion
-HF_DELETE_NAMESPACE ?= $(HF_NAMESPACE)
-HF_DELETE_REPO ?=
-HF_DELETE_REPO_FILE ?=
-HF_DELETE_YES ?=
-HF_DELETE_YES_ARG := $(if $(filter true yes 1,$(HF_DELETE_YES)),--yes,)
-HF_DELETE_REPO_ARG := $(if $(HF_DELETE_REPO),--repo $(HF_DELETE_REPO),)
-HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_REPO_FILE),)
-
 .PHONY: help \
-	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
-	distillation-sft-smoke distillation-sft-generate \
-	distillation-sft-report distillation-sft-inspect distillation-sft-push \
-	distillation-dpo-smoke distillation-dpo-generate \
-	distillation-dpo-report distillation-dpo-inspect distillation-dpo-push \
-	sft-smoke sft-generate sft-report sft-inspect sft-push \
-	dpo-smoke dpo-generate dpo-report dpo-inspect dpo-push \
+	pretrain-smoke pretrain-generate pretrain-inspect pretrain-report pretrain-push \
+	sft-smoke sft-generate sft-inspect sft-report sft-push \
+	dpo-smoke dpo-generate dpo-inspect dpo-report dpo-push \
+	distillation-sft-smoke distillation-sft-generate distillation-sft-inspect distillation-sft-report distillation-sft-push \
+	distillation-dpo-smoke distillation-dpo-generate distillation-dpo-inspect distillation-dpo-report distillation-dpo-push \
 	model-qualify model-qualify-pretrain model-qualify-sft model-qualify-dpo \
-	model-qualify-distillation-sft model-qualify-distillation-dpo model-qualify-all estimate-generation-cost \
-	hf-delete-datasets hf-delete-distillation hf-delete-legacy-distillation-dpo \
+	model-qualify-distillation-sft model-qualify-distillation-dpo model-qualify-all \
 	test clean
 
 help:
@@ -240,98 +216,25 @@ help:
 > @echo "SLM Synthetic Data"
 > @echo "=================="
 > @echo ""
-> @echo "Generate datasets:"
-> @echo "  make pretrain-smoke      Small pretraining generation run"
-> @echo "  make pretrain-generate   Target pretraining generation run"
-> @echo "  make alignment-preflight Validate complete generic SFT and DPO source inventories"
-> @echo "  make distillation-sft-smoke       Small distillation SFT run"
-> @echo "  make distillation-sft-generate    Target distillation SFT run"
-> @echo "  make distillation-dpo-smoke       Small distillation DPO run"
-> @echo "  make distillation-dpo-generate    Target distillation DPO run"
-> @echo "  make sft-smoke           Small SFT run"
-> @echo "  make sft-generate        Target SFT run"
-> @echo "  make dpo-smoke           Small DPO run"
-> @echo "  make dpo-generate        Target DPO run"
-> @echo "  make model-qualify       Qualify one model for selected generation roles"
-> @echo "  make estimate-generation-cost  Estimate generator/judge/reviewer cost"
+> @echo "Dataset                 Smoke                         Generate                         Inspect                         Report                         Push"
+> @echo "pretrain                pretrain-smoke                pretrain-generate                pretrain-inspect                pretrain-report                pretrain-push"
+> @echo "sft                     sft-smoke                     sft-generate                     sft-inspect                     sft-report                     sft-push"
+> @echo "dpo                     dpo-smoke                     dpo-generate                     dpo-inspect                     dpo-report                     dpo-push"
+> @echo "distillation-sft        distillation-sft-smoke        distillation-sft-generate        distillation-sft-inspect        distillation-sft-report        distillation-sft-push"
+> @echo "distillation-dpo        distillation-dpo-smoke        distillation-dpo-generate        distillation-dpo-inspect        distillation-dpo-report        distillation-dpo-push"
 > @echo ""
-> @echo "Inspect and report:"
-> @echo "  make pretrain-inspect    Show pretraining files and sample rows"
-> @echo "  make distillation-sft-inspect     Show distillation SFT files and sample rows"
-> @echo "  make distillation-dpo-inspect     Show distillation DPO files and sample rows"
-> @echo "  make sft-inspect         Show SFT files and sample rows"
-> @echo "  make dpo-inspect         Show DPO files and sample rows"
-> @echo "  make pretrain-report     Rebuild pretraining reports and dataset card"
-> @echo "  make distillation-sft-report      Rebuild distillation SFT reports and dataset card"
-> @echo "  make distillation-dpo-report      Rebuild distillation DPO reports and dataset card"
-> @echo "  make sft-report          Rebuild SFT coverage and dataset card"
-> @echo "  make dpo-report          Rebuild DPO coverage and dataset card"
-> @echo ""
-> @echo "Push to Hugging Face:"
-> @echo "  make pretrain-push       Push final accepted pretraining dataset"
-> @echo "  make distillation-sft-push        Push a distillation SFT run"
-> @echo "  make distillation-dpo-push        Push a distillation DPO run"
-> @echo "  make sft-push            Push one consolidated SFT dataset"
-> @echo "  make dpo-push            Push one consolidated DPO dataset"
-> @echo ""
-> @echo "Delete Hugging Face datasets:"
-> @echo "  make hf-delete-datasets                Dry-run exact repos from HF_DELETE_REPO/HF_DELETE_REPO_FILE"
-> @echo "  make hf-delete-distillation            Dry-run distillation dataset repo deletion"
-> @echo "  make hf-delete-legacy-distillation-dpo Dry-run old long distillation-DPO repo deletion"
-> @echo "  Set HF_DELETE_YES=1 to actually delete"
+> @echo "Qualification:"
+> @echo "  model-qualify"
+> @echo "  model-qualify-pretrain"
+> @echo "  model-qualify-sft"
+> @echo "  model-qualify-dpo"
+> @echo "  model-qualify-distillation-sft"
+> @echo "  model-qualify-distillation-dpo"
+> @echo "  model-qualify-all"
 > @echo ""
 > @echo "Maintenance:"
-> @echo "  make test                Run tests"
-> @echo "  make clean               Remove generated data"
-> @echo ""
-> @echo "Common variables:"
-> @echo "  MODEL=$(MODEL)"
-> @echo "  OPENROUTER_ROUTING_MODE=$(OPENROUTER_ROUTING_MODE)"
-> @echo "  OPENROUTER_PROVIDER=$(OPENROUTER_PROVIDER)"
-> @echo "  OPENROUTER_PROVIDER_ORDER=$(OPENROUTER_PROVIDER_ORDER)"
-> @echo "  OPENROUTER_PROVIDER_ONLY=$(OPENROUTER_PROVIDER_ONLY)"
-> @echo "  OPENROUTER_PROVIDER_IGNORE=$(OPENROUTER_PROVIDER_IGNORE)"
-> @echo "  OPENROUTER_PROVIDER_SORT=$(OPENROUTER_PROVIDER_SORT)"
-> @echo "  PRETRAIN_TOKENS=$(PRETRAIN_TOKENS)"
-> @echo "  PRETRAIN_TARGET_TOKENS=$(PRETRAIN_TARGET_TOKENS)"
-> @echo "  PRETRAIN_MAX_TOKENS=$(PRETRAIN_MAX_TOKENS)"
-> @echo "  PRETRAIN_MODEL=$(PRETRAIN_MODEL)"
-> @echo "  PRETRAIN_JUDGE_MODEL=$(PRETRAIN_JUDGE_MODEL)"
-> @echo "  PRETRAIN_REVIEWER_MODEL=$(PRETRAIN_REVIEWER_MODEL)"
-> @echo "  PRETRAIN_JUDGE_BATCH_SIZE=$(PRETRAIN_JUDGE_BATCH_SIZE)"
-> @echo "  PRETRAIN_REVIEWER_BATCH_SIZE=$(PRETRAIN_REVIEWER_BATCH_SIZE)"
-> @echo "  PRETRAIN_QUALITY_CONCURRENCY=$(PRETRAIN_QUALITY_CONCURRENCY)"
-> @echo "  PRETRAIN_STAGE_BATCH_ATTEMPTS=$(PRETRAIN_STAGE_BATCH_ATTEMPTS)"
-> @echo "  PRETRAIN_MAX_BACKFILL_ROUNDS=$(PRETRAIN_MAX_BACKFILL_ROUNDS)"
-> @echo "  PRETRAIN_DIVERSITY_SAMPLE_SIZE=$(PRETRAIN_DIVERSITY_SAMPLE_SIZE)"
-> @echo "  PRETRAIN_DIVERSITY_THRESHOLD=$(PRETRAIN_DIVERSITY_THRESHOLD)"
-> @echo "  DISTILLATION_SFT_CANDIDATE_COUNTS=$(DISTILLATION_SFT_CANDIDATE_COUNTS)"
-> @echo "  DISTILLATION_SFT_CONCURRENCY=$(DISTILLATION_SFT_CONCURRENCY)"
-> @echo "  DISTILLATION_SFT_GENERATION_CONCURRENCY=$(DISTILLATION_SFT_GENERATION_CONCURRENCY)"
-> @echo "  DISTILLATION_SFT_HF_REPO=$(DISTILLATION_SFT_HF_REPO)"
-> @echo "  DISTILLATION_DPO_TARGET_PAIRS=$(DISTILLATION_DPO_TARGET_PAIRS)"
-> @echo "  DISTILLATION_DPO_HF_NAMESPACE=$(DISTILLATION_DPO_HF_NAMESPACE)"
-> @echo "  DISTILLATION_DPO_HF_REPO=$(DISTILLATION_DPO_HF_REPO)"
-> @echo "  SFT_DERIVATION_MODEL=$(SFT_DERIVATION_MODEL)"
-> @echo "  SFT_TASK_MODEL=$(SFT_TASK_MODEL)"
-> @echo "  SFT_ANSWER_MODEL=$(SFT_ANSWER_MODEL)"
-> @echo "  SFT_JUDGE_MODEL=$(SFT_JUDGE_MODEL)"
-> @echo "  SFT_REVIEWER_MODEL=$(SFT_REVIEWER_MODEL)"
-> @echo "  SFT_DERIVATIONS_PER_SEED=$(SFT_DERIVATIONS_PER_SEED)"
-> @echo "  SFT_TASKS_PER_DERIVATION=$(SFT_TASKS_PER_DERIVATION)"
-> @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
-> @echo "  DPO_PREFERENCE_DIMENSIONS=$(DPO_PREFERENCE_DIMENSIONS)"
-> @echo "  DPO_DERIVATION_MODEL=$(DPO_DERIVATION_MODEL)"
-> @echo "  DPO_TASK_MODEL=$(DPO_TASK_MODEL)"
-> @echo "  DPO_PAIR_MODEL=$(DPO_PAIR_MODEL)"
-> @echo "  DPO_JUDGE_MODEL=$(DPO_JUDGE_MODEL)"
-> @echo "  DPO_REVIEWER_MODEL=$(DPO_REVIEWER_MODEL)"
-> @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
-> @echo "  HF_DELETE_NAMESPACE=$(HF_DELETE_NAMESPACE)"
-> @echo "  HF_DELETE_REPO=$(HF_DELETE_REPO)"
-> @echo "  HF_DELETE_REPO_FILE=$(HF_DELETE_REPO_FILE)"
-> @echo "  HF_DELETE_YES=$(HF_DELETE_YES)"
-> @echo ""
+> @echo "  test"
+> @echo "  clean"
 
 pretrain-smoke:
 > $(PYTHON) configs/configure_synthetic.py \
@@ -767,36 +670,6 @@ model-qualify-distillation-dpo:
 
 model-qualify-all:
 > $(MAKE) model-qualify QUALIFY_ROLES=all
-
-estimate-generation-cost:
-> $(PYTHON) -m slm_synth.estimate_generation_cost \
->   --generator-model $(COST_GENERATOR_MODEL) \
->   --judge-model $(COST_JUDGE_MODEL) \
->   --reviewer-model $(COST_REVIEWER_MODEL) \
->   --candidates $(COST_CANDIDATES) \
->   --average-accepted-tokens $(COST_AVERAGE_ACCEPTED_TOKENS) \
->   $(COST_TARGET_ACCEPTED_ARG) \
->   $(COST_TARGET_TOKENS_ARG) \
->   $(COST_OUTPUT_ARG)
-
-hf-delete-datasets:
-> $(PYTHON) scripts/delete_hf_datasets.py \
->   --namespace $(HF_DELETE_NAMESPACE) \
->   $(HF_DELETE_REPO_ARG) \
->   $(HF_DELETE_REPO_FILE_ARG) \
->   $(HF_DELETE_YES_ARG)
-
-hf-delete-distillation:
-> $(PYTHON) scripts/delete_hf_datasets.py \
->   --namespace $(HF_DELETE_NAMESPACE) \
->   --include-distillation \
->   $(HF_DELETE_YES_ARG)
-
-hf-delete-legacy-distillation-dpo:
-> $(PYTHON) scripts/delete_hf_datasets.py \
->   --namespace $(HF_DELETE_NAMESPACE) \
->   --include-legacy-distillation-dpo \
->   $(HF_DELETE_YES_ARG)
 
 test:
 > $(PYTHON) -m compileall -q slm_synth tests

@@ -159,7 +159,7 @@ def test_push_distillation_dpo_run_uploads_exact_repo_id(tmp_path, monkeypatch):
 
 def test_distillation_dpo_make_targets_use_pipeline():
     makefile = Path("Makefile").read_text()
-    block = makefile.split("distillation-dpo-smoke:", 1)[1].split("alignment-preflight:", 1)[0]
+    block = makefile.split("distillation-dpo-smoke:", 1)[1].split("sft-smoke:", 1)[0]
     assert "slm_synth.distillation_dpo.pipeline" in block
     assert "generate-llm-run" not in block
     assert "$(OPENROUTER_ENV)" in block
@@ -168,6 +168,6 @@ def test_distillation_dpo_make_targets_use_pipeline():
 
 def test_distillation_dpo_push_target_uses_exact_repo_id():
     makefile = Path("Makefile").read_text()
-    block = makefile.split("distillation-dpo-push:", 1)[1].split("alignment-preflight:", 1)[0]
-    assert "DISTILLATION_DPO_HF_REPO ?= $(DISTILLATION_DPO_HF_NAMESPACE)/slm-synthetic-distillation-dpo" in makefile
+    block = makefile.split("distillation-dpo-push:", 1)[1].split("sft-smoke:", 1)[0]
+    assert "DISTILLATION_DPO_HF_REPO ?= $(HF_NAMESPACE)/slm-synthetic-distillation-dpo" in makefile
     assert "--repo-id $(DISTILLATION_DPO_HF_REPO)" in block

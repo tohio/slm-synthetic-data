@@ -268,7 +268,7 @@ def test_push_dpo_run_blocks_missing_acceptance_report_before_token_lookup(tmp_p
 
 def test_dpo_push_make_target_uses_one_exact_repository():
     makefile = (Path(__file__).resolve().parents[1] / "Makefile").read_text(encoding="utf-8")
-    block = makefile.split("\ndpo-push:", 1)[1].split("\nhf-delete-datasets:", 1)[0]
+    block = makefile.split("\ndpo-push:", 1)[1].split("\nmodel-qualify:", 1)[0]
 
     assert "DPO_HF_REPO" in block
     assert "--repo-id $(DPO_HF_REPO)" in block
