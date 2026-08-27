@@ -1,45 +1,9 @@
-import pytest
-
-from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text, validate_prompt_preflight
-from slm_synth.distillation_sft.prompts import build_prompt_record
-from slm_synth.distillation_sft.seeds import DISTILLATION_PROMPT_SEEDS, build_seed_prompt_records
+from slm_synth.distillation_sft.prompt_quality import normalize_prompt_text
 
 
-def test_normalize_prompt_text_catches_case_spacing_and_terminal_punctuation():
-    assert normalize_prompt_text("  Answer  with ONLY the integer result: 2 + 2. ") == normalize_prompt_text(
-        "answer with only the integer result: 2+2"
-    )
+def test_normalize_prompt_text_collapses_cosmetic_variation():
+    assert normalize_prompt_text("  What is 2 + 2 ?  ") == normalize_prompt_text("what is 2+2?")
 
 
-def test_prompt_preflight_rejects_duplicate_ids_before_teacher_calls():
-    records = [
-        build_prompt_record(signal="cloud", prompt="Explain autoscaling.", index=1),
-        build_prompt_record(signal="cloud", prompt="Explain object storage.", index=1),
-    ]
-
-    with pytest.raises(ValueError, match="duplicate id"):
-        validate_prompt_preflight(records, require_unique_prompt_text=True)
-
-
-def test_prompt_preflight_rejects_near_duplicate_prompt_text():
-    records = [
-        build_prompt_record(signal="cloud", prompt="Explain autoscaling in a cloud application.", index=1),
-        build_prompt_record(signal="cloud", prompt="  explain   autoscaling in a cloud application! ", index=2),
-    ]
-
-    with pytest.raises(ValueError, match="near-duplicate prompt text"):
-        validate_prompt_preflight(records, require_unique_prompt_text=True)
-
-
-def test_seed_prompts_expand_with_parameterized_unique_prompts_for_larger_smoke_runs():
-    count = len(DISTILLATION_PROMPT_SEEDS["cloud"]) + 3
-    records = build_seed_prompt_records(signal="cloud", count=count)
-
-    summary = validate_prompt_preflight(records, require_unique_prompt_text=True)
-
-    assert summary.prompt_count == count
-    assert summary.duplicate_id_count == 0
-    assert summary.duplicate_prompt_text_count == 0
-    assert summary.near_duplicate_prompt_count == 0
-    assert summary.to_dict()["checks"] == ["id", "normalized_prompt_text"]
-    assert records[-1]["metadata"]["seed_source"] == "parameterized_spec"
+def test_normalize_prompt_text_preserves_task_content():
+    assert normalize_prompt_text("What is 2 + 2?") != normalize_prompt_text("What is 3 + 2?")

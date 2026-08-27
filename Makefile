@@ -73,8 +73,6 @@ DISTILLATION_SFT_RUN ?= distillation-sft-smoke-001
 DISTILLATION_SFT_GENERATION_RUN ?= distillation-sft-production-001
 DISTILLATION_SFT_REPORT_RUN ?= $(DISTILLATION_SFT_RUN)
 DISTILLATION_SFT_INSPECT_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
-DISTILLATION_SFT_ADJUDICATION_RUN ?= $(DISTILLATION_SFT_REPORT_RUN)
-DISTILLATION_SFT_ADJUDICATIONS ?=
 DISTILLATION_SFT_SIGNALS ?= all
 DISTILLATION_SFT_SMOKE_SIGNALS ?= debugging
 DISTILLATION_SFT_SMOKE_SIGNALS_EFFECTIVE := $(if $(filter file,$(origin DISTILLATION_SFT_SIGNALS)),$(DISTILLATION_SFT_SMOKE_SIGNALS),$(DISTILLATION_SFT_SIGNALS))
@@ -217,7 +215,7 @@ HF_DELETE_REPO_FILE_ARG := $(if $(HF_DELETE_REPO_FILE),--repo-file $(HF_DELETE_R
 .PHONY: help \
 	pretrain-smoke pretrain-generate pretrain-report pretrain-inspect pretrain-push \
 	distillation-sft-smoke distillation-sft-generate \
-	distillation-sft-report distillation-sft-inspect distillation-sft-adjudicate distillation-sft-push \
+	distillation-sft-report distillation-sft-inspect distillation-sft-push \
 	distillation-dpo-smoke distillation-dpo-generate \
 	distillation-dpo-report distillation-dpo-inspect distillation-dpo-push \
 	alignment-preflight sft-preflight dpo-preflight \
@@ -256,7 +254,6 @@ help:
 > @echo "  make dpo-inspect         Show DPO files and sample rows"
 > @echo "  make pretrain-report     Rebuild pretraining reports and dataset card"
 > @echo "  make distillation-sft-report      Rebuild distillation SFT reports and dataset card"
-> @echo "  make distillation-sft-adjudicate  Apply reviewed repeated-response decisions"
 > @echo "  make distillation-dpo-report      Rebuild distillation DPO reports and dataset card"
 > @echo "  make sft-report          Rebuild SFT coverage and dataset card"
 > @echo "  make dpo-report          Rebuild DPO coverage and dataset card"
@@ -478,14 +475,6 @@ distillation-sft-inspect:
 > @find $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_INSPECT_RUN) -type f 2>/dev/null | sort
 > @echo "== distillation sample rows =="
 > @find $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_INSPECT_RUN)/datasets -name '*.jsonl' -type f 2>/dev/null | sort | head -n 5 | xargs -r -I{} sh -c 'echo "--- {}"; head -n 3 "{}"'
-
-distillation-sft-adjudicate:
-> test -n "$(DISTILLATION_SFT_ADJUDICATIONS)" || (echo "DISTILLATION_SFT_ADJUDICATIONS is required" >&2; exit 2)
-> $(PYTHON) -m slm_synth.distillation_sft.cli apply-response-cluster-adjudications \
->   --dataset-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/datasets \
->   --adjudications $(DISTILLATION_SFT_ADJUDICATIONS) \
->   --rejected-dir $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/rejected \
->   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_ADJUDICATION_RUN)/manifests/$(DISTILLATION_SFT_ADJUDICATION_RUN).manifest.json
 
 distillation-sft-push:
 > test -n "$(DISTILLATION_SFT_HF_REPO)" || (echo "DISTILLATION_SFT_HF_REPO or HF_REPO is required" >&2; exit 2)
