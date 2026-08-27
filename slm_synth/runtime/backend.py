@@ -2,13 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# Keep the proven production backend construction path used by the finalized
-# one-offs. Dataset migration can therefore share runtime code without changing
-# provider, routing, retry, structured-output, telemetry, or adaptive-admission
-# behavior.
-from slm_synth.sft.generation import build_openrouter_backend
-
-
 def build_backend(
     *,
     model: str,
@@ -23,11 +16,15 @@ def build_backend(
     if concurrency < 1:
         raise ValueError("concurrency must be positive")
 
-    return build_openrouter_backend(
+    from slm_synth.llm import LLMBackend
+
+    return LLMBackend(
+        provider="openrouter",
         model=model,
         max_tokens=max_tokens,
         temperature=temperature,
         top_p=top_p,
+        json_mode=False,
         adaptive_maximum_in_flight=concurrency,
         adaptive_initial_in_flight=concurrency,
         openrouter_routing_mode=routing_mode,

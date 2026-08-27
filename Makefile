@@ -121,34 +121,39 @@ DISTILLATION_DPO_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter command line,$(origin
 
 # SFT
 SFT_RUN ?= sft-smoke-001
-SFT_GENERATION_RUN ?= sft-candidate-001
+SFT_GENERATION_RUN ?= sft-production-001
 SFT_REPORT_RUN ?= $(SFT_RUN)
 SFT_INSPECT_RUN ?= $(SFT_REPORT_RUN)
 SFT_FAMILIES ?= all
 SFT_SMOKE_FAMILIES ?= grounded_qa_and_reading
-SFT_CANDIDATE_COUNTS ?=
-SFT_ACCEPTED_TARGETS ?=
-SFT_CANDIDATE_WAVE_SIZE ?= 1000
-SFT_SMOKE_CANDIDATE_COUNTS ?= grounded_qa_and_reading=2
-SFT_BATCH_SIZE ?= 16
-SFT_SMOKE_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
-SFT_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
-SFT_GENERATION_CONCURRENCY ?= 8
 SFT_RUN_ROOT ?= data/sft/runs
-SFT_MODEL ?=
-SFT_ADJUDICATOR_MODEL ?=
-SFT_REVIEWER_MODEL ?=
-SFT_INITIAL_CONCURRENCY ?= 8
-SFT_INITIAL_BATCH_SIZE ?= 4
-SFT_BATCH_INCREASE_SUCCESSES ?= 4
-SFT_MAX_TOKENS ?= 4096
-SFT_ADJUDICATOR_MAX_TOKENS ?= $(SFT_MAX_TOKENS)
+SFT_SEEDS ?= 1
+SFT_DERIVATIONS_PER_SEED ?= 30
+SFT_TASKS_PER_DERIVATION ?= 15
+SFT_SMOKE_DERIVATIONS_PER_SEED ?= 1
+SFT_SMOKE_TASKS_PER_DERIVATION ?= 2
+SFT_ANSWER_BATCH_SIZE ?= 4
+SFT_JUDGE_BATCH_SIZE ?= 10
+SFT_REVIEWER_BATCH_SIZE ?= 10
+SFT_CONCURRENCY ?= 8
+SFT_CARDINALITY_FILL_ATTEMPTS ?= 3
+SFT_STAGE_BATCH_ATTEMPTS ?= 3
+SFT_DERIVATION_MODEL ?= openai/gpt-5.6-luna-pro
+SFT_TASK_MODEL ?= deepseek/deepseek-v4-flash
+SFT_ANSWER_MODEL ?= deepseek/deepseek-v4-flash
+SFT_JUDGE_MODEL ?= nvidia/nemotron-3.5-lightning
+SFT_REVIEWER_MODEL ?= google/gemma-4-31b-it
+SFT_DERIVATION_MAX_TOKENS ?= 4096
+SFT_TASK_MAX_TOKENS ?= 4096
+SFT_ANSWER_MAX_TOKENS ?= 4096
+SFT_JUDGE_MAX_TOKENS ?= 4096
 SFT_REVIEWER_MAX_TOKENS ?= 512
+SFT_JACCARD_THRESHOLD ?= 0.82
+SFT_SEQUENCE_THRESHOLD ?= 0.90
 SFT_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 SFT_PUSH_RUN ?= $(SFT_REPORT_RUN)
 SFT_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-sft,))
 SFT_SMOKE_FAMILIES_EFFECTIVE := $(if $(filter file,$(origin SFT_FAMILIES)),$(SFT_SMOKE_FAMILIES),$(SFT_FAMILIES))
-SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE := $(if $(filter file,$(origin SFT_CANDIDATE_COUNTS)),$(SFT_SMOKE_CANDIDATE_COUNTS),$(SFT_CANDIDATE_COUNTS))
 
 # DPO
 DPO_RUN ?= dpo-smoke-001
@@ -280,9 +285,13 @@ help:
 > @echo "  DISTILLATION_DPO_TARGET_PAIRS=$(DISTILLATION_DPO_TARGET_PAIRS)"
 > @echo "  DISTILLATION_DPO_HF_NAMESPACE=$(DISTILLATION_DPO_HF_NAMESPACE)"
 > @echo "  DISTILLATION_DPO_HF_REPO=$(DISTILLATION_DPO_HF_REPO)"
-> @echo "  SFT_CANDIDATE_COUNTS=$(SFT_CANDIDATE_COUNTS)"
-> @echo "  SFT_ACCEPTED_TARGETS=$(SFT_ACCEPTED_TARGETS)"
-> @echo "  SFT_CANDIDATE_WAVE_SIZE=$(SFT_CANDIDATE_WAVE_SIZE)"
+> @echo "  SFT_DERIVATION_MODEL=$(SFT_DERIVATION_MODEL)"
+> @echo "  SFT_TASK_MODEL=$(SFT_TASK_MODEL)"
+> @echo "  SFT_ANSWER_MODEL=$(SFT_ANSWER_MODEL)"
+> @echo "  SFT_JUDGE_MODEL=$(SFT_JUDGE_MODEL)"
+> @echo "  SFT_REVIEWER_MODEL=$(SFT_REVIEWER_MODEL)"
+> @echo "  SFT_DERIVATIONS_PER_SEED=$(SFT_DERIVATIONS_PER_SEED)"
+> @echo "  SFT_TASKS_PER_DERIVATION=$(SFT_TASKS_PER_DERIVATION)"
 > @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
 > @echo "  DPO_CANDIDATE_COUNTS=$(DPO_CANDIDATE_COUNTS)"
 > @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
@@ -506,55 +515,63 @@ dpo-preflight:
 > $(PYTHON) -m slm_synth.alignment_preflight --kind dpo
 
 sft-smoke:
-> @test -n "$(strip $(SFT_MODEL))" || (echo "SFT_MODEL is required" >&2; exit 2)
-> @test -n "$(strip $(SFT_ADJUDICATOR_MODEL))" || (echo "SFT_ADJUDICATOR_MODEL is required" >&2; exit 2)
-> @test -n "$(strip $(SFT_REVIEWER_MODEL))" || (echo "SFT_REVIEWER_MODEL is required" >&2; exit 2)
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.pipeline \
 >   --families $(SFT_SMOKE_FAMILIES_EFFECTIVE) \
->   --candidate-counts $(SFT_SMOKE_CANDIDATE_COUNTS_EFFECTIVE) \
->   --batch-size $(SFT_SMOKE_BATCH_SIZE) \
->   --output-dir $(SFT_RUN_ROOT)/$(SFT_RUN)/datasets \
->   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_RUN)/manifests \
->   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_RUN) \
->   --max-tokens $(SFT_MAX_TOKENS) \
->   --adjudicator-model $(SFT_ADJUDICATOR_MODEL) \
->   --adjudicator-max-tokens $(SFT_ADJUDICATOR_MAX_TOKENS) \
->   --reviewer-model $(SFT_REVIEWER_MODEL) \
->   --reviewer-max-tokens $(SFT_REVIEWER_MAX_TOKENS) \
->   $(OPENROUTER_ROUTING_ARGS) \
+>   --output-dir $(SFT_RUN_ROOT)/$(SFT_RUN) \
+>   --seeds $(SFT_SEEDS) \
+>   --derivations-per-seed $(SFT_SMOKE_DERIVATIONS_PER_SEED) \
+>   --tasks-per-derivation $(SFT_SMOKE_TASKS_PER_DERIVATION) \
+>   --answer-batch-size $(SFT_ANSWER_BATCH_SIZE) \
+>   --judge-batch-size $(SFT_JUDGE_BATCH_SIZE) \
+>   --reviewer-batch-size $(SFT_REVIEWER_BATCH_SIZE) \
 >   --concurrency $(SFT_CONCURRENCY) \
->   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
->   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
->   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
+>   --cardinality-fill-attempts $(SFT_CARDINALITY_FILL_ATTEMPTS) \
+>   --stage-batch-attempts $(SFT_STAGE_BATCH_ATTEMPTS) \
+>   --derivation-model $(SFT_DERIVATION_MODEL) \
+>   --task-model $(SFT_TASK_MODEL) \
+>   --answer-model $(SFT_ANSWER_MODEL) \
+>   --judge-model $(SFT_JUDGE_MODEL) \
+>   --reviewer-model $(SFT_REVIEWER_MODEL) \
+>   --derivation-max-tokens $(SFT_DERIVATION_MAX_TOKENS) \
+>   --task-max-tokens $(SFT_TASK_MAX_TOKENS) \
+>   --answer-max-tokens $(SFT_ANSWER_MAX_TOKENS) \
+>   --judge-max-tokens $(SFT_JUDGE_MAX_TOKENS) \
+>   --reviewer-max-tokens $(SFT_REVIEWER_MAX_TOKENS) \
+>   --routing-mode $(OPENROUTER_ROUTING_MODE) \
+>   $(OPENROUTER_PROVIDER_ARG) \
+>   --jaccard-threshold $(SFT_JACCARD_THRESHOLD) \
+>   --sequence-threshold $(SFT_SEQUENCE_THRESHOLD)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_RUN)
 
 sft-generate:
-> @test -n "$(strip $(SFT_MODEL))" || (echo "SFT_MODEL is required" >&2; exit 2)
-> @test -n "$(strip $(SFT_ADJUDICATOR_MODEL))" || (echo "SFT_ADJUDICATOR_MODEL is required" >&2; exit 2)
-> @test -n "$(strip $(SFT_REVIEWER_MODEL))" || (echo "SFT_REVIEWER_MODEL is required" >&2; exit 2)
-> @test -n "$(strip $(SFT_CANDIDATE_COUNTS))$(strip $(SFT_ACCEPTED_TARGETS))" || (echo "set exactly one of SFT_CANDIDATE_COUNTS or SFT_ACCEPTED_TARGETS" >&2; exit 2)
-> @test -z "$(strip $(SFT_CANDIDATE_COUNTS))" -o -z "$(strip $(SFT_ACCEPTED_TARGETS))" || (echo "SFT_CANDIDATE_COUNTS and SFT_ACCEPTED_TARGETS are mutually exclusive" >&2; exit 2)
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.cli generate-llm-run \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.sft.pipeline \
 >   --families $(SFT_FAMILIES) \
->   $(if $(strip $(SFT_ACCEPTED_TARGETS)),--accepted-targets $(SFT_ACCEPTED_TARGETS) --candidate-wave-size $(SFT_CANDIDATE_WAVE_SIZE),--candidate-counts $(SFT_CANDIDATE_COUNTS)) \
->   --batch-size $(SFT_BATCH_SIZE) \
->   --output-dir $(SFT_RUN_ROOT)/$(SFT_GENERATION_RUN)/datasets \
->   --manifest-dir $(SFT_RUN_ROOT)/$(SFT_GENERATION_RUN)/manifests \
->   --teacher-model $(SFT_MODEL) \
 >   --generation-run $(SFT_GENERATION_RUN) \
->   --max-tokens $(SFT_MAX_TOKENS) \
->   --adjudicator-model $(SFT_ADJUDICATOR_MODEL) \
->   --adjudicator-max-tokens $(SFT_ADJUDICATOR_MAX_TOKENS) \
+>   --output-dir $(SFT_RUN_ROOT)/$(SFT_GENERATION_RUN) \
+>   --seeds $(SFT_SEEDS) \
+>   --derivations-per-seed $(SFT_DERIVATIONS_PER_SEED) \
+>   --tasks-per-derivation $(SFT_TASKS_PER_DERIVATION) \
+>   --answer-batch-size $(SFT_ANSWER_BATCH_SIZE) \
+>   --judge-batch-size $(SFT_JUDGE_BATCH_SIZE) \
+>   --reviewer-batch-size $(SFT_REVIEWER_BATCH_SIZE) \
+>   --concurrency $(SFT_CONCURRENCY) \
+>   --cardinality-fill-attempts $(SFT_CARDINALITY_FILL_ATTEMPTS) \
+>   --stage-batch-attempts $(SFT_STAGE_BATCH_ATTEMPTS) \
+>   --derivation-model $(SFT_DERIVATION_MODEL) \
+>   --task-model $(SFT_TASK_MODEL) \
+>   --answer-model $(SFT_ANSWER_MODEL) \
+>   --judge-model $(SFT_JUDGE_MODEL) \
 >   --reviewer-model $(SFT_REVIEWER_MODEL) \
+>   --derivation-max-tokens $(SFT_DERIVATION_MAX_TOKENS) \
+>   --task-max-tokens $(SFT_TASK_MAX_TOKENS) \
+>   --answer-max-tokens $(SFT_ANSWER_MAX_TOKENS) \
+>   --judge-max-tokens $(SFT_JUDGE_MAX_TOKENS) \
 >   --reviewer-max-tokens $(SFT_REVIEWER_MAX_TOKENS) \
->   $(OPENROUTER_ROUTING_ARGS) \
->   --concurrency $(SFT_GENERATION_CONCURRENCY) \
->   --adaptive-initial-in-flight $(SFT_INITIAL_CONCURRENCY) \
->   --adaptive-initial-batch-size $(SFT_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(SFT_BATCH_INCREASE_SUCCESSES) \
->   --holdout-registry $(SFT_HOLDOUT_REGISTRY)
+>   --routing-mode $(OPENROUTER_ROUTING_MODE) \
+>   $(OPENROUTER_PROVIDER_ARG) \
+>   --jaccard-threshold $(SFT_JACCARD_THRESHOLD) \
+>   --sequence-threshold $(SFT_SEQUENCE_THRESHOLD)
 > $(MAKE) sft-report SFT_REPORT_RUN=$(SFT_GENERATION_RUN)
 
 sft-report:
