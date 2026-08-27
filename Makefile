@@ -162,27 +162,34 @@ DPO_REPORT_RUN ?= $(DPO_RUN)
 DPO_INSPECT_RUN ?= $(DPO_REPORT_RUN)
 DPO_PREFERENCE_DIMENSIONS ?= all
 DPO_SMOKE_PREFERENCE_DIMENSIONS ?= instruction_adherence
-DPO_CANDIDATE_COUNTS ?=
-DPO_SMOKE_CANDIDATE_COUNTS ?= instruction_adherence=2
-DPO_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
-DPO_SMOKE_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)
-DPO_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)
-DPO_GENERATION_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)
+DPO_SEEDS ?= 1
+DPO_SMOKE_DERIVATIONS_PER_SEED ?= 2
+DPO_SMOKE_TASKS_PER_DERIVATION ?= 2
+DPO_DERIVATIONS_PER_SEED ?= 30
+DPO_TASKS_PER_DERIVATION ?= 15
+DPO_PAIR_BATCH_SIZE ?= 4
+DPO_JUDGE_BATCH_SIZE ?= 10
+DPO_REVIEWER_BATCH_SIZE ?= 10
+DPO_CONCURRENCY ?= 8
+DPO_CARDINALITY_FILL_ATTEMPTS ?= 3
+DPO_STAGE_BATCH_ATTEMPTS ?= 3
 DPO_RUN_ROOT ?= data/dpo/runs
-DPO_MODEL ?= $(MODEL)
-DPO_ADJUDICATOR_MODEL ?= $(DPO_MODEL)
-DPO_REVIEWER_MODEL ?= $(DPO_ADJUDICATOR_MODEL)
-DPO_INITIAL_CONCURRENCY ?= 8
-DPO_INITIAL_BATCH_SIZE ?= 4
-DPO_BATCH_INCREASE_SUCCESSES ?= 4
-DPO_MAX_TOKENS ?= 4096
-DPO_ADJUDICATOR_MAX_TOKENS ?= $(DPO_MAX_TOKENS)
+DPO_DERIVATION_MODEL ?= openai/gpt-5.6-luna-pro
+DPO_TASK_MODEL ?= deepseek/deepseek-v4-flash
+DPO_PAIR_MODEL ?= deepseek/deepseek-v4-flash
+DPO_JUDGE_MODEL ?= nvidia/nemotron-3.5-lightning
+DPO_REVIEWER_MODEL ?= google/gemma-4-31b-it
+DPO_DERIVATION_MAX_TOKENS ?= 4096
+DPO_TASK_MAX_TOKENS ?= 4096
+DPO_PAIR_MAX_TOKENS ?= 4096
+DPO_JUDGE_MAX_TOKENS ?= 4096
 DPO_REVIEWER_MAX_TOKENS ?= 512
+DPO_JACCARD_THRESHOLD ?= 0.82
+DPO_SEQUENCE_THRESHOLD ?= 0.90
 DPO_HOLDOUT_REGISTRY ?= configs/eval_holdouts.yaml
 DPO_PUSH_RUN ?= $(DPO_REPORT_RUN)
 DPO_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-dpo,))
 DPO_SMOKE_PREFERENCE_DIMENSIONS_EFFECTIVE := $(if $(filter file,$(origin DPO_PREFERENCE_DIMENSIONS)),$(DPO_SMOKE_PREFERENCE_DIMENSIONS),$(DPO_PREFERENCE_DIMENSIONS))
-DPO_SMOKE_CANDIDATE_COUNTS_EFFECTIVE := $(if $(filter file,$(origin DPO_CANDIDATE_COUNTS)),$(DPO_SMOKE_CANDIDATE_COUNTS),$(DPO_CANDIDATE_COUNTS))
 
 # Hugging Face dataset deletion
 HF_DELETE_NAMESPACE ?= $(HF_NAMESPACE)
@@ -293,7 +300,12 @@ help:
 > @echo "  SFT_DERIVATIONS_PER_SEED=$(SFT_DERIVATIONS_PER_SEED)"
 > @echo "  SFT_TASKS_PER_DERIVATION=$(SFT_TASKS_PER_DERIVATION)"
 > @echo "  SFT_HF_REPO=$(SFT_HF_REPO)"
-> @echo "  DPO_CANDIDATE_COUNTS=$(DPO_CANDIDATE_COUNTS)"
+> @echo "  DPO_PREFERENCE_DIMENSIONS=$(DPO_PREFERENCE_DIMENSIONS)"
+> @echo "  DPO_DERIVATION_MODEL=$(DPO_DERIVATION_MODEL)"
+> @echo "  DPO_TASK_MODEL=$(DPO_TASK_MODEL)"
+> @echo "  DPO_PAIR_MODEL=$(DPO_PAIR_MODEL)"
+> @echo "  DPO_JUDGE_MODEL=$(DPO_JUDGE_MODEL)"
+> @echo "  DPO_REVIEWER_MODEL=$(DPO_REVIEWER_MODEL)"
 > @echo "  DPO_HF_REPO=$(DPO_HF_REPO)"
 > @echo "  HF_DELETE_NAMESPACE=$(HF_DELETE_NAMESPACE)"
 > @echo "  HF_DELETE_REPO=$(HF_DELETE_REPO)"
@@ -597,48 +609,61 @@ sft-push:
 >   --repo-id $(SFT_HF_REPO) $(HF_PRIVATE_ARG)
 
 dpo-smoke:
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
->   --preference-dimensions $(DPO_SMOKE_PREFERENCE_DIMENSIONS_EFFECTIVE) \
->   --candidate-counts $(DPO_SMOKE_CANDIDATE_COUNTS_EFFECTIVE) \
->   --batch-size $(DPO_SMOKE_BATCH_SIZE) \
->   --output-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/datasets \
->   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_RUN)/manifests \
->   --teacher-model $(DPO_MODEL) \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.pipeline \
+>   --dimensions $(DPO_SMOKE_PREFERENCE_DIMENSIONS_EFFECTIVE) \
 >   --generation-run $(DPO_RUN) \
->   --max-tokens $(DPO_MAX_TOKENS) \
->   --adjudicator-model $(DPO_ADJUDICATOR_MODEL) \
->   --adjudicator-max-tokens $(DPO_ADJUDICATOR_MAX_TOKENS) \
->   --reviewer-model $(DPO_REVIEWER_MODEL) \
->   --reviewer-max-tokens $(DPO_REVIEWER_MAX_TOKENS) \
->   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
->   $(OPENROUTER_ROUTING_ARGS) \
+>   --output-dir $(DPO_RUN_ROOT)/$(DPO_RUN) \
+>   --seeds $(DPO_SEEDS) \
+>   --derivations-per-seed $(DPO_SMOKE_DERIVATIONS_PER_SEED) \
+>   --tasks-per-derivation $(DPO_SMOKE_TASKS_PER_DERIVATION) \
+>   --pair-batch-size $(DPO_PAIR_BATCH_SIZE) \
+>   --judge-batch-size $(DPO_JUDGE_BATCH_SIZE) \
+>   --reviewer-batch-size $(DPO_REVIEWER_BATCH_SIZE) \
 >   --concurrency $(DPO_CONCURRENCY) \
->   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
->   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
+>   --cardinality-fill-attempts $(DPO_CARDINALITY_FILL_ATTEMPTS) \
+>   --stage-batch-attempts $(DPO_STAGE_BATCH_ATTEMPTS) \
+>   --derivation-model $(DPO_DERIVATION_MODEL) \
+>   --task-model $(DPO_TASK_MODEL) \
+>   --pair-model $(DPO_PAIR_MODEL) \
+>   --judge-model $(DPO_JUDGE_MODEL) \
+>   --reviewer-model $(DPO_REVIEWER_MODEL) \
+>   --derivation-max-tokens $(DPO_DERIVATION_MAX_TOKENS) \
+>   --task-max-tokens $(DPO_TASK_MAX_TOKENS) \
+>   --pair-max-tokens $(DPO_PAIR_MAX_TOKENS) \
+>   --judge-max-tokens $(DPO_JUDGE_MAX_TOKENS) \
+>   --reviewer-max-tokens $(DPO_REVIEWER_MAX_TOKENS) \
+>   --jaccard-threshold $(DPO_JACCARD_THRESHOLD) \
+>   --sequence-threshold $(DPO_SEQUENCE_THRESHOLD) \
+>   $(OPENROUTER_ROUTING_ARGS)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_RUN)
 
 dpo-generate:
-> @test -n "$(strip $(DPO_CANDIDATE_COUNTS))" || (echo "DPO_CANDIDATE_COUNTS is required (dimension=count ...)" >&2; exit 2)
-> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.cli generate-llm-run \
->   --preference-dimensions $(DPO_PREFERENCE_DIMENSIONS) \
->   --candidate-counts $(DPO_CANDIDATE_COUNTS) \
->   --batch-size $(DPO_BATCH_SIZE) \
->   --output-dir $(DPO_RUN_ROOT)/$(DPO_GENERATION_RUN)/datasets \
->   --manifest-dir $(DPO_RUN_ROOT)/$(DPO_GENERATION_RUN)/manifests \
->   --teacher-model $(DPO_MODEL) \
+> $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.dpo.pipeline \
+>   --dimensions $(DPO_PREFERENCE_DIMENSIONS) \
 >   --generation-run $(DPO_GENERATION_RUN) \
->   --max-tokens $(DPO_MAX_TOKENS) \
->   --adjudicator-model $(DPO_ADJUDICATOR_MODEL) \
->   --adjudicator-max-tokens $(DPO_ADJUDICATOR_MAX_TOKENS) \
+>   --output-dir $(DPO_RUN_ROOT)/$(DPO_GENERATION_RUN) \
+>   --seeds $(DPO_SEEDS) \
+>   --derivations-per-seed $(DPO_DERIVATIONS_PER_SEED) \
+>   --tasks-per-derivation $(DPO_TASKS_PER_DERIVATION) \
+>   --pair-batch-size $(DPO_PAIR_BATCH_SIZE) \
+>   --judge-batch-size $(DPO_JUDGE_BATCH_SIZE) \
+>   --reviewer-batch-size $(DPO_REVIEWER_BATCH_SIZE) \
+>   --concurrency $(DPO_CONCURRENCY) \
+>   --cardinality-fill-attempts $(DPO_CARDINALITY_FILL_ATTEMPTS) \
+>   --stage-batch-attempts $(DPO_STAGE_BATCH_ATTEMPTS) \
+>   --derivation-model $(DPO_DERIVATION_MODEL) \
+>   --task-model $(DPO_TASK_MODEL) \
+>   --pair-model $(DPO_PAIR_MODEL) \
+>   --judge-model $(DPO_JUDGE_MODEL) \
 >   --reviewer-model $(DPO_REVIEWER_MODEL) \
+>   --derivation-max-tokens $(DPO_DERIVATION_MAX_TOKENS) \
+>   --task-max-tokens $(DPO_TASK_MAX_TOKENS) \
+>   --pair-max-tokens $(DPO_PAIR_MAX_TOKENS) \
+>   --judge-max-tokens $(DPO_JUDGE_MAX_TOKENS) \
 >   --reviewer-max-tokens $(DPO_REVIEWER_MAX_TOKENS) \
->   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
->   $(OPENROUTER_ROUTING_ARGS) \
->   --concurrency $(DPO_GENERATION_CONCURRENCY) \
->   --adaptive-initial-in-flight $(DPO_INITIAL_CONCURRENCY) \
->   --adaptive-initial-batch-size $(DPO_INITIAL_BATCH_SIZE) \
->   --adaptive-batch-increase-successes $(DPO_BATCH_INCREASE_SUCCESSES)
+>   --jaccard-threshold $(DPO_JACCARD_THRESHOLD) \
+>   --sequence-threshold $(DPO_SEQUENCE_THRESHOLD) \
+>   $(OPENROUTER_ROUTING_ARGS)
 > $(MAKE) dpo-report DPO_REPORT_RUN=$(DPO_GENERATION_RUN)
 
 dpo-report:
