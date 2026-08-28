@@ -140,7 +140,7 @@ def load_seeds(family: str, count: int) -> list[Seed]:
     return [
         Seed(
             index=index,
-            id=f"distill_seed_{family}_{index:03d}",
+            id=f"distillation_sft_seed_{family}_{index:03d}",
             family=family,
             instruction=instruction,
             metadata={
@@ -958,7 +958,7 @@ The response structure is enforced by the supplied JSON Schema.
 
 def make_spec(*, seed: Seed, task: Task, row_number: int) -> dict[str, Any]:
     return {
-        "id": f"distill_{seed.family}_{row_number:06d}",
+        "id": f"distillation_sft_{seed.family}_{row_number:06d}",
         "instruction": task.text,
         "metadata": {
             **seed.metadata,

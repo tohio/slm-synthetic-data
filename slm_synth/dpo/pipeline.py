@@ -907,7 +907,7 @@ The response structure is enforced by the supplied JSON Schema.
 
 def make_row(*, seed: Seed, task: Task, row_number: int, chosen: str, rejected: str) -> dict[str, Any]:
     return {
-        "id": f"oneoff_{seed.dimension}_{row_number:06d}",
+        "id": f"dpo_{seed.dimension}_{row_number:06d}",
         "prompt": task.text,
         "chosen": chosen,
         "rejected": rejected,
@@ -1584,7 +1584,7 @@ def _public_metadata(dimension: str) -> dict[str, Any]:
 def _to_public_row(row: Mapping[str, Any], dimension: str) -> dict[str, Any]:
     return validate_public_dpo_row(
         {
-            "id": str(row["id"]).replace("oneoff_", "dpo_", 1),
+            "id": str(row["id"]),
             "prompt": [{"role": "user", "content": str(row["prompt"])}],
             "chosen": [{"role": "assistant", "content": str(row["chosen"])}],
             "rejected": [{"role": "assistant", "content": str(row["rejected"])}],
@@ -1631,9 +1631,8 @@ def _quality_evidence(work_dir: Path, accepted_ids: set[str]) -> dict[str, dict[
     }
     evidence: dict[str, dict[str, Any]] = {}
     for public_id in sorted(accepted_ids):
-        internal_id = public_id.replace("dpo_", "oneoff_", 1)
-        judge = judges.get(internal_id)
-        review = reviewers.get(internal_id)
+        judge = judges.get(public_id)
+        review = reviewers.get(public_id)
         if judge is None or review is None:
             raise RuntimeError(f"missing judge/reviewer evidence for accepted DPO row {public_id}")
         evidence[public_id] = {
@@ -1783,7 +1782,7 @@ def run_production(args: argparse.Namespace) -> int:
         "schema_version": 1,
         "dataset_type": "dpo",
         "generation_run": args.generation_run,
-        "generation_mode": "stage_oriented_oneoff_migration",
+        "generation_mode": "stage_oriented_pipeline",
         "teacher_model": args.pair_model,
         "teacher_provider": "openrouter",
         "preference_dimensions": public_dimensions,

@@ -769,7 +769,7 @@ def make_spec(*, seed: Seed, task: Task, row_number: int) -> dict[str, Any]:
 
     return validate_sft_spec(
         {
-            "id": f"oneoff_{seed.family}_{row_number:06d}",
+            "id": f"sft_{seed.family}_{row_number:06d}",
             "instruction": task.text,
             "metadata": metadata,
             "constraints": [
@@ -1575,7 +1575,7 @@ def run_production(args: argparse.Namespace) -> int:
         "schema_version": 1,
         "dataset_type": "sft",
         "generation_run": args.generation_run,
-        "generation_mode": "stage_oriented_oneoff_migration",
+        "generation_mode": "stage_oriented_pipeline",
         "teacher_model": args.answer_model,
         "teacher_provider": "openrouter",
         "families": list(families),

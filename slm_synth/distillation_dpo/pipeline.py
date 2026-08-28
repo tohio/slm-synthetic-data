@@ -278,7 +278,7 @@ def load_seeds(dimension: str, count: int) -> list[Seed]:
         seeds.append(
             Seed(
                 index=index,
-                id=f"distill_dpo_{dimension}_seed_{index:03d}",
+                id=f"distillation_dpo_{dimension}_seed_{index:03d}",
                 dimension=dimension,
                 instruction=instruction,
                 metadata={
@@ -1148,7 +1148,7 @@ The response structure is enforced by the supplied JSON Schema.
 
 def make_row(*, seed: Seed, task: Task, row_number: int, chosen: str, rejected: str) -> dict[str, Any]:
     return {
-        "id": f"distill_dpo_{seed.dimension}_{row_number:06d}",
+        "id": f"distillation_dpo_{seed.dimension}_{row_number:06d}",
         "prompt": task.text,
         "chosen": chosen,
         "rejected": rejected,
@@ -1986,7 +1986,7 @@ def run_production(args: argparse.Namespace) -> int:
         }],
         "total_rows": len(unique_rows),
         "metadata": {
-            "generation_mode": "stage_oriented_oneoff_migration",
+            "generation_mode": "stage_oriented_pipeline",
             "pipeline": "derivation_task_novelty_pair_validate_five_gate_judge_reviewer_dedup",
             "derivation_model": args.derivation_model,
             "task_model": args.task_model,
