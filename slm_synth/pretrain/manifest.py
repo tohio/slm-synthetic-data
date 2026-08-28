@@ -17,6 +17,7 @@ from slm_synth.run_summary import print_pretrain_run_summary
 from slm_synth.pretrain.record_quality import SIGNAL_FROM_FILE
 
 PRETRAIN_STAGES = ("raw", "validated", "deduped", "rejected")
+PRETRAIN_SIGNALS = frozenset(SIGNAL_FROM_FILE.values())
 
 
 def build_run_manifest(
@@ -146,10 +147,8 @@ def _summarize_stage(stage_dir: Path) -> dict[str, Any]:
         rows = sum(signal_counts.values()) if signal_counts else _count_jsonl_rows(path)
         if signal_counts:
             signal: str | None = "consolidated"
-        elif path.name == "duplicates.jsonl":
-            signal = None
         else:
-            signal = SIGNAL_FROM_FILE.get(path.name, path.stem)
+            signal = _signal_from_stage_filename(path.name)
         files[path.name] = {
             "signal": signal,
             "path": str(path),
@@ -167,6 +166,20 @@ def _summarize_stage(stage_dir: Path) -> dict[str, Any]:
     }
 
 
+
+def _signal_from_stage_filename(filename: str) -> str | None:
+    signal = SIGNAL_FROM_FILE.get(filename)
+    if signal is not None:
+        return signal
+
+    semantic_suffix = ".semantic.jsonl"
+    if filename.endswith(semantic_suffix):
+        candidate = filename[: -len(semantic_suffix)]
+        if candidate in PRETRAIN_SIGNALS:
+            return candidate
+
+    return None
+
 def _summarize_signals(stage_payloads: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, int]]:
     signals: dict[str, dict[str, int]] = {}
     for stage, payload in stage_payloads.items():
@@ -181,11 +194,19 @@ def _summarize_signals(stage_payloads: Mapping[str, Mapping[str, Any]]) -> dict[
             consolidated = file_payload.get("signals")
             if isinstance(consolidated, Mapping):
                 for consolidated_signal, consolidated_rows in consolidated.items():
-                    if isinstance(consolidated_signal, str) and isinstance(consolidated_rows, int):
-                        signals.setdefault(consolidated_signal, {})[f"{stage}_rows"] = consolidated_rows
+                    if (
+                        isinstance(consolidated_signal, str)
+                        and consolidated_signal in PRETRAIN_SIGNALS
+                        and isinstance(consolidated_rows, int)
+                    ):
+                        stage_rows = signals.setdefault(consolidated_signal, {})
+                        key = f"{stage}_rows"
+                        stage_rows[key] = stage_rows.get(key, 0) + consolidated_rows
                 continue
-            if isinstance(signal, str) and isinstance(rows, int):
-                signals.setdefault(signal, {})[f"{stage}_rows"] = rows
+            if signal in PRETRAIN_SIGNALS and isinstance(rows, int):
+                stage_rows = signals.setdefault(signal, {})
+                key = f"{stage}_rows"
+                stage_rows[key] = stage_rows.get(key, 0) + rows
     return {signal: signals[signal] for signal in sorted(signals)}
 
 

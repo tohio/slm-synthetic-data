@@ -39,6 +39,8 @@ mix:
         [{"id": "pretrain-1", "text": "one", "metadata": {"signal": "arithmetic"}}],
     )
     _write_jsonl(output_dir / "rejected" / "arithmetic.jsonl", [{"id": 2}])
+    _write_jsonl(output_dir / "rejected" / "arithmetic.semantic.jsonl", [{"id": 4}])
+    _write_jsonl(output_dir / "rejected" / "pretrain.jsonl", [{"id": 5}])
 
     manifest = build_run_manifest(config_path=config_path)
 
@@ -50,14 +52,17 @@ mix:
     assert manifest["stages"]["raw"]["row_count"] == 3
     assert manifest["stages"]["validated"]["row_count"] == 1
     assert manifest["stages"]["deduped"]["row_count"] == 1
-    assert manifest["stages"]["rejected"]["row_count"] == 1
+    assert manifest["stages"]["rejected"]["row_count"] == 3
     assert manifest["signals"]["arithmetic"] == {
         "deduped_rows": 1,
         "raw_rows": 2,
-        "rejected_rows": 1,
+        "rejected_rows": 2,
         "validated_rows": 1,
     }
     assert manifest["signals"]["task_code"] == {"raw_rows": 1}
+    assert set(manifest["signals"]) == {"arithmetic", "task_code"}
+    assert manifest["stages"]["rejected"]["files"]["arithmetic.semantic.jsonl"]["signal"] == "arithmetic"
+    assert manifest["stages"]["rejected"]["files"]["pretrain.jsonl"]["signal"] is None
 
 
 def test_empty_duplicate_diagnostic_file_is_not_counted_as_a_signal(tmp_path):
