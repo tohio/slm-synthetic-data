@@ -27,6 +27,7 @@ from slm_synth.distillation_dpo.schema import validate_distillation_dpo_row
 from slm_synth.runtime import (
     NoveltyFilter,
     append_jsonl,
+    canonical_exact,
     build_backend,
     chunked,
     fill_exact_count,
