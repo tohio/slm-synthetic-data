@@ -117,7 +117,7 @@ def test_distillation_card_uses_teacher_model_but_not_provider(tmp_path: Path) -
 
     text = write_dataset_card("distillation-sft", run_dir).read_text(encoding="utf-8")
 
-    assert "Teacher model: `teacher/model`" in text
+    assert "Teacher response model: `teacher/model`" in text
     assert "Signals: `arithmetic`" in text
     assert '"metadata": {' in text
     assert '"eval_family": "string | null"' in text

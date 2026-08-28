@@ -1817,6 +1817,9 @@ def run_production(args: argparse.Namespace) -> int:
         datasets=datasets,
         metadata={
             "pipeline": "derivation_task_novelty_response_validation_judge_reviewer_final_dedup",
+            "derivation_model": args.derivation_model,
+            "task_model": args.task_model,
+            "answer_model": args.answer_model,
             "candidate_rows": total_candidates,
             "planned_prompt_rows": total_candidates,
             "generated_accepted_rows": total_accepted,

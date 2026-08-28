@@ -61,13 +61,9 @@ CARD_SPECS: dict[str, dict[str, str]] = {
         "schema": """{
   "id": "string",
   "messages": [
-    {"role": "system", "content": "string"},
     {"role": "user", "content": "string"},
-    {"role": "assistant", "content": "string|null", "tool_calls": ["structured function calls"]},
-    {"role": "tool", "tool_call_id": "string", "content": "string"},
     {"role": "assistant", "content": "string"}
   ],
-  "tools": ["optional shared function definitions"],
   "metadata": {
     "task_family": "string",
     "interaction_modes": ["string"],
@@ -77,6 +73,12 @@ CARD_SPECS: dict[str, dict[str, str]] = {
     "template_family": "string"
   }
 }""",
+        "schema_note": (
+            "`messages` is variable-length. Most rows are ordinary user/assistant "
+            "exchanges. System messages, `tools`, assistant `tool_calls`, tool-result "
+            "messages, and additional turns appear only when the row's interaction "
+            "mode requires them."
+        ),
         "intended_use": "Use this dataset for supervised fine-tuning experiments.",
         "limitations": "This dataset is synthetic. Inspect samples before training and do not use it as an evaluation benchmark.",
     },
@@ -91,12 +93,11 @@ CARD_SPECS: dict[str, dict[str, str]] = {
     {"role": "user", "content": "string"}
   ],
   "chosen": [
-    {"role": "assistant|tool", "content": "string|null"}
+    {"role": "assistant", "content": "string"}
   ],
   "rejected": [
-    {"role": "assistant|tool", "content": "string|null"}
+    {"role": "assistant", "content": "string"}
   ],
-  "tools": ["optional shared function definitions"],
   "metadata": {
     "task_family": "string",
     "interaction_modes": ["string"],
@@ -108,6 +109,11 @@ CARD_SPECS: dict[str, dict[str, str]] = {
     "failure_mode": "string"
   }
 }""",
+        "schema_note": (
+            "`prompt`, `chosen`, and `rejected` are message lists. Tool definitions, "
+            "assistant tool calls, tool-result messages, and multi-turn structures are "
+            "included only for interaction modes that require them."
+        ),
         "intended_use": "Use this dataset for DPO-style preference optimization experiments.",
         "limitations": "This dataset is synthetic and encodes targeted preference behavior. Inspect chosen/rejected pairs before training.",
     },
@@ -171,6 +177,7 @@ def build_dataset_card(
     family: str | None = None,
     signals: Iterable[str] | None = None,
     teacher_model: str | None = None,
+    model_roles: Mapping[str, str] | None = None,
     title: str | None = None,
     language: str = "English",
 ) -> str:
@@ -211,7 +218,12 @@ def build_dataset_card(
             "dpo": "Preference dimensions",
         }.get(kind, "Signals")
         lines.append(f"- {label}: `{', '.join(clean_signals)}`")
-    if teacher_model:
+    clean_model_roles = _clean_model_roles(model_roles)
+    if clean_model_roles:
+        lines.extend(["", "## Generation Models", ""])
+        for label, model in clean_model_roles:
+            lines.append(f"- {label}: `{model}`")
+    elif teacher_model:
         lines.append(f"- Teacher model: `{teacher_model}`")
     lines.append(f"- Language: {language}")
 
@@ -245,6 +257,7 @@ def write_dataset_card(
     family: str | None = None,
     signals: Iterable[str] | None = None,
     teacher_model: str | None = None,
+    model_roles: Mapping[str, str] | None = None,
 ) -> Path:
     """Write README.md into a generation run directory."""
 
@@ -257,6 +270,8 @@ def write_dataset_card(
         signals = metadata.get("signals")
     if teacher_model is None:
         teacher_model = metadata.get("teacher_model")
+    if model_roles is None:
+        model_roles = metadata.get("model_roles")
 
     run_path.mkdir(parents=True, exist_ok=True)
     readme_path = run_path / "README.md"
@@ -268,6 +283,7 @@ def write_dataset_card(
             family=family,
             signals=signals,
             teacher_model=teacher_model,
+            model_roles=model_roles,
         ),
         encoding="utf-8",
     )
@@ -288,6 +304,7 @@ def _metadata_from_run_dir(*, kind: str, run_dir: Path) -> dict[str, Any]:
     return {
         "total": _total_from_manifest(kind=kind, manifest=manifest),
         "teacher_model": _clean_string(manifest.get("teacher_model")),
+        "model_roles": _model_roles_from_manifest(kind=kind, manifest=manifest),
         "signals": _signals_from_manifest(manifest) or _signals_from_dataset_dir(run_dir / "datasets"),
     }
 
@@ -340,6 +357,71 @@ def _signals_from_dataset_dir(dataset_dir: Path) -> list[str]:
     if not dataset_dir.exists():
         return []
     return sorted(path.stem.split(".batch", 1)[0] for path in dataset_dir.glob("*.jsonl") if ".batch" not in path.stem)
+
+
+def _model_roles_from_manifest(*, kind: str, manifest: Mapping[str, Any]) -> dict[str, str]:
+    metadata = manifest.get("metadata")
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+
+    role_fields = {
+        "sft": (
+            ("Derivation model", "derivation_model"),
+            ("Task model", "task_model"),
+            ("Answer model", "answer_model"),
+            ("Judge model", "adjudicator_model"),
+            ("Reviewer model", "reviewer_model"),
+        ),
+        "dpo": (
+            ("Derivation model", "derivation_model"),
+            ("Task model", "task_model"),
+            ("Pair model", "pair_model"),
+            ("Judge model", "adjudicator_model"),
+            ("Reviewer model", "reviewer_model"),
+        ),
+        "distillation-sft": (
+            ("Derivation model", "derivation_model"),
+            ("Task model", "task_model"),
+            ("Teacher response model", "answer_model"),
+            ("Judge model", "judge_model"),
+            ("Reviewer model", "reviewer_model"),
+        ),
+        "distillation-dpo": (
+            ("Derivation model", "derivation_model"),
+            ("Task model", "task_model"),
+            ("Pair model", "pair_model"),
+            ("Judge model", "judge_model"),
+            ("Reviewer model", "reviewer_model"),
+        ),
+    }.get(kind, ())
+
+    roles: dict[str, str] = {}
+    for label, field in role_fields:
+        value = _clean_string(metadata.get(field))
+        if value:
+            roles[label] = value
+
+    if kind == "distillation-sft" and "Teacher response model" not in roles:
+        value = _clean_string(manifest.get("teacher_model"))
+        if value:
+            roles["Teacher response model"] = value
+    if kind == "distillation-dpo" and "Pair model" not in roles:
+        value = _clean_string(manifest.get("teacher_model"))
+        if value:
+            roles["Pair model"] = value
+    return roles
+
+
+def _clean_model_roles(model_roles: Mapping[str, str] | None) -> list[tuple[str, str]]:
+    if not isinstance(model_roles, Mapping):
+        return []
+    values: list[tuple[str, str]] = []
+    for label, model in model_roles.items():
+        clean_label = _clean_string(label)
+        clean_model = _clean_string(model)
+        if clean_label and clean_model:
+            values.append((clean_label, clean_model))
+    return values
 
 
 def _clean_list(values: Iterable[str] | None) -> list[str]:
