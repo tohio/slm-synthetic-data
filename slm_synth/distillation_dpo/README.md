@@ -1,38 +1,118 @@
 # `slm_synth/distillation_dpo`
 
-Preference-pair generation for post-distillation DPO alignment.
+## Purpose
 
-## Production Path
+Generate preference pairs for post-distillation DPO alignment.
 
-```text
-derivation
--> task
--> task novelty
--> chosen/rejected pair generation
--> deterministic pair validation
--> five-gate Gemma judge
--> Luna reviewer
--> final exact dedup
-```
+Distillation DPO is intentionally stricter than generic DPO. It uses distillation-specific derivation guidance, controlled weak-response defects, a five-gate judge, and independent reviewer calibration.
 
-The judge requires all five gates:
+## Contents
 
-- assessable
-- chosen complete
-- chosen correct
-- preference valid
-- dimension aligned
+~~~text
+distillation_dpo/
+├── pipeline.py        # supported production path
+├── seeds.py           # public family metadata / validator helpers
+├── schema.py          # public pair schema
+├── pair_quality.py    # deterministic pair-quality checks
+├── acceptance.py      # dataset-level acceptance/readiness
+├── io.py              # dataset IO
+├── report.py          # coverage/holdout reporting
+├── card.py            # dataset-card generation
+├── push_hf.py         # consolidated HF publication
+└── cli.py             # report/card CLI
+~~~
 
-Distillation DPO uses distillation-specific derivation/task guidance, rejected-pair defect guidance, and reviewer calibration. It must remain semantically separate from generic DPO.
+## Production Flow
 
-## Public Commands
+~~~text
+semantic derivation
+→ concrete task
+→ task novelty
+→ chosen/rejected pair
+→ deterministic pair validation
+→ five-gate Gemma judge
+→ Luna reviewer
+→ final exact triple dedup
+→ datasets/teacher_response_preference.jsonl
+~~~
 
-```bash
+Default models:
+
+| Role | Model |
+|---|---|
+| derivation | `openai/gpt-5.6-luna-pro` |
+| task | `deepseek/deepseek-v4-flash` |
+| pair | `deepseek/deepseek-v4-flash` |
+| judge | `google/gemma-4-31b-it` |
+| reviewer | `openai/gpt-5.6-luna-pro` |
+
+## Five-Gate Judge
+
+A pair is accepted by the judge only if all are true:
+
+1. `assessable`
+2. `chosen_complete`
+3. `chosen_correct`
+4. `preference_valid`
+5. `dimension_aligned`
+
+Reviewer sees only judge-accepted pairs and independently decides whether the acceptance was correct.
+
+## How It Fits In
+
+The public dataset is consumed by `slm-distillation` after response distillation when DPO alignment is required.
+
+Do not merge its semantics with generic DPO merely because both use the same ten dimension names.
+
+See [Architecture](../../docs/ARCHITECTURE.md).
+
+## Usage
+
+~~~bash
 make distillation-dpo-smoke
-make distillation-dpo-generate
-make distillation-dpo-inspect
-make distillation-dpo-report
-make distillation-dpo-push
-```
 
-The public product is one consolidated Distillation-DPO repository containing `teacher_response_preference.jsonl`.
+DISTILLATION_DPO_TARGET_RUN=distillation-dpo-production-001 \
+make distillation-dpo-generate
+
+DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-production-001 \
+make distillation-dpo-inspect
+
+DISTILLATION_DPO_REPORT_RUN=distillation-dpo-production-001 \
+make distillation-dpo-report
+
+DISTILLATION_DPO_PUSH_RUN=distillation-dpo-production-001 \
+make distillation-dpo-push
+~~~
+
+## Public Contract
+
+~~~json
+{
+  "id": "...",
+  "prompt": [{"role": "user", "content": "..."}],
+  "chosen": [{"role": "assistant", "content": "..."}],
+  "rejected": [{"role": "assistant", "content": "..."}],
+  "metadata": {}
+}
+~~~
+
+## Outputs
+
+~~~text
+data/distillation-dpo/runs/<run>/
+├── datasets/teacher_response_preference.jsonl
+├── manifests/
+├── work/<dimension>/
+├── coverage.json
+└── README.md
+~~~
+
+All selected dimensions contribute to the same consolidated public file.
+
+## Conventions
+
+- The rejected branch should contain a controlled defect relevant to the selected preference dimension.
+- Chosen must be independently correct and complete; a bad rejected answer does not excuse a bad chosen answer.
+- The pair must exhibit a material preference margin.
+- Holdout checks remain enabled.
+- Provider/run/retry/cost information stays in manifests rather than public rows.

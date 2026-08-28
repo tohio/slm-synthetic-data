@@ -1,65 +1,81 @@
-# Tests
-
-Purpose and usage notes for the repository test suite.
+# `tests`
 
 ## Purpose
 
-The test suite covers pretraining generation, SFT, DPO, distillation SFT, distillation DPO, taxonomy, holdout behavior, manifests, reports, CLI contracts, shared runtime behavior, and publishing boundaries.
+Validate the repository's production contracts: five dataset pipelines, shared runtime mechanics, model suitability, public schemas, reports/manifests, holdout behavior, and publication boundaries.
 
-## Run Tests
+Tests are primarily deterministic/local. They do not replace live provider smoke runs.
 
-Install the test dependency if needed:
+## Contents
 
-```bash
-python -m pip install pytest
-```
+Test files are grouped by the subsystem or dataset they exercise:
 
-Run the full suite:
+~~~text
+test_pretrain_* / test_grounded_*      pretraining and grounded artifacts
+test_sft_*                             generic SFT
+test_dpo_*                             generic DPO
+test_distillation_*                    both distillation products
+test_model_*                           model suitability / qualification contracts
+test_openrouter_*                      routing and backend behavior
+test_*manifest* / test_*report*        evidence, reporting, publication readiness
+~~~
 
-```bash
+## How It Fits In
+
+`make test` first compiles `slm_synth` and `tests`, then runs pytest.
+
+~~~bash
 make test
-```
+~~~
 
-Run focused suites while changing one surface:
+Focused examples:
 
-```bash
+~~~bash
+pytest -q tests/test_pretrain_*.py tests/test_grounded_*.py
 pytest -q tests/test_sft_*.py
 pytest -q tests/test_dpo_*.py
 pytest -q tests/test_distillation_*.py
-pytest -q tests/test_pretrain_*.py tests/test_grounded_*.py
-```
+pytest -q tests/test_model_*.py
+~~~
 
-## Run-Ladder Checks
+## What Tests Should Protect
 
-Live generation requires `OPENROUTER_API_KEY`. Start with smoke jobs:
+Tests should assert current production behavior, including:
 
-```bash
-make pretrain-smoke
+- exact public row schemas;
+- deterministic validation evidence;
+- judge/reviewer evidence completeness;
+- final acceptance/dedup rules;
+- Make target → pipeline wiring;
+- holdout collision rejection;
+- consolidated publication layout;
+- reasoning suitability policy;
+- runtime retry/splitting/cardinality behavior.
+
+Tests should not preserve deleted compatibility commands or legacy orchestration APIs.
+
+## Live Validation
+
+A passing test suite does not prove a provider/model works live. For provider/model changes:
+
+~~~bash
+QUALIFY_MODEL=<model-id> make model-qualify-sft
 make sft-smoke
-make dpo-smoke
-make distillation-sft-smoke
-make distillation-dpo-smoke
-```
+~~~
 
-Then inspect public files and manifests:
-
-```bash
-make pretrain-inspect
-make sft-inspect
-make dpo-inspect
-make distillation-sft-inspect
-make distillation-dpo-inspect
-```
-
-Small-scale target overrides should be validated before any full production target.
+Use the dataset-specific smoke target for the path you changed.
 
 ## Public Row Boundaries
 
-| Surface | Public fields |
+| Dataset | Public training fields |
 |---|---|
-| SFT | `id`, `messages`, `metadata` |
+| SFT | `id`, `messages`, `metadata` (+ schema-supported optional interaction fields) |
 | DPO | `id`, `prompt`, `chosen`, `rejected`, `metadata` |
 | Distillation SFT | `id`, `prompt`, `reasoning`, `response`, `metadata` |
 | Distillation DPO | `id`, `prompt`, `chosen`, `rejected`, `metadata` |
 
-Teacher, provider, run, cost, retry, routing, and internal prompt-spec details belong in local manifests, not public dataset rows.
+Provider, routing, retry, cost, batch, and private lineage fields belong in manifests/reports rather than public training rows.
+
+## Gotchas
+
+If pytest fails during collection because `openai`, `datasketch`, or another pinned dependency is missing, install `requirements.txt` before diagnosing repository code.

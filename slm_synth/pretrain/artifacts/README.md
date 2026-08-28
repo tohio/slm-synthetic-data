@@ -2,29 +2,47 @@
 
 ## Purpose
 
-This folder defines deterministic source artifacts for grounded pretraining generation. Artifacts are local facts, tasks, examples, and constraints used to render provider prompts with known expected structure.
+Define deterministic, inspectable source artifacts used to ground synthetic pretraining generation.
 
-It does not call providers or write datasets directly.
+Artifact factories decide the underlying facts/tasks/constraints. They do not call providers and do not write the final training dataset.
 
 ## Contents
 
-```text
+~~~text
 artifacts/
-├── arithmetic.py                    # verified integer arithmetic artifacts
-├── task_code.py                     # Python task/code artifacts
-├── task_code_catalog.py             # consolidated curated Python task catalog
-├── educational_qa_mcq_math.py       # math multiple-choice artifacts
-├── educational_qa_mcq_general.py    # general educational MCQ artifacts
-├── factual_restraint.py             # restraint and uncertainty artifacts
-├── lexicon.py                       # shared vocab/source lists
-├── quality.py                       # artifact quality checks
-└── base.py                          # shared artifact types/helpers
-```
+├── base.py
+├── arithmetic.py
+├── task_code.py
+├── task_code_catalog.py
+├── educational_qa_mcq_math.py
+├── educational_qa_mcq_general.py
+├── factual_restraint.py
+├── lexicon.py
+└── quality.py
+~~~
+
+## Key Files
+
+| File | Purpose |
+|---|---|
+| `base.py` | Shared grounded artifact representation. |
+| `arithmetic.py` | Locally verifiable integer/numerical backbones. |
+| `task_code.py` / `task_code_catalog.py` | Deterministic programming tasks and catalog. |
+| `educational_qa_mcq_math.py` | Math questions with locally known answer structure. |
+| `educational_qa_mcq_general.py` | Self-contained educational questions grounded in supplied evidence/rules. |
+| `factual_restraint.py` | Cases where uncertainty/non-invention is known by construction. |
+| `quality.py` | Deterministic artifact-level quality checks. |
 
 ## How It Fits In
 
-`slm_synth/pretrain/grounded.py` renders these artifacts into provider prompts and validates returned records. Preflight and report commands inspect this folder to catch duplicate or low-quality source material before provider calls.
+`pretrain/grounded.py` renders these artifacts into provider-facing prompts. The generated record is then deterministically checked against what the artifact makes verifiable before semantic judge/reviewer stages.
+
+See [Pretraining Package](../README.md).
 
 ## Conventions
 
-Artifacts should be deterministic, inspectable, and cheap to validate locally. Keep provider-facing rendering logic in `pretrain/grounded.py`, not here.
+- Artifact generation should be deterministic for a given index/config.
+- Artifacts should contain enough local information to validate the generated record.
+- Provider-facing prose belongs in `pretrain/grounded.py`, not in the artifact factory.
+- Do not add examples copied from evaluation prompts.
+- Favor large combinatorial capacity over repeated paraphrase templates.

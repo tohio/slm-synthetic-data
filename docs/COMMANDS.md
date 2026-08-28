@@ -1,79 +1,217 @@
 # Command Reference
 
-The Makefile intentionally exposes one production path per dataset.
+Supported Make targets, runtime variables, model overrides, and operational examples.
 
-## Dataset Targets
+## Supported Target Matrix
+
+Every dataset has the same five user-facing operations:
 
 | Dataset | Smoke | Generate | Inspect | Report | Push |
 |---|---|---|---|---|---|
-| Pretrain | `pretrain-smoke` | `pretrain-generate` | `pretrain-inspect` | `pretrain-report` | `pretrain-push` |
-| SFT | `sft-smoke` | `sft-generate` | `sft-inspect` | `sft-report` | `sft-push` |
-| DPO | `dpo-smoke` | `dpo-generate` | `dpo-inspect` | `dpo-report` | `dpo-push` |
+| Pretraining | `pretrain-smoke` | `pretrain-generate` | `pretrain-inspect` | `pretrain-report` | `pretrain-push` |
+| Generic SFT | `sft-smoke` | `sft-generate` | `sft-inspect` | `sft-report` | `sft-push` |
+| Generic DPO | `dpo-smoke` | `dpo-generate` | `dpo-inspect` | `dpo-report` | `dpo-push` |
 | Distillation SFT | `distillation-sft-smoke` | `distillation-sft-generate` | `distillation-sft-inspect` | `distillation-sft-report` | `distillation-sft-push` |
 | Distillation DPO | `distillation-dpo-smoke` | `distillation-dpo-generate` | `distillation-dpo-inspect` | `distillation-dpo-report` | `distillation-dpo-push` |
 
-Run `make help` for the same matrix.
+Additional supported targets:
 
-## Shared Variables
+~~~text
+model-qualify
+model-qualify-pretrain
+model-qualify-sft
+model-qualify-dpo
+model-qualify-distillation-sft
+model-qualify-distillation-dpo
+model-qualify-all
+test
+clean
+help
+~~~
 
-| Variable | Default | Purpose |
+## Environment
+
+Copy `.env.sample` to `.env`.
+
+| Variable | Required | Purpose |
 |---|---|---|
-| `PYTHON` | `python` | Python executable |
-| `MODEL` | `deepseek/deepseek-v4-flash` | Shared fallback model variable |
-| `MAX_TOKENS` | `4096` | Shared token default |
+| `OPENROUTER_API_KEY` | live generation/qualification | OpenRouter authentication |
+| `HF_TOKEN` | push only | Hugging Face dataset publication |
+| `DATA_DIR` | optional | pretraining output root used by `configs/synthetic.yaml`; default behavior uses `data/runs` |
+
+## OpenRouter Routing
+
+The Makefile passes routing controls to all production pipelines.
+
+| Variable | Default | Meaning |
+|---|---|---|
 | `OPENROUTER_ROUTING_MODE` | `auto` | `auto`, `prefer`, or `strict` |
-| `OPENROUTER_PROVIDER` | unset | Provider for `prefer`/`strict` routing |
-| `OPENROUTER_PROVIDER_ORDER` | unset | Optional provider order passed through environment |
-| `HF_NAMESPACE` | `tohio` | Default Hugging Face namespace |
-| `HF_REPO` | unset | Explicit consolidated repo override where supported |
-| `HF_PRIVATE` | unset | `true`, `yes`, or `1` for private publication |
+| `OPENROUTER_PROVIDER` | unset | provider used by `prefer` or `strict` |
+| `OPENROUTER_PROVIDER_ORDER` | unset | preferred provider order exposed through environment |
+| `OPENROUTER_PROVIDER_ONLY` | unset | optional provider restriction |
+| `OPENROUTER_PROVIDER_IGNORE` | unset | optional provider exclusion |
+| `OPENROUTER_PROVIDER_SORT` | unset | optional provider sorting behavior |
 
-## Qualification
+Examples:
 
-```bash
-QUALIFY_MODEL=<model> make model-qualify-pretrain
-QUALIFY_MODEL=<model> make model-qualify-sft
-QUALIFY_MODEL=<model> make model-qualify-dpo
-QUALIFY_MODEL=<model> make model-qualify-distillation-sft
-QUALIFY_MODEL=<model> make model-qualify-distillation-dpo
-QUALIFY_MODEL=<model> make model-qualify-all
-```
+~~~bash
+# Allow OpenRouter to route normally.
+make sft-smoke
 
-Advanced explicit role selection remains available:
+# Prefer one provider but preserve fallback.
+OPENROUTER_ROUTING_MODE=prefer \
+OPENROUTER_PROVIDER=DeepInfra \
+make sft-smoke
 
-```bash
-QUALIFY_MODEL=<model> QUALIFY_ROLES=sft-generator,sft-judge,sft-reviewer make model-qualify
-```
+# Pin one provider.
+OPENROUTER_ROUTING_MODE=strict \
+OPENROUTER_PROVIDER=DeepInfra \
+make sft-smoke
 
-Qualification uses strict structured output like production. Optional reasoning is disabled; mandatory reasoning is unsuitable.
+# Preserve an ordered fallback list.
+OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" \
+make distillation-sft-smoke
+~~~
 
-## Pretrain Variables
+## Model Qualification
+
+Qualify a candidate model against the production structured-output contract before using it in a new role.
+
+~~~bash
+QUALIFY_MODEL=<model-id> make model-qualify-pretrain
+QUALIFY_MODEL=<model-id> make model-qualify-sft
+QUALIFY_MODEL=<model-id> make model-qualify-dpo
+QUALIFY_MODEL=<model-id> make model-qualify-distillation-sft
+QUALIFY_MODEL=<model-id> make model-qualify-distillation-dpo
+~~~
+
+Qualify all fifteen dataset roles:
+
+~~~bash
+QUALIFY_MODEL=<model-id> make model-qualify-all
+~~~
+
+Explicit role selection is also supported:
+
+~~~bash
+QUALIFY_MODEL=<model-id> \
+QUALIFY_ROLES=sft-generator,sft-judge,sft-reviewer \
+make model-qualify
+~~~
+
+Qualification output defaults to:
+
+~~~text
+data/model-qualification/<model-id-with-slashes-replaced>.json
+~~~
+
+Reasoning policy is fail-closed: when a model supports optional reasoning, requests disable reasoning; mandatory/non-disableable reasoning models are rejected as unsuitable.
+
+---
+
+## Pretraining
+
+### Smoke
+
+~~~bash
+make pretrain-smoke
+~~~
+
+Default smoke settings:
 
 | Variable | Default |
 |---|---|
 | `PRETRAIN_RUN` | `pretrain-smoke-001` |
-| `PRETRAIN_TARGET_RUN` | `pretrain-target-001` |
 | `PRETRAIN_TOKENS` | `100000` |
-| `PRETRAIN_TARGET_TOKENS` | `1000000` |
 | `PRETRAIN_BATCH_SIZE` | `32` |
 | `PRETRAIN_CONCURRENCY` | `1` |
-| `PRETRAIN_TARGET_CONCURRENCY` | `4` |
 | `PRETRAIN_MODEL` | `openai/gpt-5.6-luna-pro` |
 | `PRETRAIN_JUDGE_MODEL` | `google/gemma-4-31b-it` |
 | `PRETRAIN_REVIEWER_MODEL` | `openai/gpt-5.6-luna-pro` |
-| `PRETRAIN_JUDGE_BATCH_SIZE` | `10` |
-| `PRETRAIN_REVIEWER_BATCH_SIZE` | `10` |
-| `PRETRAIN_QUALITY_CONCURRENCY` | `8` |
-| `PRETRAIN_MAX_BACKFILL_ROUNDS` | `4` |
 
-## Generic SFT Variables
+### Production
+
+~~~bash
+PRETRAIN_TARGET_RUN=pretrain-production-001 \
+PRETRAIN_TARGET_TOKENS=1000000 \
+make pretrain-generate
+~~~
+
+Important variables:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PRETRAIN_TARGET_TOKENS` | `1000000` | accepted post-review token target |
+| `PRETRAIN_TARGET_CONCURRENCY` | `4` | grounded generation concurrency |
+| `PRETRAIN_MAX_TOKENS` | `4096` | generator request output limit |
+| `PRETRAIN_JUDGE_BATCH_SIZE` | `10` | semantic judge batch size |
+| `PRETRAIN_REVIEWER_BATCH_SIZE` | `10` | reviewer batch size |
+| `PRETRAIN_QUALITY_CONCURRENCY` | `8` | judge/reviewer stage concurrency |
+| `PRETRAIN_STAGE_BATCH_ATTEMPTS` | `3` | model-stage attempts before recursive isolation |
+| `PRETRAIN_MAX_BACKFILL_ROUNDS` | `4` | maximum semantic-quality backfill rounds |
+| `PRETRAIN_SIGNAL` | unset | optional single-signal run/debug filter |
+| `PRETRAIN_DIVERSITY_SAMPLE_SIZE` | `10000` | bounded diversity-report sample |
+| `PRETRAIN_DIVERSITY_THRESHOLD` | `0.80` | report near-duplicate threshold |
+
+`pretrain-smoke` and `pretrain-generate` rewrite `configs/synthetic.yaml` from the template before running.
+
+### Inspect / Report / Push
+
+~~~bash
+PRETRAIN_INSPECT_RUN=pretrain-production-001 make pretrain-inspect
+PRETRAIN_REPORT_RUN=pretrain-production-001 make pretrain-report
+~~~
+
+`pretrain-push` publishes the run referenced by the current `configs/synthetic.yaml` output directory. The normal workflow is therefore to push immediately after the corresponding `pretrain-smoke` or `pretrain-generate` run:
+
+~~~bash
+HF_REPO=tohio/slm-synthetic-pretrain make pretrain-push
+~~~
+
+If you need to publish an older pretraining run, point `configs/synthetic.yaml` at that run first rather than assuming `PRETRAIN_REPORT_RUN` changes the push source.
+
+The publish path verifies the final semantic-quality accepted-token report before uploading `deduped/pretrain.jsonl`.
+
+---
+
+## Generic SFT
+
+### Smoke
+
+~~~bash
+make sft-smoke
+~~~
+
+Smoke defaults to one family, `grounded_qa_and_reading`, with:
+
+~~~text
+1 seed × 1 derivation/seed × 2 tasks/derivation
+~~~
+
+Override the smoke family:
+
+~~~bash
+SFT_FAMILIES=programming make sft-smoke
+~~~
+
+### Production
+
+~~~bash
+SFT_GENERATION_RUN=sft-production-001 make sft-generate
+~~~
+
+Production defaults:
+
+~~~text
+all families
+1 seed × 30 derivations/seed × 15 tasks/derivation
+~~~
+
+Important variables:
 
 | Variable | Default |
 |---|---|
-| `SFT_RUN` | `sft-smoke-001` |
-| `SFT_GENERATION_RUN` | `sft-production-001` |
 | `SFT_FAMILIES` | `all` |
-| `SFT_SMOKE_FAMILIES` | `grounded_qa_and_reading` |
 | `SFT_SEEDS` | `1` |
 | `SFT_DERIVATIONS_PER_SEED` | `30` |
 | `SFT_TASKS_PER_DERIVATION` | `15` |
@@ -81,22 +219,81 @@ Qualification uses strict structured output like production. Optional reasoning 
 | `SFT_JUDGE_BATCH_SIZE` | `10` |
 | `SFT_REVIEWER_BATCH_SIZE` | `10` |
 | `SFT_CONCURRENCY` | `8` |
-| `SFT_DERIVATION_MODEL` | `openai/gpt-5.6-luna-pro` |
-| `SFT_TASK_MODEL` | `deepseek/deepseek-v4-flash` |
-| `SFT_ANSWER_MODEL` | `deepseek/deepseek-v4-flash` |
-| `SFT_JUDGE_MODEL` | `nvidia/nemotron-3.5-lightning` |
-| `SFT_REVIEWER_MODEL` | `google/gemma-4-31b-it` |
-| `SFT_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` |
-| `SFT_HF_REPO` | `$(HF_NAMESPACE)/slm-synthetic-sft` unless overridden |
+| `SFT_CARDINALITY_FILL_ATTEMPTS` | `3` |
+| `SFT_STAGE_BATCH_ATTEMPTS` | `3` |
+| `SFT_JACCARD_THRESHOLD` | `0.82` |
+| `SFT_SEQUENCE_THRESHOLD` | `0.90` |
 
-## Generic DPO Variables
+Model-role defaults:
+
+| Role | Model |
+|---|---|
+| derivation | `openai/gpt-5.6-luna-pro` |
+| task | `deepseek/deepseek-v4-flash` |
+| answer | `deepseek/deepseek-v4-flash` |
+| judge | `nvidia/nemotron-3.5-lightning` |
+| reviewer | `google/gemma-4-31b-it` |
+
+Override roles independently:
+
+~~~bash
+SFT_DERIVATION_MODEL=<model> \
+SFT_TASK_MODEL=<model> \
+SFT_ANSWER_MODEL=<model> \
+SFT_JUDGE_MODEL=<model> \
+SFT_REVIEWER_MODEL=<model> \
+make sft-generate
+~~~
+
+### Inspect / Report / Push
+
+~~~bash
+SFT_INSPECT_RUN=sft-production-001 make sft-inspect
+SFT_REPORT_RUN=sft-production-001 make sft-report
+SFT_PUSH_RUN=sft-production-001 make sft-push
+~~~
+
+Default repository: `tohio/slm-synthetic-sft` through `HF_NAMESPACE=tohio`.
+
+---
+
+## Generic DPO
+
+### Smoke
+
+~~~bash
+make dpo-smoke
+~~~
+
+Smoke defaults to `instruction_adherence` and:
+
+~~~text
+1 seed × 2 derivations/seed × 2 tasks/derivation
+~~~
+
+Override the dimension:
+
+~~~bash
+DPO_PREFERENCE_DIMENSIONS=factual_accuracy make dpo-smoke
+~~~
+
+### Production
+
+~~~bash
+DPO_GENERATION_RUN=dpo-production-001 make dpo-generate
+~~~
+
+Production defaults to all ten dimensions with:
+
+~~~text
+1 seed × 30 derivations/seed × 15 tasks/derivation
+~~~
+
+Important variables:
 
 | Variable | Default |
 |---|---|
-| `DPO_RUN` | `dpo-smoke-001` |
-| `DPO_GENERATION_RUN` | `dpo-candidate-001` |
 | `DPO_PREFERENCE_DIMENSIONS` | `all` |
-| `DPO_SMOKE_PREFERENCE_DIMENSIONS` | `instruction_adherence` |
 | `DPO_SEEDS` | `1` |
 | `DPO_DERIVATIONS_PER_SEED` | `30` |
 | `DPO_TASKS_PER_DERIVATION` | `15` |
@@ -104,61 +301,153 @@ Qualification uses strict structured output like production. Optional reasoning 
 | `DPO_JUDGE_BATCH_SIZE` | `10` |
 | `DPO_REVIEWER_BATCH_SIZE` | `10` |
 | `DPO_CONCURRENCY` | `8` |
-| `DPO_DERIVATION_MODEL` | `openai/gpt-5.6-luna-pro` |
-| `DPO_TASK_MODEL` | `deepseek/deepseek-v4-flash` |
-| `DPO_PAIR_MODEL` | `deepseek/deepseek-v4-flash` |
-| `DPO_JUDGE_MODEL` | `nvidia/nemotron-3.5-lightning` |
-| `DPO_REVIEWER_MODEL` | `google/gemma-4-31b-it` |
+| `DPO_CARDINALITY_FILL_ATTEMPTS` | `3` |
+| `DPO_STAGE_BATCH_ATTEMPTS` | `3` |
+| `DPO_JACCARD_THRESHOLD` | `0.82` |
+| `DPO_SEQUENCE_THRESHOLD` | `0.90` |
 | `DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` |
-| `DPO_HF_REPO` | `$(HF_NAMESPACE)/slm-synthetic-dpo` unless overridden |
 
-## Distillation SFT Variables
+Model-role defaults match generic SFT except the answer role is a pair role:
 
-| Variable | Default |
+| Role | Model |
 |---|---|
-| `DISTILLATION_SFT_RUN` | `distillation-sft-smoke-001` |
-| `DISTILLATION_SFT_GENERATION_RUN` | `distillation-sft-production-001` |
-| `DISTILLATION_SFT_SIGNALS` | `all` |
-| `DISTILLATION_SFT_SMOKE_SIGNALS` | `debugging` |
-| `DISTILLATION_SFT_SEEDS` | `1` |
-| `DISTILLATION_SFT_DERIVATIONS_PER_SEED` | `30` |
-| `DISTILLATION_SFT_TASKS_PER_DERIVATION` | `15` |
-| `DISTILLATION_SFT_ANSWER_BATCH_SIZE` | `4` |
-| `DISTILLATION_SFT_JUDGE_BATCH_SIZE` | `10` |
-| `DISTILLATION_SFT_REVIEWER_BATCH_SIZE` | `10` |
-| `DISTILLATION_SFT_DERIVATION_MODEL` | `openai/gpt-5.6-luna-pro` |
-| `DISTILLATION_SFT_TASK_MODEL` | `deepseek/deepseek-v4-flash` |
-| `DISTILLATION_SFT_ANSWER_MODEL` | `deepseek/deepseek-v4-flash` |
-| `DISTILLATION_SFT_JUDGE_MODEL` | `nvidia/nemotron-3.5-lightning` |
-| `DISTILLATION_SFT_REVIEWER_MODEL` | `google/gemma-4-31b-it` |
+| derivation | `openai/gpt-5.6-luna-pro` |
+| task | `deepseek/deepseek-v4-flash` |
+| pair | `deepseek/deepseek-v4-flash` |
+| judge | `nvidia/nemotron-3.5-lightning` |
+| reviewer | `google/gemma-4-31b-it` |
 
-## Distillation DPO Variables
+### Inspect / Report / Push
 
-| Variable | Default |
+~~~bash
+DPO_INSPECT_RUN=dpo-production-001 make dpo-inspect
+DPO_REPORT_RUN=dpo-production-001 make dpo-report
+DPO_PUSH_RUN=dpo-production-001 make dpo-push
+~~~
+
+Default repository: `tohio/slm-synthetic-dpo`.
+
+---
+
+## Distillation SFT
+
+### Smoke
+
+~~~bash
+make distillation-sft-smoke
+~~~
+
+Smoke defaults to signal `debugging` and:
+
+~~~text
+1 seed × 1 derivation/seed × 2 tasks/derivation
+~~~
+
+Override the signal:
+
+~~~bash
+DISTILLATION_SFT_SIGNALS=code make distillation-sft-smoke
+~~~
+
+### Production
+
+~~~bash
+DISTILLATION_SFT_GENERATION_RUN=distillation-sft-production-001 \
+make distillation-sft-generate
+~~~
+
+Production defaults to all ten signals with:
+
+~~~text
+1 seed × 30 derivations/seed × 15 tasks/derivation
+~~~
+
+Model defaults:
+
+| Role | Model |
 |---|---|
-| `DISTILLATION_DPO_RUN` | `distillation-dpo-smoke-001` |
-| `DISTILLATION_DPO_TARGET_RUN` | `distillation-dpo-production-001` |
-| `DISTILLATION_DPO_DIMENSIONS` | `all` |
-| `DISTILLATION_DPO_SMOKE_DIMENSIONS` | `factual_accuracy` |
-| `DISTILLATION_DPO_SEEDS` | `1` |
-| `DISTILLATION_DPO_DERIVATIONS_PER_SEED` | `30` |
-| `DISTILLATION_DPO_TASKS_PER_DERIVATION` | `15` |
-| `DISTILLATION_DPO_PAIR_BATCH_SIZE` | `4` |
-| `DISTILLATION_DPO_JUDGE_BATCH_SIZE` | `10` |
-| `DISTILLATION_DPO_REVIEWER_BATCH_SIZE` | `10` |
-| `DISTILLATION_DPO_DERIVATION_MODEL` | `openai/gpt-5.6-luna-pro` |
-| `DISTILLATION_DPO_TASK_MODEL` | `deepseek/deepseek-v4-flash` |
-| `DISTILLATION_DPO_PAIR_MODEL` | `deepseek/deepseek-v4-flash` |
-| `DISTILLATION_DPO_JUDGE_MODEL` | `google/gemma-4-31b-it` |
-| `DISTILLATION_DPO_REVIEWER_MODEL` | `openai/gpt-5.6-luna-pro` |
-| `DISTILLATION_DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` |
-| `DISTILLATION_DPO_HF_REPO` | `$(HF_NAMESPACE)/slm-synthetic-distillation-dpo` |
+| derivation | `openai/gpt-5.6-luna-pro` |
+| task | `deepseek/deepseek-v4-flash` |
+| teacher response | `deepseek/deepseek-v4-flash` |
+| judge | `nvidia/nemotron-3.5-lightning` |
+| reviewer | `google/gemma-4-31b-it` |
 
-## Maintenance
+Novelty defaults: Jaccard `0.82`, sequence similarity `0.90`.
 
-```bash
+### Inspect / Report / Push
+
+~~~bash
+DISTILLATION_SFT_INSPECT_RUN=distillation-sft-production-001 make distillation-sft-inspect
+DISTILLATION_SFT_REPORT_RUN=distillation-sft-production-001 make distillation-sft-report
+DISTILLATION_SFT_PUSH_RUN=distillation-sft-production-001 make distillation-sft-push
+~~~
+
+Default repository: `tohio/slm-synthetic-distillation-sft`.
+
+---
+
+## Distillation DPO
+
+### Smoke
+
+~~~bash
+make distillation-dpo-smoke
+~~~
+
+Smoke defaults to dimension `factual_accuracy` and:
+
+~~~text
+1 seed × 1 derivation/seed × 2 tasks/derivation
+~~~
+
+### Production
+
+~~~bash
+DISTILLATION_DPO_TARGET_RUN=distillation-dpo-production-001 \
+make distillation-dpo-generate
+~~~
+
+Production defaults to all ten preference dimensions with:
+
+~~~text
+1 seed × 30 derivations/seed × 15 tasks/derivation
+~~~
+
+Model defaults differ intentionally from generic DPO:
+
+| Role | Model |
+|---|---|
+| derivation | `openai/gpt-5.6-luna-pro` |
+| task | `deepseek/deepseek-v4-flash` |
+| pair | `deepseek/deepseek-v4-flash` |
+| judge | `google/gemma-4-31b-it` |
+| reviewer | `openai/gpt-5.6-luna-pro` |
+
+The judge uses the five-gate Distillation-DPO contract; do not substitute generic-DPO judge semantics.
+
+### Inspect / Report / Push
+
+~~~bash
+DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-production-001 make distillation-dpo-inspect
+DISTILLATION_DPO_REPORT_RUN=distillation-dpo-production-001 make distillation-dpo-report
+DISTILLATION_DPO_PUSH_RUN=distillation-dpo-production-001 make distillation-dpo-push
+~~~
+
+Default repository: `tohio/slm-synthetic-distillation-dpo`.
+
+---
+
+## Testing and Cleanup
+
+~~~bash
 make test
 make clean
-```
+~~~
 
-There are no supported legacy generation, preflight, manual adjudication, cost-estimation, or Hugging Face deletion Make targets.
+`clean` removes generated run directories under the repository's configured data roots. It does not delete Hugging Face repositories.
+
+## See Also
+
+- [Generation Workflow](GENERATION_WORKFLOW.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Generation Families](GENERATION_FAMILIES.md)

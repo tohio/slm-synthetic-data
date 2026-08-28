@@ -1,124 +1,94 @@
 # Disk Setup
 
-This guide covers mounting a secondary disk to `/data` on a fresh Ubuntu 24.04
-instance. Follow this before cloning the repo if you are using a separate disk
-volume for your data directory.
+Optional Ubuntu guide for mounting a secondary volume at `/data` before running large dataset jobs.
 
-If you are using the boot disk only, skip this — `/data` will be created
-automatically by `setup.sh`.
+If the repository and generated datasets comfortably fit on the boot disk, you do not need this guide. The project itself does not require `/data`; output locations are controlled by run/config paths.
 
----
+## 1. Identify the Volume
 
-## 1. Create the mount point
-
-```bash
-sudo mkdir /data
-```
-
----
-
-## 2. Identify the disk
-
-```bash
+~~~bash
 lsblk
-```
+~~~
 
-You should see two block devices — your boot disk and your data disk. Example:
+Example:
 
-```
+~~~text
 NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
 vda    252:0    0   50G  0 disk
 └─vda1 252:1    0   50G  0 part /
 vdc    252:32   0 1280G  0 disk
-```
+~~~
 
-The data disk (`vdc` in this example) has no mountpoint — that's the one to mount.
+A fresh data disk usually has no mount point.
 
----
+## 2. Check Whether It Already Has a Filesystem
 
-## 3. Check the disk
-
-```bash
+~~~bash
 sudo file -s /dev/vdc
-```
+~~~
 
-If the output is `/dev/vdc: data` the disk is unformatted — proceed to step 4.
-If it shows a filesystem type the disk already has data on it — skip formatting.
+If the result is only `data`, it is unformatted. If a filesystem is reported, do **not** format it unless you intend to destroy the existing contents.
 
----
+## 3. Format a Fresh Disk
 
-## 4. Format the disk
+> This destroys all existing data on the selected device.
 
-> **Only do this on a fresh disk. This destroys all existing data.**
-
-```bash
+~~~bash
 sudo mkfs.ext4 /dev/vdc
-```
+~~~
 
-Replace `vdc` with your actual device name from step 2.
+Replace `/dev/vdc` with the actual data device.
 
----
+## 4. Mount It
 
-## 5. Mount the disk
-
-```bash
+~~~bash
+sudo mkdir -p /data
 sudo mount /dev/vdc /data
-```
+sudo chown "$USER":"$USER" /data
+~~~
 
----
+Verify:
 
-## 6. Set ownership
-
-```bash
-sudo chown $USER:$USER /data
-```
-
----
-
-## 7. Persist the mount across reboots
-
-Get the disk's UUID:
-
-```bash
-sudo blkid /dev/vdc
-```
-
-Output will look like:
-
-```
-/dev/vdc: UUID="f161f289-ea2c-478d-960a-ead94e9142e5" TYPE="ext4"
-```
-
-Add an entry to `/etc/fstab`:
-
-```bash
-echo 'UUID=your-uuid-here  /data  ext4  defaults  0  2' | sudo tee -a /etc/fstab
-```
-
-Replace `your-uuid-here` with your actual UUID from the `blkid` output.
-
-Verify the fstab entry is correct:
-
-```bash
-sudo mount -a
-```
-
-No output means success. If you see errors, check the UUID in `/etc/fstab`.
-
----
-
-## 8. Verify
-
-```bash
+~~~bash
 df -h /data
-```
+~~~
 
-Expected output:
+## 5. Persist Across Reboots
 
-```
-Filesystem      Size  Used Avail Use% Mounted on
-/dev/vdc        1.3T   28K  1.2T   1% /data
-```
+Find the UUID:
 
-`/data` is now ready. Return to the [README](../README.md) and proceed with
-the clone step.
+~~~bash
+sudo blkid /dev/vdc
+~~~
+
+Add the UUID to `/etc/fstab`:
+
+~~~text
+UUID=<your-uuid>  /data  ext4  defaults  0  2
+~~~
+
+Validate the entry before rebooting:
+
+~~~bash
+sudo mount -a
+~~~
+
+No output indicates success.
+
+## 6. Point Pretraining Output at the Volume
+
+`configs/configure_synthetic.py` uses `${DATA_DIR}` in the generated pretraining configuration.
+
+For example:
+
+~~~bash
+export DATA_DIR=/data/slm-synthetic-data/runs
+make pretrain-smoke
+~~~
+
+SFT/DPO/distillation run roots are Make variables and can be overridden explicitly if desired.
+
+## See Also
+
+- [Command Reference](COMMANDS.md)
+- [Generation Workflow](GENERATION_WORKFLOW.md)
