@@ -67,7 +67,7 @@ def render_dataset_card(
                 f"- Chosen source: `{manifest['chosen_source']}`",
                 f"- Rejected source: `{manifest['rejected_source']}`",
                 f"- Target consumer: `{manifest['target_consumer']}`",
-                f"- Total rows: `{manifest['total_rows']}`",
+                f"- Total pairs: `{manifest['total_pairs']}`",
             ]
         ),
         "## Pair Planning",
@@ -151,7 +151,6 @@ def _validate_run_manifest(run_manifest: Mapping[str, Any]) -> dict[str, Any]:
         "rejected_source",
         "target_consumer",
         "datasets",
-        "total_rows",
     }
     missing = sorted(field for field in required if field not in manifest)
     if missing:
@@ -170,9 +169,15 @@ def _validate_run_manifest(run_manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError(f"rejected_source must be {REJECTED_SOURCE!r}")
     if manifest["target_consumer"] != TARGET_CONSUMER:
         raise ValueError(f"target_consumer must be {TARGET_CONSUMER!r}")
-    total_rows = manifest["total_rows"]
-    if not isinstance(total_rows, int) or total_rows < 0:
-        raise ValueError("total_rows must be a non-negative integer")
+    # Pair-based manifests use total_pairs as the canonical aggregate count.
+    # Accept total_rows only as a legacy/pre-normalization compatibility field so
+    # cards can be built both before and after manifest normalization.
+    total_pairs = manifest.get("total_pairs")
+    if total_pairs is None:
+        total_pairs = manifest.get("total_rows")
+    if not isinstance(total_pairs, int) or total_pairs < 0:
+        raise ValueError("total_pairs must be a non-negative integer")
+    manifest["total_pairs"] = total_pairs
 
     datasets = manifest["datasets"]
     if not isinstance(datasets, Sequence) or isinstance(datasets, (str, bytes)):
