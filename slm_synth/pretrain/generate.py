@@ -40,11 +40,11 @@ def _int_cfg(*values: Any, default: int) -> int:
     return int(default)
 
 
-def _float_cfg(*values: Any, default: float) -> float:
+def _optional_float_cfg(*values: Any) -> float | None:
     for value in values:
         if value is not None:
             return float(value)
-    return float(default)
+    return None
 
 
 def _bool_cfg(*values: Any, default: bool) -> bool:
@@ -72,8 +72,8 @@ def build_llm(
         provider=base_cfg.get("provider", "openrouter"),
         model=model_name,
         max_tokens=_int_cfg(signal_cfg.get("max_tokens"), base_cfg.get("max_tokens"), default=1024),
-        temperature=_float_cfg(signal_cfg.get("temperature"), base_cfg.get("temperature"), default=0.2),
-        top_p=_float_cfg(signal_cfg.get("top_p"), base_cfg.get("top_p"), default=0.95),
+        temperature=_optional_float_cfg(signal_cfg.get("temperature"), base_cfg.get("temperature")),
+        top_p=_optional_float_cfg(signal_cfg.get("top_p"), base_cfg.get("top_p")),
         json_mode=_bool_cfg(signal_cfg.get("json_mode"), base_cfg.get("json_mode"), default=True),
         service_tier=signal_cfg.get("service_tier", base_cfg.get("service_tier")),
         request_timeout=base_cfg.get("request_timeout_seconds"),
@@ -102,7 +102,7 @@ def build_llm(
         adaptive_cooldown_max_seconds=float(retry_cfg.get("adaptive_cooldown_max_seconds", 60.0)),
         adaptive_cooldown_multiplier=float(retry_cfg.get("adaptive_cooldown_multiplier", 2.0)),
         require_parameters=bool(base_cfg.get("require_parameters", True)),
-        allow_fallbacks=bool(base_cfg.get("allow_fallbacks", False)),
+        allow_fallbacks=bool(base_cfg.get("allow_fallbacks", True)),
     )
 
 

@@ -107,7 +107,7 @@ Qualification output defaults to:
 data/model-qualification/<model-id-with-slashes-replaced>.json
 ~~~
 
-Reasoning policy is fail-closed: when a model supports optional reasoning, requests disable reasoning; mandatory/non-disableable reasoning models are rejected as unsuitable.
+Reasoning policy is fail-closed: when a model supports optional reasoning, requests disable reasoning; mandatory/non-disableable reasoning models are rejected as unsuitable. Role model ids shown below are defaults only. Any qualified model may replace any role model.
 
 ---
 
@@ -163,6 +163,8 @@ Important variables:
 | `PRETRAIN_TARGET_TOKENS` | `1000000` | accepted post-review token target |
 | `PRETRAIN_TARGET_CONCURRENCY` | `4` | grounded generation concurrency |
 | `PRETRAIN_MAX_TOKENS` | `4096` | generator request output limit |
+| `PRETRAIN_TEMPERATURE` | unset | optional generator sampling temperature; omitted from provider request when unset |
+| `PRETRAIN_TOP_P` | unset | optional generator nucleus-sampling value; omitted from provider request when unset |
 | `PRETRAIN_JUDGE_BATCH_SIZE` | `10` | semantic judge batch size |
 | `PRETRAIN_REVIEWER_BATCH_SIZE` | `10` | reviewer batch size |
 | `PRETRAIN_QUALITY_CONCURRENCY` | `8` | judge/reviewer stage concurrency |
@@ -302,6 +304,8 @@ DPO_PREFERENCE_DIMENSIONS=factual_accuracy make dpo-smoke
 DPO_GENERATION_RUN=dpo-production-001 make dpo-generate
 ~~~
 
+Key planning variables are `DPO_GENERATION_RUN`, `DPO_PREFERENCE_DIMENSIONS`, `DPO_SEEDS`, `DPO_DERIVATIONS_PER_SEED`, `DPO_TASKS_PER_DERIVATION`, and `DPO_PAIR_BATCH_SIZE`. See [Parameter Reference](PARAMETERS.md#generic-dpo-parameters) for their defaults and semantics.
+
 Production defaults to all ten dimensions with:
 
 ~~~text
@@ -375,6 +379,8 @@ DISTILLATION_SFT_GENERATION_RUN=distillation-sft-production-001 \
 make distillation-sft-generate
 ~~~
 
+Key planning variables are `DISTILLATION_SFT_SIGNALS`, `DISTILLATION_SFT_SEEDS`, `DISTILLATION_SFT_DERIVATIONS_PER_SEED`, `DISTILLATION_SFT_TASKS_PER_DERIVATION`, and `DISTILLATION_SFT_ANSWER_BATCH_SIZE`. See [Parameter Reference](PARAMETERS.md#distillation-sft-parameters).
+
 Production defaults to all ten signals with:
 
 ~~~text
@@ -425,6 +431,8 @@ Smoke defaults to dimension `factual_accuracy` and:
 DISTILLATION_DPO_TARGET_RUN=distillation-dpo-production-001 \
 make distillation-dpo-generate
 ~~~
+
+Key planning variables are `DISTILLATION_DPO_DIMENSIONS`, `DISTILLATION_DPO_SEEDS`, `DISTILLATION_DPO_DERIVATIONS_PER_SEED`, `DISTILLATION_DPO_TASKS_PER_DERIVATION`, and `DISTILLATION_DPO_PAIR_BATCH_SIZE`. See [Parameter Reference](PARAMETERS.md#distillation-dpo-parameters).
 
 Production defaults to all ten preference dimensions with:
 

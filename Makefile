@@ -35,6 +35,8 @@ PRETRAIN_TOKENS ?= 100000
 PRETRAIN_TARGET_TOKENS ?= 1000000
 PRETRAIN_BATCH_SIZE ?= 32
 PRETRAIN_MAX_TOKENS ?= $(MAX_TOKENS)
+PRETRAIN_TEMPERATURE ?=
+PRETRAIN_TOP_P ?=
 PRETRAIN_CONCURRENCY ?= 1
 PRETRAIN_TARGET_CONCURRENCY ?= 4
 PRETRAIN_MODEL ?= openai/gpt-5.6-luna-pro
@@ -244,6 +246,8 @@ pretrain-smoke:
 >   --model $(PRETRAIN_MODEL) \
 >   --concurrency $(PRETRAIN_CONCURRENCY) \
 >   --max-tokens $(PRETRAIN_MAX_TOKENS) \
+>   $(if $(strip $(PRETRAIN_TEMPERATURE)),--temperature $(PRETRAIN_TEMPERATURE),) \
+>   $(if $(strip $(PRETRAIN_TOP_P)),--top-p $(PRETRAIN_TOP_P),) \
 >   --run $(PRETRAIN_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
@@ -270,6 +274,8 @@ pretrain-generate:
 >   --model $(PRETRAIN_MODEL) \
 >   --concurrency $(PRETRAIN_TARGET_CONCURRENCY) \
 >   --max-tokens $(PRETRAIN_MAX_TOKENS) \
+>   $(if $(strip $(PRETRAIN_TEMPERATURE)),--temperature $(PRETRAIN_TEMPERATURE),) \
+>   $(if $(strip $(PRETRAIN_TOP_P)),--top-p $(PRETRAIN_TOP_P),) \
 >   --run $(PRETRAIN_TARGET_RUN) \
 >   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)

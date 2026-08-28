@@ -15,7 +15,7 @@ backend:
   json_mode: true
   request_timeout_seconds: 300
   require_parameters: true
-  allow_fallbacks: false
+  allow_fallbacks: true
   parallel_requests: __CONCURRENCY__
   retries:
     max_request_retries: 3

@@ -48,7 +48,7 @@ A family may exercise multiple interaction modes such as system conditioning, mu
 | `safe_refusal` | refuse only when appropriate and remain helpful |
 | `code_correctness` | produce code that actually satisfies the requested behavior |
 
-The pair generator should create a **material** preference, not a cosmetic rewrite. Judge/reviewer stages reject pairs where chosen and rejected are effectively equivalent.
+The pair generator uses plain-text prompt/chosen/rejected semantics internally and should create a **material** preference, not a cosmetic rewrite. Judge/reviewer stages reject pairs where chosen and rejected are effectively equivalent.
 
 ## Distillation SFT Signals
 

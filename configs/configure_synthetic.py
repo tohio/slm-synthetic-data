@@ -26,9 +26,9 @@ OUTPUT_PATH = REPO_ROOT / "configs" / "synthetic.yaml"
 load_dotenv()
 
 PROFILES = {
-    "speed": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.45, "top_p": 0.95, "concurrency": 8},
-    "balanced": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.35, "top_p": 0.95, "concurrency": 4},
-    "quality": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "temperature": 0.25, "top_p": 0.95, "concurrency": 2},
+    "speed": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "concurrency": 8},
+    "balanced": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "concurrency": 4},
+    "quality": {"model": "deepseek/deepseek-v4-flash", "max_tokens": 10240, "concurrency": 2},
 }
 
 MIN_BATCH_SIZE = MIN_OPENROUTER_BATCH_SIZE
@@ -61,6 +61,8 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_OPENROUTER_BATCH_SIZE)
     parser.add_argument("--concurrency", type=int, default=None)
     parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument("--temperature", type=float, default=None)
+    parser.add_argument("--top-p", type=float, default=None)
     # Accepted for config callers that share provider options; not written by this grounded profile.
     parser.add_argument("--service-tier", default=None)
     args = parser.parse_args()
@@ -90,8 +92,8 @@ def main() -> None:
         .replace("__TARGET_TOKENS__", str(args.tokens))
         .replace("__MODEL__", model)
         .replace("__MAX_TOKENS__", str(max_tokens))
-        .replace("__TEMPERATURE__", str(preset["temperature"]))
-        .replace("__TOP_P__", str(preset["top_p"]))
+        .replace("__TEMPERATURE__", "null" if args.temperature is None else str(args.temperature))
+        .replace("__TOP_P__", "null" if args.top_p is None else str(args.top_p))
         .replace("__BATCH_SIZE__", str(args.batch_size))
         .replace("__CONCURRENCY__", str(concurrency))
         .replace("__HF_REPO__", hf_repo)

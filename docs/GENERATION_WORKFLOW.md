@@ -238,9 +238,9 @@ derivation
 → task novelty
 → chosen/rejected pair
 → deterministic pair validation
-→ judge
-→ reviewer
-→ final exact triple dedup
+→ Nemotron judge
+→ Gemma reviewer
+→ final preference-triple dedup
 ~~~
 
 ### Smoke
@@ -287,8 +287,11 @@ Internal generation uses plain strings for prompt/chosen/rejected. Final public 
 
 ### Production and Publish
 
+The default production expansion is `DPO_SEEDS=1`, `DPO_DERIVATIONS_PER_SEED=30`, and `DPO_TASKS_PER_DERIVATION=15` per selected preference dimension.
+
 ~~~bash
 DPO_GENERATION_RUN=dpo-production-001 make dpo-generate
+DPO_INSPECT_RUN=dpo-production-001 make dpo-inspect
 DPO_REPORT_RUN=dpo-production-001 make dpo-report
 DPO_PUSH_RUN=dpo-production-001 make dpo-push
 ~~~
@@ -355,9 +358,14 @@ Public rows contain `reasoning: null`; private generation reasoning or provider 
 
 ### Production and Publish
 
+The default production expansion is `DISTILLATION_SFT_SEEDS=1`, `DISTILLATION_SFT_DERIVATIONS_PER_SEED=30`, and `DISTILLATION_SFT_TASKS_PER_DERIVATION=15` per selected signal.
+
 ~~~bash
 DISTILLATION_SFT_GENERATION_RUN=distillation-sft-production-001 \
 make distillation-sft-generate
+
+DISTILLATION_SFT_INSPECT_RUN=distillation-sft-production-001 \
+make distillation-sft-inspect
 
 DISTILLATION_SFT_REPORT_RUN=distillation-sft-production-001 \
 make distillation-sft-report
@@ -378,8 +386,8 @@ derivation
 → task novelty
 → pair
 → deterministic pair validation
-→ five-gate judge
-→ reviewer
+→ five-gate Gemma judge
+→ Luna reviewer
 → final exact triple dedup
 ~~~
 
@@ -425,9 +433,14 @@ All selected preference dimensions are internal components of the single public 
 
 ### Production and Publish
 
+The default production expansion is `DISTILLATION_DPO_SEEDS=1`, `DISTILLATION_DPO_DERIVATIONS_PER_SEED=30`, and `DISTILLATION_DPO_TASKS_PER_DERIVATION=15` per selected dimension.
+
 ~~~bash
 DISTILLATION_DPO_TARGET_RUN=distillation-dpo-production-001 \
 make distillation-dpo-generate
+
+DISTILLATION_DPO_INSPECT_RUN=distillation-dpo-production-001 \
+make distillation-dpo-inspect
 
 DISTILLATION_DPO_REPORT_RUN=distillation-dpo-production-001 \
 make distillation-dpo-report

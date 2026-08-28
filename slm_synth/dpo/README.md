@@ -4,7 +4,7 @@
 
 Generate the generic preference dataset used for DPO alignment.
 
-The package owns preference-dimension semantics, pair generation, deterministic pair validation, judge/reviewer acceptance, public schema, reports, and consolidated publication. It remains semantically separate from Distillation DPO.
+The package owns preference-dimension semantics, pair generation, deterministic pair validation, judge/reviewer acceptance, public schema, reports, and one consolidated DPO repository. It remains semantically separate from Distillation DPO.
 
 ## Contents
 
@@ -31,7 +31,7 @@ semantic derivation
 → deterministic pair validation
 → Nemotron judge
 → Gemma reviewer
-→ exact prompt/chosen/rejected dedup
+→ final exact preference-triple dedup
 → datasets/<dimension>.jsonl
 ~~~
 

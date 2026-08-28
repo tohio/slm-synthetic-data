@@ -47,17 +47,17 @@ python configs/configure_synthetic.py \
   --run pretrain-smoke-001
 ~~~
 
-Profiles affect request posture and sampling defaults; they do not change the five pretraining signal definitions.
+Profiles affect default concurrency/max-token request posture; they do not restrict model choice or force sampling parameters, and they do not change the five pretraining signal definitions.
 
 Supported profiles:
 
 | Profile | Default concurrency | Sampling posture |
 |---|---:|---|
-| `speed` | 8 | higher temperature / throughput |
-| `balanced` | 4 | default compromise |
-| `quality` | 2 | lower temperature / lower concurrency |
+| `speed` | 8 | higher default concurrency |
+| `balanced` | 4 | default concurrency compromise |
+| `quality` | 2 | lower default concurrency |
 
-The Makefile explicitly sets the production pretraining generator default to Luna Pro and quality roles to Gemma judge + Luna reviewer.
+The Makefile sets role defaults, but every pretraining model role is replaceable. Suitability is determined by the live structured-output/reasoning-off contract, not a static model list.
 
 ## Conventions
 

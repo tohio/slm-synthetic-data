@@ -26,7 +26,8 @@ Variables supplied this way override the Makefile defaults for that invocation.
 - **planned candidates != final accepted rows** — novelty, deterministic validation, judge, reviewer, and final dedup can reduce realized output.
 - **pretraining target tokens != raw generated tokens** — pretraining completes on post-review, post-dedup accepted tokens.
 - **family/signal/dimension != public dataset** — these are internal coverage partitions inside one public product.
-- **routing mode != provider order** — routing mode defines fallback behavior; provider order defines preferred provider ordering.
+- **routing mode != provider order** — routing mode defines fallback behavior; provider order defines preferred provider ordering. In `auto`, provider order is preference, not a hard allow-list, because fallback remains enabled.
+- **model default != model allowlist** — every role-specific model variable can be replaced with any model that passes the role contract with reasoning disabled.
 
 ## Shared Runtime and Provider Parameters
 
@@ -37,7 +38,7 @@ Variables supplied this way override the Makefile defaults for that invocation.
 | `MAX_TOKENS` | `4096` | Shared fallback output-token ceiling. Currently used as the default for `PRETRAIN_MAX_TOKENS`. | Increase only when the selected role genuinely needs larger structured outputs and the provider supports it. |
 | `OPENROUTER_ROUTING_MODE` | `auto` | Provider routing policy: `auto`, `prefer`, or `strict`. | Use `prefer` to favor a provider while keeping fallback; `strict` to pin one provider. |
 | `OPENROUTER_PROVIDER` | unset | Named provider used with `prefer` or `strict` routing. | Set when a specific provider is preferred/required. |
-| `OPENROUTER_PROVIDER_ORDER` | unset | Ordered provider preference list passed through the environment to OpenRouter routing. | Set when you want fallback but need a stable provider priority order. |
+| `OPENROUTER_PROVIDER_ORDER` | unset | Ordered provider preference list passed through the environment to OpenRouter routing. In `auto`, listed providers are tried first and fallback remains available beyond the list. | Set when you want provider preference without restricting model availability. |
 | `OPENROUTER_PROVIDER_ONLY` | unset | Optional provider allow-list passed through to routing. | Use to restrict eligible providers without hard-coding provider logic in code. |
 | `OPENROUTER_PROVIDER_IGNORE` | unset | Optional provider deny-list passed through to routing. | Use when one or more providers are known to be unsuitable or failing. |
 | `OPENROUTER_PROVIDER_SORT` | unset | Optional provider sorting preference passed through to routing. | Use only when you need explicit OpenRouter provider sorting behavior. |
@@ -59,7 +60,7 @@ make distillation-sft-generate
 | `QUALIFY_MAX_TOKENS` | `512` | Maximum output tokens for each qualification probe. |
 | `QUALIFY_OUTPUT` | `data/model-qualification/<model>.json` | JSON report path for qualification results. |
 
-Qualification verifies the strict structured-output request path and the repository's reasoning-disable policy. A reasoning-capable model is eligible only when reasoning can be disabled successfully for a live structured request.
+Qualification verifies the strict structured-output request path and the repository's reasoning-disable policy. A reasoning-capable model is eligible only when reasoning can be disabled successfully for a live structured request. There is no static model allowlist: the defaults below are replaceable role defaults.
 
 ---
 
@@ -109,11 +110,15 @@ generation -> deterministic validation -> judge -> reviewer -> final dedup -> ac
 | `PRETRAIN_JUDGE_MODEL` | `google/gemma-4-31b-it` | First semantic quality gate. |
 | `PRETRAIN_REVIEWER_MODEL` | `openai/gpt-5.6-luna-pro` | Independent review of judge-accepted rows. |
 
+These model ids are defaults, not validated-model restrictions. The same rule applies to all SFT/DPO/distillation model-role variables below.
+
 ## Token Limits and Quality Batch Sizes
 
 | Parameter | Default | Meaning |
 |---|---:|---|
 | `PRETRAIN_MAX_TOKENS` | `$(MAX_TOKENS)` | Generator output-token ceiling. |
+| `PRETRAIN_TEMPERATURE` | unset | Optional generator temperature. When unset, the parameter is omitted entirely for maximum model/provider portability. |
+| `PRETRAIN_TOP_P` | unset | Optional generator nucleus-sampling value. When unset, the parameter is omitted entirely for maximum model/provider portability. |
 | `PRETRAIN_JUDGE_MAX_TOKENS` | `4096` | Judge response ceiling. |
 | `PRETRAIN_REVIEWER_MAX_TOKENS` | `4096` | Reviewer response ceiling. |
 | `PRETRAIN_JUDGE_BATCH_SIZE` | `10` | Candidate rows adjudicated per judge request. |

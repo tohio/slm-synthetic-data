@@ -112,4 +112,4 @@ data/distillation/runs/<run>/
 - Response exact/near-duplicate checks occur before judge.
 - Final dedup rejects duplicate prompt+response, duplicate prompt, and duplicate response.
 - Reviewer contradiction/calibration checks remain dataset-specific.
-- Manual post-run adjudication is not part of the supported production path.
+- Manual post-run adjudication is not a supported path.

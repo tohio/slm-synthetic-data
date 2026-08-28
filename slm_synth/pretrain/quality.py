@@ -428,8 +428,9 @@ def run_quality(
         concurrency=concurrency,
         routing_mode=routing_mode,
         provider=provider,
-        # Keep the finalized pretraining V5 judge behavior.
-        temperature=0.0,
+        # Optional sampling controls remain unset so any qualified model/provider
+        # route can be used for the judge role.
+        temperature=None,
         top_p=None,
     )
     reviewer_backend = build_backend(

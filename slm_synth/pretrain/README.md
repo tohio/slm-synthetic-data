@@ -100,7 +100,8 @@ They are not published as separate repositories.
 - Artifacts must be deterministic and locally inspectable before provider rendering.
 - Accepted tokens are counted only after deterministic validation, judge, reviewer, and final dedup.
 - Backfill must pass through the complete quality path.
-- Reviewer sampling is not forced to zero for Luna; provider-compatible defaults are preserved.
+- Optional temperature/top-p parameters are omitted by default for generator, judge, and reviewer portability; set generator sampling explicitly only when the chosen model/provider supports it.
+- Provider fallback remains enabled in `auto` routing so a preferred provider order does not become an accidental model allow-list.
 - A single-signal run is a debugging/diagnostic option, not a different public product.
 
 ## Gotchas

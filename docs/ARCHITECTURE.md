@@ -166,12 +166,17 @@ Provider names, retry counts, cost, model lineage, and other execution metadata 
 
 ## Model Suitability
 
-All five products share the same suitability policy:
+All five products share the same model-swappability invariant: **every model role may use any OpenRouter model that can satisfy that role's request contract with reasoning disabled**. Model ids in the Makefile and pipeline parsers are defaults, not allowlists.
+
+The suitability policy is:
 
 - non-reasoning models may be eligible;
-- reasoning-capable models are invoked with reasoning disabled when the provider/model supports it;
-- a live structured request must succeed with reasoning disabled;
-- models whose reasoning is mandatory or cannot be disabled are unsuitable.
+- reasoning-capable models are invoked with `reasoning.effort=none`;
+- a live strict-structured request must succeed with reasoning disabled;
+- models whose reasoning is mandatory or cannot be disabled are unsuitable;
+- optional sampling parameters such as temperature/top-p are omitted by default so they do not unnecessarily eliminate otherwise compatible provider endpoints;
+- `require_parameters=true` remains enabled so OpenRouter routes only to endpoints that can honor the actual request contract;
+- `auto` routing permits provider fallback, including beyond a preferred provider order unless the user explicitly chooses a restrictive routing mode/allow-list.
 
 Qualification uses the same strict structured-output backend shape used by production.
 

@@ -63,6 +63,8 @@ If provider-specific throttling is common, preserve a provider order:
 OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" make sft-smoke
 ~~~
 
+With `OPENROUTER_ROUTING_MODE=auto`, this order is a preference and provider fallback remains enabled. If none of the listed providers serves the selected model, OpenRouter may use another compatible provider. Use `OPENROUTER_PROVIDER_ONLY` or `strict` mode only when you intentionally want to restrict eligibility.
+
 Do not remove retry/isolation logic to make a flaky provider appear successful.
 
 ## Model Returns Invalid Structured Output

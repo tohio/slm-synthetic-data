@@ -38,7 +38,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed component and data-flo
 
 - **Five explicit dataset products** with no hidden legacy generation path.
 - **Strict structured generation** through OpenRouter-compatible JSON Schema requests.
-- **Configurable model roles** for derivation, generation, judging, and review.
+- **Configurable model roles** for derivation, generation, judging, and review. Model ids in the Makefile are defaults, not allowlists.
 - **Provider fallback and routing controls** for throttled or unavailable providers.
 - **Deterministic validation before model adjudication** on every quality-controlled path.
 - **Judge → reviewer acceptance** with persisted evidence and rejection artifacts.
