@@ -55,6 +55,10 @@ def test_generation_dataset_cards_are_consumer_facing(kind: str) -> None:
     for value in forbidden:
         assert value not in card
 
+    if kind in {"sft", "dpo"}:
+        assert "## Generation Models" not in card
+        assert "Teacher model" not in card
+
 
 @pytest.mark.parametrize("kind", sorted(CARD_KINDS))
 def test_generation_dataset_cards_include_kind_specific_schema(kind: str) -> None:

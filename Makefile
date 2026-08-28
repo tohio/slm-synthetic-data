@@ -31,6 +31,7 @@ PRETRAIN_RUN ?= pretrain-smoke-001
 PRETRAIN_TARGET_RUN ?= pretrain-target-001
 PRETRAIN_REPORT_RUN ?= $(PRETRAIN_RUN)
 PRETRAIN_INSPECT_RUN ?= $(PRETRAIN_REPORT_RUN)
+PRETRAIN_PUSH_RUN ?= $(PRETRAIN_REPORT_RUN)
 PRETRAIN_TOKENS ?= 100000
 PRETRAIN_TARGET_TOKENS ?= 1000000
 PRETRAIN_BATCH_SIZE ?= 32
@@ -319,7 +320,10 @@ pretrain-inspect:
 > @test ! -f $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN)/deduped/pretrain.jsonl || (echo "--- consolidated pretrain.jsonl"; head -n 3 $(DATA_DIR)/$(PRETRAIN_INSPECT_RUN)/deduped/pretrain.jsonl)
 
 pretrain-push:
-> $(PYTHON) -m slm_synth.pretrain.push_hf --config $(CONFIG_FILE) $(if $(HF_REPO),--repo-id $(HF_REPO),)
+> $(PYTHON) -m slm_synth.pretrain.push_hf \
+>   --config $(CONFIG_FILE) \
+>   --run-dir $(DATA_DIR)/$(PRETRAIN_PUSH_RUN) \
+>   $(if $(HF_REPO),--repo-id $(HF_REPO),)
 
 distillation-sft-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.pipeline \

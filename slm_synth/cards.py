@@ -218,12 +218,17 @@ def build_dataset_card(
             "dpo": "Preference dimensions",
         }.get(kind, "Signals")
         lines.append(f"- {label}: `{', '.join(clean_signals)}`")
+    # Generation-model provenance is useful for distillation products because
+    # teacher/pair provenance is part of what those datasets represent. Generic
+    # SFT/DPO cards describe the dataset artifact itself and intentionally omit
+    # internal generation/judge/reviewer model choices.
+    show_model_provenance = kind in {"distillation-sft", "distillation-dpo"}
     clean_model_roles = _clean_model_roles(model_roles)
-    if clean_model_roles:
+    if show_model_provenance and clean_model_roles:
         lines.extend(["", "## Generation Models", ""])
         for label, model in clean_model_roles:
             lines.append(f"- {label}: `{model}`")
-    elif teacher_model:
+    elif show_model_provenance and teacher_model:
         lines.append(f"- Teacher model: `{teacher_model}`")
     lines.append(f"- Language: {language}")
 
@@ -365,20 +370,6 @@ def _model_roles_from_manifest(*, kind: str, manifest: Mapping[str, Any]) -> dic
         metadata = {}
 
     role_fields = {
-        "sft": (
-            ("Derivation model", "derivation_model"),
-            ("Task model", "task_model"),
-            ("Answer model", "answer_model"),
-            ("Judge model", "adjudicator_model"),
-            ("Reviewer model", "reviewer_model"),
-        ),
-        "dpo": (
-            ("Derivation model", "derivation_model"),
-            ("Task model", "task_model"),
-            ("Pair model", "pair_model"),
-            ("Judge model", "adjudicator_model"),
-            ("Reviewer model", "reviewer_model"),
-        ),
         "distillation-sft": (
             ("Derivation model", "derivation_model"),
             ("Task model", "task_model"),

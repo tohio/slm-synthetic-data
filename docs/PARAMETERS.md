@@ -79,6 +79,7 @@ Pretraining is sized by **accepted tokens**, not by a fixed row count.
 | `PRETRAIN_TARGET_RUN` | `pretrain-target-001` | Run id used by `pretrain-generate`. |
 | `PRETRAIN_REPORT_RUN` | `$(PRETRAIN_RUN)` | Run id consumed by `pretrain-report` and, indirectly, by the default inspect/push workflow. |
 | `PRETRAIN_INSPECT_RUN` | `$(PRETRAIN_REPORT_RUN)` | Run id displayed by `pretrain-inspect`. |
+| `PRETRAIN_PUSH_RUN` | `$(PRETRAIN_REPORT_RUN)` | Completed pretraining run selected by `pretrain-push`. Override it independently when publishing a run other than the current report run. |
 | `PRETRAIN_SIGNAL` | unset | Optional single pretraining signal filter. Empty means all configured signals. |
 
 Supported pretraining signals are `arithmetic`, `task_code`, `educational_qa_mcq_math`, `educational_qa_mcq_general`, and `factual_restraint`.

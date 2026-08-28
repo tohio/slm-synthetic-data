@@ -120,7 +120,7 @@ def main(
 ) -> dict[str, Any]:
     load_env_file(env_file)
     cfg = load_yaml_config(config)
-    output_dir = resolve_output_dir(cfg)
+    output_dir = Path(run_dir) if run_dir is not None else resolve_output_dir(cfg)
     configured_repo, configured_private = get_export_config(cfg)
     target_repo = repo_id.strip().strip("/") if repo_id else configured_repo
     if "/" not in target_repo:
@@ -148,12 +148,18 @@ def cli() -> None:
     parser.add_argument("--repo-id", default=None)
     parser.add_argument("--private", action="store_true", default=None)
     parser.add_argument("--env-file", default=None)
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Explicit completed pretraining run directory to publish.",
+    )
     args = parser.parse_args()
     main(
         config=args.config,
         repo_id=args.repo_id,
         private=args.private,
         env_file=args.env_file,
+        run_dir=args.run_dir,
     )
 
 
