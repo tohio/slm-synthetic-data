@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from slm_synth.paths import load_yaml_config, resolve_output_dir
+from slm_synth.pretrain.dedup import build_public_record
 from slm_synth.pretrain.quality import JUDGE_CRITERIA, run_quality
 from slm_synth.pretrain.record_quality import signal_to_filename
 from slm_synth.runtime import write_json
@@ -76,7 +77,7 @@ def _estimate_tokens(
     *,
     chars_per_token: float,
 ) -> int:
-    text = "\n".join(_text_parts(signal, row))
+    text = build_public_record(signal, row)["text"]
     return max(1, math.ceil(len(text) / chars_per_token))
 
 
@@ -131,7 +132,7 @@ def _finalize(
     final_path = final_dir / "pretrain.jsonl"
 
     seen: set[str] = set()
-    accepted: list[tuple[str, dict[str, Any]]] = []
+    accepted: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     exact_dropped = 0
     per_signal: dict[str, dict[str, int]] = {}
 
@@ -141,18 +142,14 @@ def _finalize(
         signal_tokens = 0
 
         for row in rows:
-            canonical = json.dumps(
-                row,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
+            public = build_public_record(signal, row)
+            canonical = " ".join(public["text"].casefold().split())
             if canonical in seen:
                 exact_dropped += 1
                 continue
 
             seen.add(canonical)
-            accepted.append((signal, row))
+            accepted.append((signal, row, public))
             signal_accepted += 1
             signal_tokens += _estimate_tokens(
                 signal,
@@ -166,12 +163,12 @@ def _finalize(
         }
 
     with final_path.open("w", encoding="utf-8") as handle:
-        for _, row in accepted:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        for _, _, public in accepted:
+            handle.write(json.dumps(public, ensure_ascii=False) + "\n")
 
     accepted_tokens = sum(
         _estimate_tokens(signal, row, chars_per_token=chars_per_token)
-        for signal, row in accepted
+        for signal, row, _ in accepted
     )
 
     return {
