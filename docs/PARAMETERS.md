@@ -146,7 +146,7 @@ SFT_SEEDS x SFT_DERIVATIONS_PER_SEED x SFT_TASKS_PER_DERIVATION
 With defaults:
 
 ```text
-1 x 30 x 15 = 450 planned task candidates per selected family
+5 x 6 x 15 = 450 planned task candidates per selected family
 ```
 
 This is **not** a guaranteed final row count. Task novelty, structured-output failures, deterministic validation, judge/reviewer rejection, and final dedup can reduce the accepted count.
@@ -170,10 +170,11 @@ See [Generation Families](GENERATION_FAMILIES.md#generic-sft-families) for valid
 
 | Parameter | Default | Meaning | Effect of increasing it |
 |---|---:|---|---|
-| `SFT_SEEDS` | `1` | Number of independent semantic starting points per selected family. | More conceptual breadth and more generation calls. |
-| `SFT_DERIVATIONS_PER_SEED` | `30` | Semantic derivations generated from each seed in production. | More semantic expansion and planned task volume. |
+| `SFT_SEEDS` | `5` | Number of independent curated starting specs per selected family in production. | More starting-template breadth and more generation calls. |
+| `SFT_DERIVATIONS_PER_SEED` | `6` | Semantic derivations generated from each seed in production. | More semantic expansion and planned task volume. |
 | `SFT_TASKS_PER_DERIVATION` | `15` | Concrete tasks generated from each accepted derivation in production. | More planned task candidates per derivation. |
-| `SFT_SMOKE_DERIVATIONS_PER_SEED` | `1` | Smoke-only derivations per seed. | Larger smoke coverage. |
+| `SFT_SMOKE_SEEDS` | `5` | Smoke-only curated starting specs. This is independent from `SFT_SEEDS`. | More starting-template breadth in smoke runs. |
+| `SFT_SMOKE_DERIVATIONS_PER_SEED` | `2` | Smoke-only derivations per seed. | Larger smoke semantic coverage. |
 | `SFT_SMOKE_TASKS_PER_DERIVATION` | `2` | Smoke-only tasks per derivation. | Larger smoke coverage. |
 
 `SFT_SEEDS` is a **count**, not a PRNG seed.
@@ -242,7 +243,7 @@ DPO_SEEDS x DPO_DERIVATIONS_PER_SEED x DPO_TASKS_PER_DERIVATION
 Default planned volume:
 
 ```text
-1 x 30 x 15 = 450 planned preference tasks per selected dimension
+5 x 6 x 15 = 450 planned preference tasks per selected dimension
 ```
 
 The final accepted pair count can be smaller after novelty, pair validation, judge/reviewer rejection, holdout checks, and exact triple dedup.
@@ -266,9 +267,10 @@ See [Generation Families](GENERATION_FAMILIES.md#generic-dpo-preference-dimensio
 
 | Parameter | Default | Meaning |
 |---|---:|---|
-| `DPO_SEEDS` | `1` | Independent semantic starting points per selected dimension. |
-| `DPO_DERIVATIONS_PER_SEED` | `30` | Production derivations per seed. |
+| `DPO_SEEDS` | `5` | Distinct semantic seed lenses per selected dimension in production. The first five cover core, constraint-interaction, boundary/exception, evidence-sensitive, and operational cases. |
+| `DPO_DERIVATIONS_PER_SEED` | `6` | Production derivations per seed. |
 | `DPO_TASKS_PER_DERIVATION` | `15` | Production tasks per accepted derivation. |
+| `DPO_SMOKE_SEEDS` | `5` | Smoke-only distinct seed lenses. This is independent from `DPO_SEEDS`. |
 | `DPO_SMOKE_DERIVATIONS_PER_SEED` | `2` | Smoke derivations per seed. |
 | `DPO_SMOKE_TASKS_PER_DERIVATION` | `2` | Smoke tasks per derivation. |
 
@@ -336,7 +338,7 @@ x DISTILLATION_SFT_TASKS_PER_DERIVATION
 Default planned production volume:
 
 ```text
-1 x 30 x 15 = 450 planned teacher-response tasks per selected signal
+3 x 10 x 15 = 450 planned teacher-response tasks per selected signal
 ```
 
 Final accepted rows can be smaller because this pipeline also applies response-level novelty and final prompt/response uniqueness.
@@ -360,10 +362,11 @@ See [Generation Families](GENERATION_FAMILIES.md#distillation-sft-signals) for v
 
 | Parameter | Default | Meaning |
 |---|---:|---|
-| `DISTILLATION_SFT_SEEDS` | `1` | Independent semantic starting points per selected signal. |
-| `DISTILLATION_SFT_DERIVATIONS_PER_SEED` | `30` | Production semantic derivations per seed. |
+| `DISTILLATION_SFT_SEEDS` | `3` | Curated capability starting points per selected signal in production. Each signal currently defines three curated seeds. |
+| `DISTILLATION_SFT_DERIVATIONS_PER_SEED` | `10` | Production semantic derivations per seed. |
 | `DISTILLATION_SFT_TASKS_PER_DERIVATION` | `15` | Student-facing prompts per accepted derivation. |
-| `DISTILLATION_SFT_SMOKE_DERIVATIONS_PER_SEED` | `1` | Smoke derivations per seed. |
+| `DISTILLATION_SFT_SMOKE_SEEDS` | `3` | Smoke-only curated capability seeds. This is independent from `DISTILLATION_SFT_SEEDS`. |
+| `DISTILLATION_SFT_SMOKE_DERIVATIONS_PER_SEED` | `2` | Smoke derivations per seed. |
 | `DISTILLATION_SFT_SMOKE_TASKS_PER_DERIVATION` | `2` | Smoke prompts per derivation. |
 
 ## Model Roles
@@ -432,7 +435,7 @@ x DISTILLATION_DPO_TASKS_PER_DERIVATION
 Defaults:
 
 ```text
-1 x 30 x 15 = 450 planned preference tasks per selected dimension
+5 x 6 x 15 = 450 planned preference tasks per selected dimension
 ```
 
 Final accepted rows can be smaller after task novelty, pair validation, five-gate judge, reviewer, holdout checks, and final triple dedup.
@@ -457,10 +460,11 @@ See [Generation Families](GENERATION_FAMILIES.md#distillation-dpo-dimensions) fo
 
 | Parameter | Default | Meaning |
 |---|---:|---|
-| `DISTILLATION_DPO_SEEDS` | `1` | Independent semantic starting points per selected dimension. |
-| `DISTILLATION_DPO_DERIVATIONS_PER_SEED` | `30` | Production derivations per seed. |
+| `DISTILLATION_DPO_SEEDS` | `5` | Distinct semantic seed lenses per selected dimension in production. |
+| `DISTILLATION_DPO_DERIVATIONS_PER_SEED` | `6` | Production derivations per seed. |
 | `DISTILLATION_DPO_TASKS_PER_DERIVATION` | `15` | Preference tasks per accepted derivation. |
-| `DISTILLATION_DPO_SMOKE_DERIVATIONS_PER_SEED` | `1` | Smoke derivations per seed. |
+| `DISTILLATION_DPO_SMOKE_SEEDS` | `5` | Smoke-only distinct seed lenses. This is independent from `DISTILLATION_DPO_SEEDS`. |
+| `DISTILLATION_DPO_SMOKE_DERIVATIONS_PER_SEED` | `2` | Smoke derivations per seed. |
 | `DISTILLATION_DPO_SMOKE_TASKS_PER_DERIVATION` | `2` | Smoke tasks per derivation. |
 
 ## Model Roles

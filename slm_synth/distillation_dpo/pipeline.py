@@ -202,6 +202,15 @@ DISTILLATION_DPO_DEFECT_GUIDANCE: dict[str, str] = {
 }
 
 
+DISTILLATION_DPO_SEED_LENSES = (
+    "Core case: isolate one clear material distinction on the selected preference dimension.",
+    "Constraint interaction: use multiple explicit requirements while keeping the selected preference dimension as the primary reason one response wins.",
+    "Boundary and exception case: exercise edge conditions, ambiguity, exceptions, or qualification that expose subtle preference failures.",
+    "Evidence-sensitive case: use self-contained facts, code, structured data, or tool evidence when relevant so correctness and preference are independently checkable.",
+    "Operational case: use a realistic multi-step workflow, decision, or troubleshooting scenario with a plausible but materially weaker rejected response.",
+)
+
+
 @dataclass(frozen=True)
 class Seed:
     index: int
@@ -253,17 +262,32 @@ def reset_outputs(out: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def load_seeds(dimension: str, count: int) -> list[Seed]:
-    instruction = DISTILLATION_DPO_SEEDS[dimension]
-    return [
-        Seed(
-            index=index,
-            id=f"distill_dpo_{dimension}_seed_{index:03d}",
-            dimension=dimension,
-            instruction=instruction,
-            metadata={"dataset_kind": "distillation_dpo", "preference_dimension": dimension},
+    if count < 1:
+        raise ValueError("seed count must be positive")
+
+    base = DISTILLATION_DPO_SEEDS[dimension]
+    seeds: list[Seed] = []
+    for index in range(1, count + 1):
+        lens = DISTILLATION_DPO_SEED_LENSES[(index - 1) % len(DISTILLATION_DPO_SEED_LENSES)]
+        cycle = (index - 1) // len(DISTILLATION_DPO_SEED_LENSES) + 1
+        instruction = (
+            f"{base}\n\nSeed lens: {lens}\n"
+            f"This is seed variant {index} (lens cycle {cycle}). Preserve the "
+            "Distillation-DPO dimension boundary while exploring a distinct semantic starting region."
         )
-        for index in range(1, count + 1)
-    ]
+        seeds.append(
+            Seed(
+                index=index,
+                id=f"distill_dpo_{dimension}_seed_{index:03d}",
+                dimension=dimension,
+                instruction=instruction,
+                metadata={
+                    "dataset_kind": "distillation_dpo",
+                    "preference_dimension": dimension,
+                },
+            )
+        )
+    return seeds
 
 
 # ---------------------------------------------------------------------------

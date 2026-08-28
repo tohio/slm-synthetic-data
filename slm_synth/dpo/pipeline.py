@@ -100,6 +100,15 @@ DIMENSION_SEEDS: dict[str, str] = {
 }
 
 
+DPO_SEED_LENSES = (
+    "Core case: center one clear, material preference distinction with minimal incidental complexity.",
+    "Constraint interaction: use multi-part requests or interacting explicit constraints where the target preference still remains primary.",
+    "Boundary and exception case: exercise ambiguity, edge conditions, exceptions, or qualification that make the target preference consequential.",
+    "Evidence-sensitive case: use self-contained context, data, code, or tool evidence when relevant so the preference can be checked rather than guessed.",
+    "Operational case: use a realistic multi-step workflow, decision, or troubleshooting scenario where the target preference changes the usefulness of the outcome.",
+)
+
+
 @dataclass(frozen=True)
 class Seed:
     index: int
@@ -151,17 +160,29 @@ def reset_outputs(out: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def load_seeds(dimension: str, count: int) -> list[Seed]:
-    instruction = DIMENSION_SEEDS[dimension]
-    return [
-        Seed(
-            index=index,
-            id=f"dpo_{dimension}_seed_{index:03d}",
-            dimension=dimension,
-            instruction=instruction,
-            metadata={"preference_dimension": dimension},
+    if count < 1:
+        raise ValueError("seed count must be positive")
+
+    base = DIMENSION_SEEDS[dimension]
+    seeds: list[Seed] = []
+    for index in range(1, count + 1):
+        lens = DPO_SEED_LENSES[(index - 1) % len(DPO_SEED_LENSES)]
+        cycle = (index - 1) // len(DPO_SEED_LENSES) + 1
+        instruction = (
+            f"{base}\n\nSeed lens: {lens}\n"
+            f"This is seed variant {index} (lens cycle {cycle}). Keep the preference "
+            "dimension fixed while exploring a distinct semantic starting region."
         )
-        for index in range(1, count + 1)
-    ]
+        seeds.append(
+            Seed(
+                index=index,
+                id=f"dpo_{dimension}_seed_{index:03d}",
+                dimension=dimension,
+                instruction=instruction,
+                metadata={"preference_dimension": dimension},
+            )
+        )
+    return seeds
 
 
 # ---------------------------------------------------------------------------
