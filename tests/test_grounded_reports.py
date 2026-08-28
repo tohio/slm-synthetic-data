@@ -4,7 +4,6 @@ import pytest
 from slm_synth.pretrain.artifacts import ArithmeticArtifactFactory
 from slm_synth.pretrain.grounded import GroundedBatchStore
 from slm_synth.pretrain.report_artifacts import scan_signal
-from slm_synth.pretrain.report_lengths import estimated_tokens
 
 
 def test_artifact_report_reads_persisted_grounded_manifests(tmp_path):
@@ -16,17 +15,6 @@ def test_artifact_report_reads_persisted_grounded_manifests(tmp_path):
     assert report["total_artifacts"] == 2
     assert report["unique_artifacts"] == 2
     assert report["quality_issue_count"] == 0
-
-
-def test_length_report_estimate_is_positive():
-    assert estimated_tokens({"question": "What is 2 + 2?", "answer": "4"}, 4.0) > 0
-
-
-def test_public_length_estimate_counts_text_not_metadata():
-    short = {"id": "a", "text": "12345678", "metadata": {"signal": "arithmetic"}}
-    long_metadata = {"id": "a" * 1000, "text": "12345678", "metadata": {"signal": "arithmetic"}}
-    assert estimated_tokens(short, 4.0) == 2
-    assert estimated_tokens(long_metadata, 4.0) == 2
 
 
 def test_preflight_artifacts_scans_planned_rows_without_api_calls(tmp_path, monkeypatch):

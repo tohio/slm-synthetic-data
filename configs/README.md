@@ -1,6 +1,6 @@
 # Synthetic Configuration
 
-`configs/configure_synthetic.py` writes `configs/synthetic.yaml` for the grounded OpenRouter generation path.
+`configs/configure_synthetic.py` writes `configs/synthetic.yaml` for the grounded pretraining generation path.
 
 ## Example
 
@@ -10,43 +10,18 @@ python configs/configure_synthetic.py \
   --tokens 100000 \
   --batch-size 32 \
   --concurrency 4 \
-  --run grounded_smoke
+  --model openai/gpt-5.6-luna-pro \
+  --run pretrain-smoke-001
 ```
 
 ## Profiles
 
-| Profile | Renderer | Default concurrency | Purpose |
-|---|---|---:|---|
-| `speed` | `deepseek/deepseek-v4-flash` | 8 | Throughput-focused runs after capacity is known |
-| `balanced` | `deepseek/deepseek-v4-flash` | 4 | Recommended default |
-| `quality` | `deepseek/deepseek-v4-flash` | 2 | Conservative request posture |
-
-All profiles use the qualified DeepSeek renderer; profile differences affect runtime posture rather than corpus architecture.
+Profiles control request posture (batch size/concurrency) rather than dataset semantics. The generator model is configurable; the current pretraining production default is Luna Pro, with Gemma judge and Luna reviewer configured by the Makefile.
 
 ## Target sizing
 
-`target_total_tokens` is the accepted public-text target. The first candidate
-round uses each signal's share and `avg_tokens_per_sample` estimate. After every
-round, the pipeline validates and globally deduplicates the records, counts only
-accepted public `text`, and requests unused replacement candidates for any
-remaining per-signal token deficit.
+`target_total_tokens` is the final accepted public-text target. Grounded generation produces candidates, deterministic validation filters them, semantic judge/reviewer stages accept high-quality rows, final global dedup removes duplicates, and post-review accepted-token accounting requests backfill through the same full path when required.
 
-Candidate row totals are not rounded to the provider request batch size. The
-adaptive requester simply emits a smaller final request. Replacement rounds add
-only the estimated rows needed for the remaining deficit. Task Code candidates
-use a stable catalog-wide order so a partial plan samples across the full catalog
-instead of taking a historical prefix.
+IDs and metadata do not count toward the target. Token accounting uses the configured character/token estimate because downstream tokenizer selection belongs to the training repository. `accepted_token_report.json` is the completion contract used by verification and publication.
 
-IDs and metadata do not count toward the target. Token counts use the configured
-`generation.chars_per_token` estimate because downstream tokenization belongs to
-the training repository. If a genuine candidate inventory or an optional cost
-ceiling is exhausted first, generation writes `accepted_token_report.json` and
-exits nonzero rather than silently treating a short corpus as complete.
-
-After a clean smoke run, update the `avg_tokens_per_sample` values using:
-
-```bash
-python -m slm_synth.pretrain.report_lengths --config configs/synthetic.yaml --stage deduped
-```
-
-This repository deliberately does not import a downstream model tokenizer.
+Use `make pretrain-report` to inspect the final accepted dataset; the standalone legacy length-report command is not part of the supported workflow.

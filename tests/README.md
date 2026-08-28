@@ -4,7 +4,7 @@ Purpose and usage notes for the repository test suite.
 
 ## Purpose
 
-The test suite covers pretraining generation, SFT, DPO, distillation SFT, distillation DPO, taxonomy, holdout behavior, manifests, reports, CLI contracts, telemetry, and publishing boundaries.
+The test suite covers pretraining generation, SFT, DPO, distillation SFT, distillation DPO, taxonomy, holdout behavior, manifests, reports, CLI contracts, shared runtime behavior, and publishing boundaries.
 
 ## Run Tests
 

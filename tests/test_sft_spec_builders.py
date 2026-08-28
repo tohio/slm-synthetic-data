@@ -108,7 +108,7 @@ def test_sft_specs_are_finite_and_materially_distinct():
 def test_sft_range_rejects_crossing_finite_capacity():
     capacity = unique_capacity("summarization")
     validate_spec_range(family="summarization", count=1, start_index=capacity)
-    with pytest.raises(ValueError, match="finite source capacity"):
+    with pytest.raises(ValueError, match="planner capacity"):
         build_specs(family="summarization", count=2, start_index=capacity)
 
 

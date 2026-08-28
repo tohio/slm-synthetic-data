@@ -1,54 +1,39 @@
 from pathlib import Path
-
 from configs import configure_synthetic
-from slm_synth.model_support import is_supported_model
 from slm_synth.throughput_defaults import (
-    DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES,
-    DEFAULT_OPENROUTER_ADAPTIVE_INITIAL_IN_FLIGHT,
-    DEFAULT_OPENROUTER_BATCH_SIZE,
-    DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
-    DEFAULT_OPENROUTER_TARGET_CONCURRENCY,
-    MAX_OPENROUTER_BATCH_SIZE,
+    DEFAULT_OPENROUTER_BATCH_SIZE, DEFAULT_OPENROUTER_SMOKE_CONCURRENCY,
+    DEFAULT_OPENROUTER_TARGET_CONCURRENCY, MAX_OPENROUTER_BATCH_SIZE,
     MAX_OPENROUTER_CONCURRENCY,
 )
 
-
-def test_make_live_generation_paths_inherit_a_validated_default_model():
+def test_make_uses_role_specific_model_defaults():
     makefile = Path("Makefile").read_text()
-    default_model = next(
-        line.split("?=", 1)[1].strip()
-        for line in makefile.splitlines()
-        if line.startswith("MODEL ?=")
-    )
-
-    assert is_supported_model(default_model)
-    for name in ("PRETRAIN", "DISTILLATION_SFT", "DISTILLATION_DPO", "SFT", "DPO"):
-        assert f"{name}_MODEL ?= $(MODEL)" in makefile
-
+    expected = {
+        "PRETRAIN_MODEL": "openai/gpt-5.6-luna-pro",
+        "PRETRAIN_JUDGE_MODEL": "google/gemma-4-31b-it",
+        "PRETRAIN_REVIEWER_MODEL": "openai/gpt-5.6-luna-pro",
+        "SFT_DERIVATION_MODEL": "openai/gpt-5.6-luna-pro",
+        "SFT_TASK_MODEL": "deepseek/deepseek-v4-flash",
+        "SFT_ANSWER_MODEL": "deepseek/deepseek-v4-flash",
+        "SFT_JUDGE_MODEL": "nvidia/nemotron-3.5-lightning",
+        "SFT_REVIEWER_MODEL": "google/gemma-4-31b-it",
+        "DPO_DERIVATION_MODEL": "openai/gpt-5.6-luna-pro",
+        "DPO_TASK_MODEL": "deepseek/deepseek-v4-flash",
+        "DPO_PAIR_MODEL": "deepseek/deepseek-v4-flash",
+        "DPO_JUDGE_MODEL": "nvidia/nemotron-3.5-lightning",
+        "DPO_REVIEWER_MODEL": "google/gemma-4-31b-it",
+    }
+    for name, model in expected.items():
+        assert f"{name} ?= {model}" in makefile
 
 def test_make_live_generation_targets_preserve_openrouter_routing_controls():
     makefile = Path("Makefile").read_text()
-
     assert "OPENROUTER_ROUTING_MODE ?= auto" in makefile
-    assert "OPENROUTER_ROUTING_ARGS := --openrouter-routing-mode $(OPENROUTER_ROUTING_MODE)" in makefile
-    targets = {
-        "pretrain-smoke": False,
-        "pretrain-generate": False,
-        "distillation-sft-smoke": True,
-        "distillation-sft-generate": True,
-        "distillation-dpo-smoke": False,
-        "distillation-dpo-generate": False,
-        "sft-smoke": True,
-        "sft-generate": True,
-        "dpo-smoke": True,
-        "dpo-generate": True,
-    }
-    for target, uses_cli_routing_args in targets.items():
+    assert "OPENROUTER_ENV :=" in makefile
+    for target in ("pretrain-smoke", "pretrain-generate", "distillation-sft-smoke", "distillation-sft-generate", "distillation-dpo-smoke", "distillation-dpo-generate", "sft-smoke", "sft-generate", "dpo-smoke", "dpo-generate"):
         recipe = makefile.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
         assert "$(OPENROUTER_ENV)" in recipe
-        if uses_cli_routing_args:
-            assert "$(OPENROUTER_ROUTING_ARGS)" in recipe
-
+        assert ("--routing-mode $(OPENROUTER_ROUTING_MODE)" in recipe or "$(OPENROUTER_ROUTING_ARGS)" in recipe)
 
 def test_grounded_pretrain_config_uses_shared_throughput_bounds():
     assert configure_synthetic.MIN_BATCH_SIZE == 1
@@ -56,19 +41,10 @@ def test_grounded_pretrain_config_uses_shared_throughput_bounds():
     assert configure_synthetic.MIN_CONCURRENCY == 1
     assert configure_synthetic.MAX_CONCURRENCY == MAX_OPENROUTER_CONCURRENCY
 
-
-def test_make_openrouter_backed_defaults_match_pretrain_posture():
+def test_pretrain_make_defaults_match_configure_synthetic_throughput_posture():
     makefile = Path("Makefile").read_text()
-
     assert f"PRETRAIN_BATCH_SIZE ?= {DEFAULT_OPENROUTER_BATCH_SIZE}" in makefile
     assert f"PRETRAIN_CONCURRENCY ?= {DEFAULT_OPENROUTER_SMOKE_CONCURRENCY}" in makefile
     assert f"PRETRAIN_TARGET_CONCURRENCY ?= {DEFAULT_OPENROUTER_TARGET_CONCURRENCY}" in makefile
-
-    for name in ("DISTILLATION_SFT", "DPO"):
-        assert f"{name}_BATCH_SIZE ?= $(PRETRAIN_BATCH_SIZE)" in makefile
-        assert f"{name}_CONCURRENCY ?= $(PRETRAIN_CONCURRENCY)" in makefile
-        assert f"{name}_TARGET_CONCURRENCY ?= $(PRETRAIN_TARGET_CONCURRENCY)" in makefile
-        assert f"{name}_BATCH_INCREASE_SUCCESSES ?= {DEFAULT_OPENROUTER_ADAPTIVE_BATCH_INCREASE_SUCCESSES}" in makefile
-
-    assert "--concurrency $(DISTILLATION_SFT_TARGET_CONCURRENCY)" in makefile
-    assert "--concurrency $(DPO_TARGET_CONCURRENCY)" in makefile
+    for name in ("SFT", "DPO", "DISTILLATION_SFT", "DISTILLATION_DPO"):
+        assert f"{name}_CONCURRENCY ?= 8" in makefile

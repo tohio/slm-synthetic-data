@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-from slm_synth.model_support import warn_if_unsupported_model
 from slm_synth.throughput_defaults import (
     DEFAULT_OPENROUTER_BATCH_SIZE,
     MAX_OPENROUTER_BATCH_SIZE,
@@ -73,7 +72,6 @@ def main() -> None:
 
     preset = PROFILES[args.profile]
     model = args.model or preset["model"]
-    warn_if_unsupported_model(model, context="configure")
     concurrency = args.concurrency or preset["concurrency"]
     if not MIN_CONCURRENCY <= concurrency <= MAX_CONCURRENCY:
         raise ValueError(

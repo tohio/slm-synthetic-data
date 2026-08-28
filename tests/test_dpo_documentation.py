@@ -1,63 +1,36 @@
 from pathlib import Path
-
-from slm_synth.dpo.pipeline import DPO_DIMENSIONS as DPO_PREFERENCE_DIMENSIONS
-
+from slm_synth.dpo.pipeline import DPO_DIMENSIONS
 
 ROOT = Path(__file__).resolve().parents[1]
-
 
 def _read(relative_path: str) -> str:
     return (ROOT / relative_path).read_text(encoding="utf-8")
 
-
-def test_dpo_package_readme_describes_implemented_boundaries():
+def test_dpo_package_readme_describes_current_pipeline():
     readme = _read("slm_synth/dpo/README.md")
+    for stage in ("derivation", "concrete task", "chosen/rejected pair generation", "deterministic pair validation", "Nemotron judge", "Gemma reviewer", "final exact preference-triple dedup"):
+        assert stage in readme
+    assert "one consolidated DPO repository" in readme
+    assert "runs.py" not in readme
 
-    for module in ("acceptance.py", "runs.py", "report.py", "card.py", "push_hf.py"):
-        assert module in readme
-    for behavior in (
-        "normalized ID, prompt, and `(prompt, chosen, rejected)` triple",
-        "not replaced merely to reach a nominal pair count",
-        "DPO_HF_REPO",
-        "one complete run",
-    ):
-        assert behavior in readme
-    assert "distillation-specific pairs" in readme
-
-
-def test_dpo_command_reference_documents_candidates_holdouts_and_one_repo():
+def test_dpo_command_reference_documents_current_planning_variables():
     commands = _read("docs/COMMANDS.md")
-
-    for variable in (
-        "DPO_CANDIDATE_COUNTS",
-        "DPO_GENERATION_RUN",
-        "DPO_HOLDOUT_REGISTRY",
-        "DPO_HF_REPO",
-    ):
+    for variable in ("DPO_GENERATION_RUN", "DPO_PREFERENCE_DIMENSIONS", "DPO_SEEDS", "DPO_DERIVATIONS_PER_SEED", "DPO_TASKS_PER_DERIVATION", "DPO_PAIR_BATCH_SIZE"):
         assert f"`{variable}`" in commands
-    assert "dimension=count" in commands
-    assert "one atomic version in `DPO_HF_REPO`" in commands
+    assert "DPO_CANDIDATE_COUNTS" not in commands
 
-
-def test_dpo_workflow_documents_acceptance_and_consolidated_publication():
+def test_dpo_workflow_documents_current_pipeline_and_publication():
     workflow = _read("docs/GENERATION_WORKFLOW.md")
+    section = workflow.split("## Generic DPO", 1)[1].split("## Distillation SFT", 1)[0]
+    assert "DPO_DERIVATIONS_PER_SEED=30" in section
+    assert "DPO_TASKS_PER_DERIVATION=15" in section
+    assert "Nemotron judge" in section
+    assert "Gemma reviewer" in section
+    assert "final preference-triple dedup" in section
 
-    for heading in (
-        "### DPO candidate acceptance",
-        "### DPO reporting and publish blockers",
-        "### DPO consolidated publication",
-    ):
-        assert heading in workflow
-    assert "DPO_HF_REPO=tohio/slm-synthetic-dpo" in workflow
-    assert "Similarity and repeated negative patterns" not in workflow
-    assert "Chosen/rejected similarity and repeated negative patterns remain diagnostic" in workflow
-
-
-def test_documented_dpo_family_table_covers_every_supported_family():
+def test_documented_dpo_dimension_table_covers_every_supported_dimension():
     document = _read("docs/GENERATION_FAMILIES.md")
-    dpo_section = document.split("## DPO Preference Dimensions", 1)[1].split("## Distillation SFT Signals", 1)[0]
-
-    for family in DPO_PREFERENCE_DIMENSIONS:
-        assert f"`{family}`" in dpo_section
-    assert "unique source capacity" in dpo_section
-    assert "inspection signals rather than automatic rejection thresholds" in dpo_section
+    section = document.split("## Generic DPO Preference Dimensions", 1)[1].split("## Distillation SFT Signals", 1)[0]
+    for dimension in DPO_DIMENSIONS:
+        assert f"`{dimension}`" in section
+    assert "plain-text prompt/chosen/rejected semantics" in section

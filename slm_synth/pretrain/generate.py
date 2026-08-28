@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.llm import LLMBackend
-from slm_synth.model_support import warn_if_unsupported_model
 from slm_synth.pretrain.writer import JSONLWriter
 from slm_synth.pretrain.grounded import (
     GroundedBatchStore,
@@ -68,7 +67,6 @@ def build_llm(
         f"{role}_model",
         signal_cfg.get("model", base_cfg["model"]),
     )
-    warn_if_unsupported_model(model_name, context=f"synthetic {role} generation")
 
     return LLMBackend(
         provider=base_cfg.get("provider", "openrouter"),
@@ -414,7 +412,6 @@ def run_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> None:
 
 def main(config_path: str, signal_override: Optional[str] = None) -> None:
     cfg = yaml.safe_load(Path(config_path).read_text())
-    warn_if_unsupported_model(cfg.get("backend", {}).get("model", ""), context="generate")
 
     output_dir = _expand_path(cfg["output_dir"])
     (output_dir / "raw").mkdir(parents=True, exist_ok=True)

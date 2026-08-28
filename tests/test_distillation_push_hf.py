@@ -298,5 +298,5 @@ def test_manifest_count_gate_blocks_quarantined_underfill(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="backfill and rebuild manifests"):
+    with pytest.raises(ValueError, match="rebuild manifests before publishing"):
         require_manifest_dataset_counts(manifest, [dataset])

@@ -153,6 +153,7 @@ def test_openrouter_structured_completion_uses_routing_policy():
     backend.top_p = 0.95
     backend.require_parameters = True
     backend.allow_fallbacks = True
+    backend.reasoning_suitability = SimpleNamespace(reasoning_capable=False)
     backend.openrouter_routing_policy = OpenRouterRoutingPolicy(
         mode="strict",
         requested_provider="deepinfra",

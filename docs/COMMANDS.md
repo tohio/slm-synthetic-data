@@ -86,6 +86,8 @@ Qualification uses strict structured output like production. Optional reasoning 
 | `SFT_ANSWER_MODEL` | `deepseek/deepseek-v4-flash` |
 | `SFT_JUDGE_MODEL` | `nvidia/nemotron-3.5-lightning` |
 | `SFT_REVIEWER_MODEL` | `google/gemma-4-31b-it` |
+| `SFT_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` |
+| `SFT_HF_REPO` | `$(HF_NAMESPACE)/slm-synthetic-sft` unless overridden |
 
 ## Generic DPO Variables
 
@@ -107,6 +109,8 @@ Qualification uses strict structured output like production. Optional reasoning 
 | `DPO_PAIR_MODEL` | `deepseek/deepseek-v4-flash` |
 | `DPO_JUDGE_MODEL` | `nvidia/nemotron-3.5-lightning` |
 | `DPO_REVIEWER_MODEL` | `google/gemma-4-31b-it` |
+| `DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` |
+| `DPO_HF_REPO` | `$(HF_NAMESPACE)/slm-synthetic-dpo` unless overridden |
 
 ## Distillation SFT Variables
 
@@ -147,6 +151,8 @@ Qualification uses strict structured output like production. Optional reasoning 
 | `DISTILLATION_DPO_PAIR_MODEL` | `deepseek/deepseek-v4-flash` |
 | `DISTILLATION_DPO_JUDGE_MODEL` | `google/gemma-4-31b-it` |
 | `DISTILLATION_DPO_REVIEWER_MODEL` | `openai/gpt-5.6-luna-pro` |
+| `DISTILLATION_DPO_HOLDOUT_REGISTRY` | `configs/eval_holdouts.yaml` |
+| `DISTILLATION_DPO_HF_REPO` | `$(HF_NAMESPACE)/slm-synthetic-distillation-dpo` |
 
 ## Maintenance
 

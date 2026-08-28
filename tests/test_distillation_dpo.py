@@ -71,14 +71,21 @@ def test_distillation_dpo_report_and_card_from_pipeline_shaped_artifact(tmp_path
     manifest_path.write_text(
         json.dumps({
             "dataset_type": "distillation-dpo",
+            "generation_run": "distillation-dpo-smoke-001",
+            "teacher_model": "deepseek/deepseek-v4-flash",
+            "teacher_provider": "openrouter",
+            "chosen_source": "teacher",
+            "rejected_source": "controlled_weak",
+            "target_consumer": "slm-distillation",
+            "datasets": [{
+                "family": "teacher_response_preference",
+                "dataset_path": str(dataset_path),
+                "row_count": 1,
+            }],
+            "total_rows": 1,
             "metadata": {
                 "dataset_acceptance": acceptance,
                 "target_pairs": 1,
-                "source_contract": {
-                    "chosen_source": "teacher-quality response",
-                    "rejected_source": "controlled_weak",
-                    "target_consumer": "slm-distillation",
-                },
             },
         }),
         encoding="utf-8",
