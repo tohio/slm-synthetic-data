@@ -1,6 +1,8 @@
 # Command Reference
 
-Supported Make targets, runtime variables, model overrides, and operational examples.
+Supported Make targets and operational examples. For the exhaustive meaning of every Make variable—including sizing, model roles, batching, concurrency, retries, novelty thresholds, output roots, and publication controls—see [Parameter Reference](PARAMETERS.md).
+
+The Make targets are wrappers around the production pipeline arguments. A short command such as `make sft-generate` uses Makefile defaults; supplying `SFT_*`, `DPO_*`, `DISTILLATION_*`, `PRETRAIN_*`, or shared OpenRouter variables overrides those defaults without changing the supported production path.
 
 ## Supported Target Matrix
 
@@ -106,6 +108,23 @@ data/model-qualification/<model-id-with-slashes-replaced>.json
 ~~~
 
 Reasoning policy is fail-closed: when a model supports optional reasoning, requests disable reasoning; mandatory/non-disableable reasoning models are rejected as unsuitable.
+
+---
+
+## How Sizing Variables Work
+
+SFT, DPO, Distillation SFT, and Distillation DPO use a three-level expansion plan:
+
+```text
+planned tasks per selected family/signal/dimension
+    = seeds x derivations per seed x tasks per derivation
+```
+
+For the production defaults, `1 x 30 x 15 = 450` planned tasks per selected coverage unit. This is a candidate plan, not a guaranteed accepted row count. Quality gates and deduplication reduce realized output.
+
+Pretraining is different: `PRETRAIN_TARGET_TOKENS` is the final accepted-token target after deterministic validation, judge, reviewer, and final dedup.
+
+See [Parameter Reference](PARAMETERS.md) for the exact meaning of each sizing and runtime variable.
 
 ---
 

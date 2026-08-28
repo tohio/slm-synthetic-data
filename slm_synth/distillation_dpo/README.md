@@ -65,6 +65,7 @@ The public dataset is consumed by `slm-distillation` after response distillation
 Do not merge its semantics with generic DPO merely because both use the same ten dimension names.
 
 See [Architecture](../../docs/ARCHITECTURE.md).
+For every supported override, see [Distillation-DPO parameters](../../docs/PARAMETERS.md#distillation-dpo-parameters).
 
 ## Usage
 

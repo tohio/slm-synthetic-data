@@ -54,6 +54,7 @@ Default models:
 The public dataset is consumed by `slm-distillation`. Student sampling and model training are not performed here.
 
 See [Architecture](../../docs/ARCHITECTURE.md).
+For every supported override, see [Distillation-SFT parameters](../../docs/PARAMETERS.md#distillation-sft-parameters).
 
 ## Usage
 

@@ -54,6 +54,7 @@ deterministic artifact
 ~~~
 
 See [Architecture](../../docs/ARCHITECTURE.md).
+For every supported override, see [Pretraining parameters](../../docs/PARAMETERS.md#pretraining-parameters).
 
 ## Usage
 

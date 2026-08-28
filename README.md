@@ -98,42 +98,312 @@ OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" make sft-smoke
 
 ### Usage
 
-Start with a smoke run for the dataset you intend to generate:
+The Makefile is intentionally the supported entry point, but it is only a wrapper around the pipeline arguments. **Using a one-line Make target does not remove configurability.** Every important production setting can still be overridden with Make variables.
+
+The three useful levels are:
+
+1. default invocation;
+2. a small set of targeted overrides;
+3. a fully explicit production invocation.
+
+The complete meaning of every supported variable is documented in [Parameter Reference](docs/PARAMETERS.md).
+
+For users familiar with the previous direct Python CLI, the mapping is mechanical. For example, the Distillation-SFT command-line arguments became Make overrides:
+
+| Previous pipeline argument | Current Make override |
+|---|---|
+| `--signals` / family selector | `DISTILLATION_SFT_SIGNALS` |
+| `--seeds` | `DISTILLATION_SFT_SEEDS` |
+| `--derivations-per-seed` | `DISTILLATION_SFT_DERIVATIONS_PER_SEED` |
+| `--tasks-per-derivation` | `DISTILLATION_SFT_TASKS_PER_DERIVATION` |
+| `--concurrency` | `DISTILLATION_SFT_CONCURRENCY` |
+| `--answer-batch-size` | `DISTILLATION_SFT_ANSWER_BATCH_SIZE` |
+| `--judge-batch-size` | `DISTILLATION_SFT_JUDGE_BATCH_SIZE` |
+| `--reviewer-batch-size` | `DISTILLATION_SFT_REVIEWER_BATCH_SIZE` |
+| `--derivation-model` | `DISTILLATION_SFT_DERIVATION_MODEL` |
+| `--task-model` | `DISTILLATION_SFT_TASK_MODEL` |
+| `--answer-model` | `DISTILLATION_SFT_ANSWER_MODEL` |
+| `--judge-model` | `DISTILLATION_SFT_JUDGE_MODEL` |
+| `--reviewer-model` | `DISTILLATION_SFT_REVIEWER_MODEL` |
+
+The SFT/DPO/Distillation-DPO variables follow the same pattern with their dataset prefix.
+
+#### Pretraining
+
+Default smoke and production:
 
 ~~~bash
 make pretrain-smoke
-make sft-smoke
-make dpo-smoke
-make distillation-sft-smoke
-make distillation-dpo-smoke
+make pretrain-generate
 ~~~
 
-Inspect the generated rows and manifests:
+Typical production override:
 
 ~~~bash
-make sft-inspect
-make sft-report
+PRETRAIN_TARGET_RUN=pretrain-production-001 \
+PRETRAIN_TARGET_TOKENS=1000000 \
+PRETRAIN_TARGET_CONCURRENCY=4 \
+make pretrain-generate
 ~~~
 
-Before changing to an unqualified model, run the corresponding qualification target:
+Fully explicit example:
+
+~~~bash
+OPENROUTER_ROUTING_MODE=auto \
+OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" \
+PROFILE=balanced \
+PRETRAIN_TARGET_RUN=pretrain-production-001 \
+PRETRAIN_TARGET_TOKENS=1000000 \
+PRETRAIN_BATCH_SIZE=32 \
+PRETRAIN_TARGET_CONCURRENCY=4 \
+PRETRAIN_MODEL=openai/gpt-5.6-luna-pro \
+PRETRAIN_JUDGE_MODEL=google/gemma-4-31b-it \
+PRETRAIN_REVIEWER_MODEL=openai/gpt-5.6-luna-pro \
+PRETRAIN_JUDGE_BATCH_SIZE=10 \
+PRETRAIN_REVIEWER_BATCH_SIZE=10 \
+PRETRAIN_QUALITY_CONCURRENCY=8 \
+PRETRAIN_STAGE_BATCH_ATTEMPTS=3 \
+PRETRAIN_MAX_BACKFILL_ROUNDS=4 \
+make pretrain-generate
+~~~
+
+Pretraining is different from the other four products: `PRETRAIN_TARGET_TOKENS` is the **final post-review, post-dedup accepted-token target**, not a raw generation budget.
+
+#### Generic SFT
+
+Default smoke and production:
+
+~~~bash
+make sft-smoke
+make sft-generate
+~~~
+
+Typical focused run:
+
+~~~bash
+SFT_GENERATION_RUN=sft-programming-001 \
+SFT_FAMILIES=programming \
+SFT_CONCURRENCY=8 \
+make sft-generate
+~~~
+
+Fully explicit production example:
+
+~~~bash
+OPENROUTER_ROUTING_MODE=auto \
+OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" \
+SFT_GENERATION_RUN=sft-production-001 \
+SFT_FAMILIES=all \
+SFT_SEEDS=1 \
+SFT_DERIVATIONS_PER_SEED=30 \
+SFT_TASKS_PER_DERIVATION=15 \
+SFT_CONCURRENCY=8 \
+SFT_ANSWER_BATCH_SIZE=4 \
+SFT_JUDGE_BATCH_SIZE=10 \
+SFT_REVIEWER_BATCH_SIZE=10 \
+SFT_CARDINALITY_FILL_ATTEMPTS=3 \
+SFT_STAGE_BATCH_ATTEMPTS=3 \
+SFT_DERIVATION_MODEL=openai/gpt-5.6-luna-pro \
+SFT_TASK_MODEL=deepseek/deepseek-v4-flash \
+SFT_ANSWER_MODEL=deepseek/deepseek-v4-flash \
+SFT_JUDGE_MODEL=nvidia/nemotron-3.5-lightning \
+SFT_REVIEWER_MODEL=google/gemma-4-31b-it \
+SFT_DERIVATION_MAX_TOKENS=4096 \
+SFT_TASK_MAX_TOKENS=4096 \
+SFT_ANSWER_MAX_TOKENS=4096 \
+SFT_JUDGE_MAX_TOKENS=4096 \
+SFT_REVIEWER_MAX_TOKENS=512 \
+SFT_JACCARD_THRESHOLD=0.82 \
+SFT_SEQUENCE_THRESHOLD=0.90 \
+make sft-generate
+~~~
+
+The default planned task volume per selected family is:
+
+~~~text
+SFT_SEEDS x SFT_DERIVATIONS_PER_SEED x SFT_TASKS_PER_DERIVATION
+1 x 30 x 15 = 450 planned task candidates per family
+~~~
+
+Final accepted rows can be lower after novelty filtering, deterministic validation, judge/reviewer rejection, and final dedup.
+
+#### Generic DPO
+
+Default smoke and production:
+
+~~~bash
+make dpo-smoke
+make dpo-generate
+~~~
+
+Typical focused run:
+
+~~~bash
+DPO_GENERATION_RUN=dpo-factual-001 \
+DPO_PREFERENCE_DIMENSIONS=factual_accuracy \
+DPO_CONCURRENCY=8 \
+make dpo-generate
+~~~
+
+Fully explicit production example:
+
+~~~bash
+OPENROUTER_ROUTING_MODE=auto \
+OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" \
+DPO_GENERATION_RUN=dpo-production-001 \
+DPO_PREFERENCE_DIMENSIONS=all \
+DPO_SEEDS=1 \
+DPO_DERIVATIONS_PER_SEED=30 \
+DPO_TASKS_PER_DERIVATION=15 \
+DPO_CONCURRENCY=8 \
+DPO_PAIR_BATCH_SIZE=4 \
+DPO_JUDGE_BATCH_SIZE=10 \
+DPO_REVIEWER_BATCH_SIZE=10 \
+DPO_CARDINALITY_FILL_ATTEMPTS=3 \
+DPO_STAGE_BATCH_ATTEMPTS=3 \
+DPO_DERIVATION_MODEL=openai/gpt-5.6-luna-pro \
+DPO_TASK_MODEL=deepseek/deepseek-v4-flash \
+DPO_PAIR_MODEL=deepseek/deepseek-v4-flash \
+DPO_JUDGE_MODEL=nvidia/nemotron-3.5-lightning \
+DPO_REVIEWER_MODEL=google/gemma-4-31b-it \
+DPO_DERIVATION_MAX_TOKENS=4096 \
+DPO_TASK_MAX_TOKENS=4096 \
+DPO_PAIR_MAX_TOKENS=4096 \
+DPO_JUDGE_MAX_TOKENS=4096 \
+DPO_REVIEWER_MAX_TOKENS=512 \
+DPO_JACCARD_THRESHOLD=0.82 \
+DPO_SEQUENCE_THRESHOLD=0.90 \
+make dpo-generate
+~~~
+
+The default planned task volume is `1 x 30 x 15 = 450` preference tasks per selected dimension before quality losses.
+
+#### Distillation SFT
+
+Default smoke and production:
+
+~~~bash
+make distillation-sft-smoke
+make distillation-sft-generate
+~~~
+
+Typical focused signal:
+
+~~~bash
+DISTILLATION_SFT_GENERATION_RUN=distillation-sft-cloud-001 \
+DISTILLATION_SFT_SIGNALS=cloud \
+DISTILLATION_SFT_CONCURRENCY=8 \
+make distillation-sft-generate
+~~~
+
+The explicit Make invocation is the direct replacement for the old long Python CLI. For example:
+
+~~~bash
+OPENROUTER_ROUTING_MODE=auto \
+OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" \
+DISTILLATION_SFT_GENERATION_RUN=distillation-sft-production-001 \
+DISTILLATION_SFT_SIGNALS=cloud \
+DISTILLATION_SFT_SEEDS=1 \
+DISTILLATION_SFT_DERIVATIONS_PER_SEED=30 \
+DISTILLATION_SFT_TASKS_PER_DERIVATION=15 \
+DISTILLATION_SFT_CONCURRENCY=8 \
+DISTILLATION_SFT_ANSWER_BATCH_SIZE=4 \
+DISTILLATION_SFT_JUDGE_BATCH_SIZE=10 \
+DISTILLATION_SFT_REVIEWER_BATCH_SIZE=10 \
+DISTILLATION_SFT_CARDINALITY_FILL_ATTEMPTS=3 \
+DISTILLATION_SFT_STAGE_BATCH_ATTEMPTS=3 \
+DISTILLATION_SFT_DERIVATION_MODEL=openai/gpt-5.6-luna-pro \
+DISTILLATION_SFT_TASK_MODEL=deepseek/deepseek-v4-flash \
+DISTILLATION_SFT_ANSWER_MODEL=deepseek/deepseek-v4-flash \
+DISTILLATION_SFT_JUDGE_MODEL=nvidia/nemotron-3.5-lightning \
+DISTILLATION_SFT_REVIEWER_MODEL=google/gemma-4-31b-it \
+DISTILLATION_SFT_DERIVATION_MAX_TOKENS=4096 \
+DISTILLATION_SFT_TASK_MAX_TOKENS=4096 \
+DISTILLATION_SFT_ANSWER_MAX_TOKENS=4096 \
+DISTILLATION_SFT_JUDGE_MAX_TOKENS=4096 \
+DISTILLATION_SFT_REVIEWER_MAX_TOKENS=512 \
+DISTILLATION_SFT_JACCARD_THRESHOLD=0.82 \
+DISTILLATION_SFT_SEQUENCE_THRESHOLD=0.90 \
+make distillation-sft-generate
+~~~
+
+`DISTILLATION_SFT_TASK_MODEL` writes the **student-facing prompt**. `DISTILLATION_SFT_ANSWER_MODEL` is the teacher that writes the response used for downstream response distillation.
+
+#### Distillation DPO
+
+Default smoke and production:
+
+~~~bash
+make distillation-dpo-smoke
+make distillation-dpo-generate
+~~~
+
+Typical focused dimension:
+
+~~~bash
+DISTILLATION_DPO_TARGET_RUN=distillation-dpo-code-001 \
+DISTILLATION_DPO_DIMENSIONS=code_correctness \
+DISTILLATION_DPO_CONCURRENCY=8 \
+make distillation-dpo-generate
+~~~
+
+Fully explicit production example:
+
+~~~bash
+OPENROUTER_ROUTING_MODE=auto \
+OPENROUTER_PROVIDER_ORDER="Baidu,CoreWeave,DeepInfra" \
+DISTILLATION_DPO_TARGET_RUN=distillation-dpo-production-001 \
+DISTILLATION_DPO_DIMENSIONS=all \
+DISTILLATION_DPO_SEEDS=1 \
+DISTILLATION_DPO_DERIVATIONS_PER_SEED=30 \
+DISTILLATION_DPO_TASKS_PER_DERIVATION=15 \
+DISTILLATION_DPO_CONCURRENCY=8 \
+DISTILLATION_DPO_PAIR_BATCH_SIZE=4 \
+DISTILLATION_DPO_JUDGE_BATCH_SIZE=10 \
+DISTILLATION_DPO_REVIEWER_BATCH_SIZE=10 \
+DISTILLATION_DPO_CARDINALITY_FILL_ATTEMPTS=3 \
+DISTILLATION_DPO_STAGE_BATCH_ATTEMPTS=3 \
+DISTILLATION_DPO_DERIVATION_MODEL=openai/gpt-5.6-luna-pro \
+DISTILLATION_DPO_TASK_MODEL=deepseek/deepseek-v4-flash \
+DISTILLATION_DPO_PAIR_MODEL=deepseek/deepseek-v4-flash \
+DISTILLATION_DPO_JUDGE_MODEL=google/gemma-4-31b-it \
+DISTILLATION_DPO_REVIEWER_MODEL=openai/gpt-5.6-luna-pro \
+DISTILLATION_DPO_DERIVATION_MAX_TOKENS=4096 \
+DISTILLATION_DPO_TASK_MAX_TOKENS=4096 \
+DISTILLATION_DPO_PAIR_MAX_TOKENS=4096 \
+DISTILLATION_DPO_JUDGE_MAX_TOKENS=4096 \
+DISTILLATION_DPO_REVIEWER_MAX_TOKENS=512 \
+DISTILLATION_DPO_JACCARD_THRESHOLD=0.82 \
+DISTILLATION_DPO_SEQUENCE_THRESHOLD=0.90 \
+make distillation-dpo-generate
+~~~
+
+Distillation DPO intentionally uses Gemma as judge and Luna as reviewer because its quality contract is the stricter five-gate distillation preference check.
+
+### Inspect, Report, and Publish
+
+Generation targets automatically build their report. You can rerun inspection/reporting explicitly:
+
+~~~bash
+SFT_INSPECT_RUN=sft-production-001 make sft-inspect
+SFT_REPORT_RUN=sft-production-001 make sft-report
+~~~
+
+Publication always names the run explicitly when it differs from the reporting default:
+
+~~~bash
+SFT_PUSH_RUN=sft-production-001 \
+SFT_HF_REPO=tohio/slm-synthetic-sft \
+make sft-push
+~~~
+
+Before changing to an unqualified model, run the appropriate qualification target:
 
 ~~~bash
 QUALIFY_MODEL=deepseek/deepseek-v4-flash make model-qualify-sft
 ~~~
 
-Then run the production command:
-
-~~~bash
-SFT_GENERATION_RUN=sft-production-001 make sft-generate
-~~~
-
-Publication is explicit:
-
-~~~bash
-SFT_PUSH_RUN=sft-production-001 make sft-push
-~~~
-
-See [Command Reference](docs/COMMANDS.md) for every supported variable and example.
+For the exhaustive variable reference—including run ids, output roots, model roles, token ceilings, batching, concurrency, retry behavior, novelty thresholds, holdouts, and publication controls—see [Parameter Reference](docs/PARAMETERS.md).
 
 ## Project Structure
 
@@ -163,6 +433,7 @@ Start with the [documentation index](docs/README.md).
 For normal operation, the most useful documents are:
 
 - [Command Reference](docs/COMMANDS.md)
+- [Parameter Reference](docs/PARAMETERS.md)
 - [Generation Workflow](docs/GENERATION_WORKFLOW.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Dataset Purpose and Contracts](docs/DATASET_PURPOSE.md)

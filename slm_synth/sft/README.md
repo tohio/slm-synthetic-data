@@ -53,6 +53,7 @@ Default model roles:
 The pipeline uses `slm_synth/runtime` for execution mechanics while this package owns all SFT semantics.
 
 See [Architecture](../../docs/ARCHITECTURE.md) and [Generation Families](../../docs/GENERATION_FAMILIES.md).
+For every supported override, see [SFT parameters](../../docs/PARAMETERS.md#generic-sft-parameters).
 
 ## Usage
 

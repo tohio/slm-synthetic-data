@@ -50,6 +50,7 @@ Default model roles:
 Internal model stages use plain text because preference semantics are easiest to adjudicate directly. Accepted rows are adapted to the public message-list DPO schema before publication.
 
 See [Architecture](../../docs/ARCHITECTURE.md) and [Generation Families](../../docs/GENERATION_FAMILIES.md).
+For every supported override, see [DPO parameters](../../docs/PARAMETERS.md#generic-dpo-parameters).
 
 ## Usage
 
