@@ -84,12 +84,15 @@ def get_reasoning_suitability(model: str) -> ReasoningSuitability:
     reasoning_metadata = reasoning if isinstance(reasoning, dict) else {}
     mandatory = bool(reasoning_metadata.get("mandatory", False))
     if mandatory:
+        # Mandatory-reasoning models are eligible. The runtime must not send a
+        # reasoning-off override for them; they run with their native reasoning
+        # behavior instead.
         return ReasoningSuitability(
             model=model_id,
             reasoning_capable=True,
             reasoning_mandatory=True,
             reasoning_disable_supported=False,
-            reasoning_policy_pass=False,
+            reasoning_policy_pass=True,
         )
 
     # OpenRouter metadata does not consistently advertise an explicit
@@ -108,9 +111,9 @@ def get_reasoning_suitability(model: str) -> ReasoningSuitability:
 
 
 def require_reasoning_off_suitability(model: str) -> ReasoningSuitability:
-    suitability = get_reasoning_suitability(model)
-    if not suitability.reasoning_policy_pass:
-        raise ModelSuitabilityError(
-            f"Model {model!r} is ineligible: repository policy requires reasoning to be disableable"
-        )
-    return suitability
+    """Return reasoning capability metadata for runtime request construction.
+
+    Optional reasoning is disabled by the backend. Mandatory reasoning is
+    allowed and left untouched rather than being rejected.
+    """
+    return get_reasoning_suitability(model)

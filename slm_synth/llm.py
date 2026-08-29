@@ -582,9 +582,9 @@ class LLMBackend:
         """Build the smallest portable OpenAI-compatible chat request.
 
         Generation roles intentionally do not require provider-side JSON schema
-        or tool calling. Repository policy disables reasoning for every
-        reasoning-capable model; optional sampling controls remain omitted by
-        default.
+        or tool calling. Optional reasoning is disabled when the model supports
+        reasoning-off; mandatory reasoning is left at the model/provider default.
+        Optional sampling controls remain omitted by default.
         """
         kwargs: Dict[str, Any] = {
             "model": self.model,
@@ -619,7 +619,10 @@ class LLMBackend:
                 allow_fallbacks=self.allow_fallbacks,
             )
         }
-        if self.reasoning_suitability.reasoning_capable:
+        if (
+            self.reasoning_suitability.reasoning_capable
+            and not self.reasoning_suitability.reasoning_mandatory
+        ):
             body["reasoning"] = {"effort": "none"}
         return body
 

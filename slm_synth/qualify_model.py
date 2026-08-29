@@ -333,10 +333,17 @@ def qualify(
         and reasoning_policy.get("reasoning_mandatory") is False
         and reasoning_policy.get("reasoning_disable_supported") is None
     )
-    reasoning_policy["reasoning_disable_verified"] = not reasoning_requires_live_verification
-    reasoning_policy["verification"] = (
-        "not_required" if not reasoning_requires_live_verification else "pending_live_request"
-    )
+    reasoning_mandatory = reasoning_policy.get("reasoning_mandatory") is True
+    if reasoning_mandatory:
+        reasoning_policy["reasoning_disable_verified"] = False
+        reasoning_policy["verification"] = "not_applicable_mandatory_reasoning"
+    else:
+        reasoning_policy["reasoning_disable_verified"] = not reasoning_requires_live_verification
+        reasoning_policy["verification"] = (
+            "not_required"
+            if not reasoning_requires_live_verification
+            else "pending_live_request"
+        )
 
     try:
         backend = build_backend(
