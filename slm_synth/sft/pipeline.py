@@ -884,13 +884,25 @@ AGREE unless there is a clear material defect the judge missed.
 Do not perform a stricter second perfection test.
 Do not reject for style preferences, harmless ambiguity, or merely because
 another answer could be better.
+Do not invent requirements that are not in the user task, and do not reject
+based on speculative failure modes that are not demonstrated by the answer.
+When considering disagreement, first identify the exact user requirement that
+would be violated, then verify from the supplied answer that the violation is
+concrete and material. If the task leaves a behavior unspecified or permits
+multiple reasonable interpretations, do not choose a stricter interpretation
+solely to reject the answer.
+If the task itself is contradictory, underspecified, or missing information
+needed to establish a claimed defect, do not attribute that ambiguity to the
+answer unless the answer independently makes a clear material error.
 
 Items:
 {json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}
 
 For each supplied id:
 - agreed=true when the judge acceptance is justified; use an empty reason;
-- agreed=false only for a clear material defect; give one concise reason.
+- agreed=false only for a clear material defect that violates an explicit task
+  requirement; give one concise reason naming that requirement and the concrete
+  evidence from the answer.
 
 The response structure is enforced by the supplied JSON Schema.
 """.strip()
