@@ -530,6 +530,24 @@ def generate_answers(
     backend: Any,
     max_fill_attempts: int,
 ) -> list[str]:
+    family_verification = {
+        "instruction": (
+            "For instruction tasks, treat every explicit constraint as mandatory. Execute "
+            "transformations strictly in the stated order; verify exact counts, character "
+            "lengths, item counts, formatting, exclusions, required phrases, and ordering "
+            "before returning the response. Recompute deterministic transformations "
+            "independently. Do not add explanatory content when output-only is requested."
+        ),
+        "data_transform": (
+            "For data-transform tasks, verify every source-to-target transformation against "
+            "the stated semantics. Distinguish alternative source fields from fields that "
+            "should be combined; handle ambiguous number/date/locale formats explicitly; "
+            "derive fields when the task says they are derived rather than trusting "
+            "redundant input values; and ensure any compatibility fallback is executable "
+            "rather than merely described in comments."
+        ),
+    }.get(family, "")
+
     def request_answers(
         selected_tasks: Sequence[str],
         prior_answers: Sequence[str],
@@ -556,6 +574,12 @@ Teacher-response requirements:
 - Be factually and logically correct.
 - Follow every explicit instruction, requested format, scope limitation, and
   constraint in the task.
+- Before returning each response, verify internally that every explicit deliverable,
+  transformation step, count, length, format, exclusion, ordering rule, and output
+  contract has actually been satisfied.
+- Recompute deterministic calculations or transformations when needed and correct
+  any material inconsistency before returning the response.
+{family_verification}
 - Include enough explanation, intermediate work, evidence use, or reasoning
   summary for the response to teach reusable behavior, but do not add padding
   or unnecessary exposition.

@@ -468,6 +468,32 @@ def generate_answers(
     backend: Any,
     max_fill_attempts: int,
 ) -> list[str]:
+    family_verification = {
+        "programming": (
+            "For programming tasks, verify the finished solution against every explicit "
+            "behavioral requirement, edge case, API contract, and requested test. Check "
+            "that tests actually exercise the behavior they claim to test, and correct "
+            "material defects before returning the answer."
+        ),
+        "applied_math_and_reasoning": (
+            "For applied-math and reasoning tasks, independently recompute numerical "
+            "results, optimization claims, break-even values, probabilities, units, and "
+            "constraint checks. Do not claim optimality, completeness, or feasibility "
+            "without verifying the required alternatives or bounds."
+        ),
+        "creative_writing": (
+            "For creative-writing tasks, treat exact word counts, line counts, required "
+            "phrases, forbidden words, structural rules, point of view, and other explicit "
+            "constraints as hard requirements. Verify them before returning the answer."
+        ),
+        "planning_brainstorming_recommendations": (
+            "For planning tasks, cross-check schedules, overlaps, budgets, totals, timing, "
+            "resource limits, requested alternatives, and feasibility. Do not invent "
+            "distances, opening hours, accessibility, prices, availability, or other "
+            "external facts that the task does not supply."
+        ),
+    }.get(family, "")
+
     def request_answers(
         selected_tasks: Sequence[str],
         prior_answers: Sequence[str],
@@ -491,6 +517,15 @@ Requirements:
 - Return exactly {request_count} answers.
 - Return one answer per task in the same order.
 - Answer each task as written.
+- Before returning each answer, verify internally that every explicit deliverable,
+  constraint, ordering rule, requested format, exclusion, count, length, and output
+  contract in that task is satisfied.
+- Recheck calculations and internally dependent claims for consistency instead of
+  relying on the first result produced.
+- Do not invent unsupported facts, measurements, prices, dates, distances,
+  accessibility claims, APIs, files, environment state, or other external state.
+- If a material requirement is not satisfied, correct the answer before returning it.
+{family_verification}
 - Do not rewrite the task.
 - Do not emit IDs, roles, metadata, or synthetic-data commentary.
 - The "answers" array must contain exactly {request_count} strings.
