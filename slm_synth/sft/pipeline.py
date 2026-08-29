@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -67,6 +68,78 @@ class Task:
     derivation_ordinal: int
     task_ordinal: int
     text: str
+
+
+def deterministic_task_rejection(
+    *,
+    family: str,
+    text: str,
+) -> tuple[str, str] | None:
+    """Reject only mechanically detectable task-contract defects."""
+    if family not in {
+        "programming",
+        "planning_brainstorming_recommendations",
+    }:
+        return None
+
+    stripped = text.strip()
+    lowered = stripped.lower()
+
+    self_correction_patterns = (
+        r"\?\s*actually\b",
+        r"\bactually\s*[,;:]",
+        r"\balternatively,\s+the\s+(?:bug|requirement|constraint|rule)\b",
+        r"\binstead,\s+(?:define|assume|use|require)\b",
+    )
+    for pattern in self_correction_patterns:
+        match = re.search(pattern, lowered, flags=re.IGNORECASE)
+        if match:
+            return (
+                "task_contract_self_correction",
+                f"self-correcting contract marker: {match.group(0)!r}",
+            )
+
+    if stripped.count("`") % 2:
+        return (
+            "task_contract_incomplete_markup",
+            "unbalanced Markdown backticks",
+        )
+
+    if family == "planning_brainstorming_recommendations":
+        requires_routes = bool(
+            re.search(
+                r"\b(?:list|provide|specify)\b[^.]{0,120}\btransit routes?\b",
+                lowered,
+            )
+        )
+        requires_departures = bool(re.search(r"\bdeparture times?\b", lowered))
+        supplied_route_number = bool(
+            re.search(
+                r"\b(?:route|bus)\s*(?:no\.?\s*)?[A-Z0-9][A-Z0-9-]*\b",
+                stripped,
+                flags=re.IGNORECASE,
+            )
+        )
+        supplied_schedule = bool(
+            re.search(
+                r"\b(?:departs?|departure|bus)\b[^.\n]{0,80}"
+                r"\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d\b",
+                stripped,
+                flags=re.IGNORECASE,
+            )
+        )
+        if (
+            requires_routes
+            and requires_departures
+            and not supplied_route_number
+            and not supplied_schedule
+        ):
+            return (
+                "task_contract_missing_transit_inputs",
+                "requires concrete transit routes and departure times without route or schedule data",
+            )
+
+    return None
 
 
 def reset_outputs(out: Path) -> None:
@@ -1097,7 +1170,16 @@ def run_family(args: argparse.Namespace) -> int:
     task_rejections: Counter[str] = Counter()
 
     for index, task in enumerate(tasks, 1):
-        keep, reason, evidence = novelty.check(task.text)
+        contract_rejection = deterministic_task_rejection(
+            family=args.family,
+            text=task.text,
+        )
+        if contract_rejection is not None:
+            keep = False
+            reason, evidence = contract_rejection
+        else:
+            keep, reason, evidence = novelty.check(task.text)
+
         append_jsonl(out / "tasks.generated.jsonl", {
             "seed_id": task.seed_id,
             "seed_index": task.seed_index,
