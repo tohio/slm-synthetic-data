@@ -25,14 +25,19 @@ def build_dataset_acceptance_report(
     attempted_pairs: int | None = None,
     attempted_rejection_reasons: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Audit accepted rows against uniqueness, quality, and coverage contracts."""
-    materialized_rows = list(rows)
-    accepted_rows, audit = filter_pairs_by_quality(
+    """Audit final accepted rows against uniqueness and coverage contracts.
+
+    The generation pipeline is the acceptance authority. The legacy deterministic
+    pair-quality pass is retained as diagnostics only, matching the generic DPO
+    report/push lifecycle instead of applying a second publish-time acceptance gate.
+    """
+    materialized_rows = [validate_distillation_dpo_row(row) for row in rows]
+    _, pair_quality_audit = filter_pairs_by_quality(
         family="teacher_response_preference",
         rows=materialized_rows,
     )
-    categories = _metadata_counts(accepted_rows, "category")
-    failure_modes = _metadata_counts(accepted_rows, "failure_mode")
+    categories = _metadata_counts(materialized_rows, "category")
+    failure_modes = _metadata_counts(materialized_rows, "failure_mode")
     expected_category_counts = _sorted_counts(expected_categories or categories)
     expected_failure_mode_counts = _sorted_counts(expected_failure_modes or failure_modes)
     row_count = len(materialized_rows)
@@ -43,22 +48,21 @@ def build_dataset_acceptance_report(
     uniqueness_satisfied = (
         unique_prompt_count == row_count
         and unique_triple_count == row_count
-        and audit.accepted_pairs == row_count
     )
     coverage_satisfied = (
         categories == expected_category_counts
         and failure_modes == expected_failure_mode_counts
     )
-    rejection_reasons = _sorted_counts(attempted_rejection_reasons or audit.rejection_reasons)
-    attempted = attempted_pairs if attempted_pairs is not None else audit.checked_pairs
-    rejected = max(attempted - audit.accepted_pairs, 0)
+    rejection_reasons = _sorted_counts(attempted_rejection_reasons or {})
+    attempted = attempted_pairs if attempted_pairs is not None else row_count
+    rejected = max(attempted - row_count, 0)
     return {
         "attempted_pairs": attempted,
         "rejected_pairs": rejected,
-        "duplicate_prompt_pairs": rejection_reasons.get("duplicate_prompt", 0),
-        "duplicate_triple_pairs": rejection_reasons.get("duplicate_preference_triple", 0),
-        "accepted_pairs": audit.accepted_pairs,
-        "remaining_pairs": max(sum(expected_category_counts.values()) - audit.accepted_pairs, 0),
+        "duplicate_prompt_pairs": row_count - unique_prompt_count,
+        "duplicate_triple_pairs": row_count - unique_triple_count,
+        "accepted_pairs": row_count,
+        "remaining_pairs": max(sum(expected_category_counts.values()) - row_count, 0),
         "unique_prompt_count": unique_prompt_count,
         "unique_triple_count": unique_triple_count,
         "categories": categories,
@@ -66,6 +70,7 @@ def build_dataset_acceptance_report(
         "expected_categories": expected_category_counts,
         "expected_failure_modes": expected_failure_mode_counts,
         "rejection_reasons": rejection_reasons,
+        "pair_quality_diagnostics": pair_quality_audit.to_dict(),
         "uniqueness_satisfied": uniqueness_satisfied,
         "coverage_satisfied": coverage_satisfied,
         "publish_ready": uniqueness_satisfied and coverage_satisfied,
