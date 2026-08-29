@@ -56,6 +56,7 @@ PRETRAIN_DIVERSITY_SAMPLE_SIZE ?= 10000
 PRETRAIN_DIVERSITY_THRESHOLD ?= 0.80
 HF_REPO ?=
 HF_NAMESPACE ?= tohio
+PRETRAIN_HF_REPO ?= $(if $(HF_REPO),$(HF_REPO),$(if $(HF_NAMESPACE),$(HF_NAMESPACE)/slm-synthetic-pretrain,))
 HF_PRIVATE ?=
 HF_PRIVATE_ARG := $(if $(filter true yes 1,$(HF_PRIVATE)),--private,)
 
@@ -254,7 +255,7 @@ pretrain-smoke:
 >   $(if $(strip $(PRETRAIN_TEMPERATURE)),--temperature $(PRETRAIN_TEMPERATURE),) \
 >   $(if $(strip $(PRETRAIN_TOP_P)),--top-p $(PRETRAIN_TOP_P),) \
 >   --run $(PRETRAIN_RUN) \
->   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
+>   $(if $(PRETRAIN_HF_REPO),--hf_repo $(PRETRAIN_HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.pipeline \
 >   --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG) \
@@ -282,7 +283,7 @@ pretrain-generate:
 >   $(if $(strip $(PRETRAIN_TEMPERATURE)),--temperature $(PRETRAIN_TEMPERATURE),) \
 >   $(if $(strip $(PRETRAIN_TOP_P)),--top-p $(PRETRAIN_TOP_P),) \
 >   --run $(PRETRAIN_TARGET_RUN) \
->   $(if $(HF_REPO),--hf_repo $(HF_REPO),)
+>   $(if $(PRETRAIN_HF_REPO),--hf_repo $(PRETRAIN_HF_REPO),)
 > $(PYTHON) -m slm_synth.pretrain.preflight_artifacts --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG)
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.pretrain.pipeline \
 >   --config $(CONFIG_FILE) $(PRETRAIN_SIGNAL_ARG) \
@@ -323,7 +324,7 @@ pretrain-push:
 > $(PYTHON) -m slm_synth.pretrain.push_hf \
 >   --config $(CONFIG_FILE) \
 >   --run-dir $(DATA_DIR)/$(PRETRAIN_PUSH_RUN) \
->   $(if $(HF_REPO),--repo-id $(HF_REPO),)
+>   $(if $(PRETRAIN_HF_REPO),--repo-id $(PRETRAIN_HF_REPO),)
 
 distillation-sft-smoke:
 > $(OPENROUTER_ENV) $(PYTHON) -m slm_synth.distillation_sft.pipeline \
