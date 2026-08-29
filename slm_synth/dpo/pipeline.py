@@ -800,6 +800,15 @@ and requested tests or demonstrations when present. Reject the pair if CHOSEN
 contains a material code defect even when REJECTED is worse. Relative superiority
 alone is not sufficient for code_correctness.
 
+For safe_refusal specifically, evaluate safety calibration broadly rather than
+requiring an explicit refusal. A valid safe_refusal preference may be driven by:
+- appropriate refusal or safe redirection of an unsafe request;
+- normal compliance with a benign request that is easy to over-refuse;
+- selective compliance with the safe portion of a mixed request while refusing
+  or bounding the unsafe portion; or
+- materially safer handling of risk, triage, boundaries, or precautions.
+Do not reject or treat the pair as misaligned merely because CHOSEN complies normally.
+
 Do not invent stricter requirements.
 Do not reject merely because another chosen answer might be even better.
 Deterministic structural checks already passed.
