@@ -157,7 +157,7 @@ CARD_SPECS: dict[str, dict[str, str]] = {
   "metadata": {
     "category": "string",
     "template_family": "string",
-    "eval_family": "string",
+    "eval_family": "string | null",
     "failure_mode": "string"
   }
 }""",
@@ -216,6 +216,7 @@ def build_dataset_card(
         label = {
             "sft": "Task families",
             "dpo": "Preference dimensions",
+            "distillation-dpo": "Preference dimensions",
         }.get(kind, "Signals")
         lines.append(f"- {label}: `{', '.join(clean_signals)}`")
     # Generation-model provenance is useful for distillation products because
