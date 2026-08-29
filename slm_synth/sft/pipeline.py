@@ -387,10 +387,14 @@ def generate_tasks_from_derivation(
     family_task_guidance = {
         "programming": (
             "Keep each task centered on one primary programming behavior or a tightly "
-            "related set of behaviors. Requirements must be mutually consistent and "
-            "implementable from the supplied signature, state, and context. Make retry, "
-            "timeout, cancellation, ordering, cleanup, and error semantics unambiguous "
-            "when they are relevant. Required tests must agree with those semantics."
+            "related set of behaviors. Before emitting the task, check that every requirement "
+            "can be satisfied at the same time and that examples and tests describe the same "
+            "behavior as the prose requirements. Do not include self-corrections or competing "
+            "semantics such as 'return None ... instead raise KeyError'. Required function "
+            "signatures and supplied state must be sufficient to implement the requested "
+            "behavior. When retry, timeout, cancellation, ordering, cleanup, persistence, "
+            "or concurrency semantics matter, define only the interactions needed for the "
+            "task and state them unambiguously."
         ),
         "creative_writing": (
             "Use a small number of meaningful writing constraints. Do not stack many "
@@ -400,17 +404,13 @@ def generate_tasks_from_derivation(
             "and objectively checkable."
         ),
         "planning_brainstorming_recommendations": (
-            "Keep hard constraints mutually feasible and clearly distinguish them from "
-            "preferences. Do not require the assistant to prove travel time, accessibility, "
-            "opening hours, prices, availability, or other external facts unless the task "
-            "supplies the needed facts. Avoid stacking unrelated scheduling, budget, travel, "
-            "staffing, accessibility, and contingency constraints into one task."
-        ),
-        "applied_math_and_reasoning": (
-            "State all quantities, units, assumptions, objectives, and constraints needed "
-            "for the calculation or proof. Avoid ambiguous probability dependencies, "
-            "optimization rules, endpoint conventions, or mutually inconsistent constraints. "
-            "The requested conclusion must be derivable from the supplied information."
+            "Before emitting the task, verify that all mandatory constraints can be "
+            "satisfied together using only the facts supplied in the prompt. Do not ask for "
+            "an optimal or verified route, schedule, budget, accessibility result, opening "
+            "time, price, distance, or availability when the information needed to establish "
+            "it is missing. Avoid contradictory corrections inside the task and do not make "
+            "an unrelated resource control another activity unless that dependency is stated "
+            "clearly. Keep hard constraints distinct from preferences and assumptions."
         ),
     }.get(seed.family, "")
 
