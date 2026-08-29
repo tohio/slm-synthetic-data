@@ -384,6 +384,36 @@ def generate_tasks_from_derivation(
     backend: Any,
     max_fill_attempts: int,
 ) -> list[str]:
+    family_task_guidance = {
+        "programming": (
+            "Keep each task centered on one primary programming behavior or a tightly "
+            "related set of behaviors. Requirements must be mutually consistent and "
+            "implementable from the supplied signature, state, and context. Make retry, "
+            "timeout, cancellation, ordering, cleanup, and error semantics unambiguous "
+            "when they are relevant. Required tests must agree with those semantics."
+        ),
+        "creative_writing": (
+            "Use a small number of meaningful writing constraints. Do not stack many "
+            "independent exact-count, exact-length, forbidden-word, structural-placement, "
+            "and style constraints into the same task unless that combination is itself "
+            "the capability being tested. Exact constraints must be mutually compatible "
+            "and objectively checkable."
+        ),
+        "planning_brainstorming_recommendations": (
+            "Keep hard constraints mutually feasible and clearly distinguish them from "
+            "preferences. Do not require the assistant to prove travel time, accessibility, "
+            "opening hours, prices, availability, or other external facts unless the task "
+            "supplies the needed facts. Avoid stacking unrelated scheduling, budget, travel, "
+            "staffing, accessibility, and contingency constraints into one task."
+        ),
+        "applied_math_and_reasoning": (
+            "State all quantities, units, assumptions, objectives, and constraints needed "
+            "for the calculation or proof. Avoid ambiguous probability dependencies, "
+            "optimization rules, endpoint conventions, or mutually inconsistent constraints. "
+            "The requested conclusion must be derivable from the supplied information."
+        ),
+    }.get(seed.family, "")
+
     def request_tasks(request_count: int, prior: Sequence[str]) -> list[str]:
         prior_block = ""
         if prior:
@@ -417,6 +447,10 @@ Task requirements:
 - Vary the real problem, objective, constraints, edge cases, and situation.
 - Include all code, schemas, facts, labels, source text, or other material
   required to solve the task.
+- Make the task internally consistent: no requirement, example, test expectation,
+  function signature, or stated edge case may contradict another.
+- Prefer a clear, realistic task over a dense checklist of loosely related constraints.
+{family_task_guidance}
 - Do not answer the tasks.
 - Do not include numbering, labels, commentary, or extra fields outside the
   task strings themselves.
