@@ -389,12 +389,14 @@ def generate_tasks_from_derivation(
             "Keep each task centered on one primary programming behavior or a tightly "
             "related set of behaviors. Before emitting the task, check that every requirement "
             "can be satisfied at the same time and that examples and tests describe the same "
-            "behavior as the prose requirements. Do not include self-corrections or competing "
-            "semantics such as 'return None ... instead raise KeyError'. Required function "
-            "signatures and supplied state must be sufficient to implement the requested "
-            "behavior. When retry, timeout, cancellation, ordering, cleanup, persistence, "
-            "or concurrency semantics matter, define only the interactions needed for the "
-            "task and state them unambiguously."
+            "behavior as the prose requirements. Reject and regenerate any draft that revises "
+            "its own contract mid-task with wording such as 'actually', 'instead', 'alternatively', "
+            "or equivalent self-corrections. Required function signatures and supplied state "
+            "must be sufficient to implement the requested behavior. Every requested test or "
+            "verification must be derivable from the supplied inputs and interfaces. When retry, "
+            "timeout, cancellation, ordering, cleanup, persistence, or concurrency semantics "
+            "matter, include only the interactions inherently needed for the primary behavior; "
+            "do not bundle independent subsystems merely to increase difficulty."
         ),
         "creative_writing": (
             "Use a small number of meaningful writing constraints. Do not stack many "
@@ -405,12 +407,15 @@ def generate_tasks_from_derivation(
         ),
         "planning_brainstorming_recommendations": (
             "Before emitting the task, verify that all mandatory constraints can be "
-            "satisfied together using only the facts supplied in the prompt. Do not ask for "
-            "an optimal or verified route, schedule, budget, accessibility result, opening "
-            "time, price, distance, or availability when the information needed to establish "
-            "it is missing. Avoid contradictory corrections inside the task and do not make "
-            "an unrelated resource control another activity unless that dependency is stated "
-            "clearly. Keep hard constraints distinct from preferences and assumptions."
+            "satisfied together using only the facts supplied in the prompt, or explicitly "
+            "ask the assistant to identify infeasibility when that is the intended task. "
+            "Reject and regenerate any draft that revises its own requirements mid-task with "
+            "wording such as 'actually', 'instead', 'alternatively', or equivalent corrections. "
+            "Do not request an optimal, verified, or numerically constrained plan unless every "
+            "quantity needed to verify it is supplied, including capacities, counts, distances, "
+            "times, prices, availability, or accessibility facts when relevant. Do not make an "
+            "unrelated resource control another activity unless that dependency is stated clearly. "
+            "Keep hard constraints distinct from preferences and assumptions."
         ),
     }.get(seed.family, "")
 
