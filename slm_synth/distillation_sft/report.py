@@ -7,6 +7,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from slm_synth.distillation_sft.acceptance import (
+    build_prompt_uniqueness_summary,
+    build_response_cluster_review_summary,
+    prompt_uniqueness_blockers,
+)
 from slm_synth.distillation_sft.card import load_run_manifest
 from slm_synth.distillation_sft.response_diversity import build_response_diversity_summary
 from slm_synth.distillation_sft.schema import validate_public_row
@@ -50,9 +55,15 @@ def build_coverage_report(run_manifest_path: str | Path) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         metadata = {}
 
-    response_diversity = build_response_diversity_summary(
-        path for path in dataset_paths.values() if Path(path).is_file()
-    )
+    public_files = [Path(path) for path in dataset_paths.values() if Path(path).is_file()]
+    response_diversity = build_response_diversity_summary(public_files)
+    prompt_uniqueness = build_prompt_uniqueness_summary(public_files)
+    cluster_review = build_response_cluster_review_summary(public_files)
+    blockers = prompt_uniqueness_blockers(prompt_uniqueness)
+    if cluster_review["unresolved_cluster_count"]:
+        blockers.append("unresolved_repeated_response_clusters")
+    if total_rows == 0:
+        blockers.append("empty_dataset")
 
     return {
         "dataset_type": "distillation",
@@ -76,9 +87,31 @@ def build_coverage_report(run_manifest_path: str | Path) -> dict[str, Any]:
         "template_families": _count_metadata(rows, "template_family"),
         "difficulty_counts": _count_metadata(rows, "difficulty"),
         "response_diversity": response_diversity,
+        "prompt_uniqueness": prompt_uniqueness,
+        "response_cluster_review": cluster_review,
+        "acceptance": {
+            "accepted_rows": total_rows,
+            "publish_ready": not blockers,
+            "publish_blockers": blockers,
+        },
         "dataset_paths": {signal: dataset_paths[signal] for signal in sorted(dataset_paths)},
         "manifest_paths": {signal: manifest_paths[signal] for signal in sorted(manifest_paths)},
     }
+
+
+
+def require_publish_ready_report(
+    report: dict[str, Any],
+    *,
+    artifact_name: str = "Distillation SFT",
+) -> None:
+    acceptance = report.get("acceptance")
+    if not isinstance(acceptance, dict):
+        raise ValueError(f"{artifact_name} coverage report is missing acceptance reporting")
+    blockers = acceptance.get("publish_blockers")
+    if acceptance.get("publish_ready") is not True or not isinstance(blockers, list) or blockers:
+        detail = ", ".join(str(item) for item in blockers) if isinstance(blockers, list) else "unknown"
+        raise ValueError(f"{artifact_name} acceptance report is not publish-ready: {detail}")
 
 
 def write_coverage_report(*, report: dict[str, Any], path: str | Path) -> Path:

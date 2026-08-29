@@ -12,11 +12,6 @@ from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
 from slm_synth.hf_push import discover_run_manifest, require_publish_ready_manifest
-from slm_synth.distillation_dpo.acceptance import (
-    build_dataset_acceptance_report,
-    require_dataset_acceptance,
-)
-from slm_synth.distillation_dpo.io import read_jsonl
 from slm_synth.distillation_dpo.report import (
     build_coverage_report,
     require_publish_ready_report,
@@ -166,25 +161,13 @@ def push_distillation_dpo_run(
         run_manifest = discover_run_manifest(root, dataset_type="distillation-dpo")
         require_publish_ready_manifest(run_manifest, artifact_name="distillation DPO")
     files = discover_jsonl_files(dataset_root)
-    rows = [row for file_path in files for row in read_jsonl(file_path)]
-    expected_categories = None
-    expected_failure_modes = None
-    if run_manifest is not None:
-        manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
-        metadata = manifest_value.get("metadata", {}) if isinstance(manifest_value, dict) else {}
-        recorded_acceptance = metadata.get("dataset_acceptance", {}) if isinstance(metadata, dict) else {}
-        if not isinstance(recorded_acceptance, dict):
-            recorded_acceptance = {}
-        require_dataset_acceptance(recorded_acceptance, artifact_name="distillation DPO manifest")
-        expected_categories = recorded_acceptance.get("expected_categories")
-        expected_failure_modes = recorded_acceptance.get("expected_failure_modes")
-    actual_acceptance = build_dataset_acceptance_report(
-        rows,
-        expected_categories=expected_categories,
-        expected_failure_modes=expected_failure_modes,
-    )
-    require_dataset_acceptance(actual_acceptance, artifact_name="distillation DPO dataset")
     if root is not None:
+        manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
+        manifest_total_pairs = manifest_value.get("total_pairs")
+        if manifest_total_pairs is None:
+            manifest_total_pairs = manifest_value.get("total_rows")
+        if not isinstance(manifest_total_pairs, int) or manifest_total_pairs < 0:
+            raise ValueError("Distillation-DPO run manifest is missing valid total_pairs accounting")
         coverage_path = root / "coverage.json"
         if not coverage_path.is_file():
             raise FileNotFoundError(
@@ -197,6 +180,7 @@ def push_distillation_dpo_run(
             )
         require_publish_ready_report(coverage)
         live_report = build_coverage_report(files, require_holdout_check=False)
+        require_publish_ready_report(live_report, artifact_name="Distillation DPO dataset files")
         if (
             coverage.get("row_count") != live_report["row_count"]
             or coverage.get("categories") != live_report["categories"]
@@ -206,9 +190,20 @@ def push_distillation_dpo_run(
             != live_report["dataset_acceptance"]["unique_prompt_count"]
             or coverage.get("dataset_acceptance", {}).get("unique_triple_count")
             != live_report["dataset_acceptance"]["unique_triple_count"]
+            or coverage.get("dataset_acceptance", {}).get("accepted_pairs")
+            != live_report["dataset_acceptance"]["accepted_pairs"]
+            or coverage.get("dataset_acceptance", {}).get("uniqueness_satisfied")
+            != live_report["dataset_acceptance"]["uniqueness_satisfied"]
+            or coverage.get("dataset_acceptance", {}).get("coverage_satisfied")
+            != live_report["dataset_acceptance"]["coverage_satisfied"]
         ):
             raise ValueError(
                 "Distillation-DPO acceptance report is stale for the current dataset files; "
+                "rebuild distillation-dpo-report"
+            )
+        if coverage["row_count"] != manifest_total_pairs:
+            raise ValueError(
+                "Distillation-DPO acceptance report does not match run-manifest accounting; "
                 "rebuild distillation-dpo-report"
             )
     token = get_hf_token()

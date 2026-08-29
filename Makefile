@@ -474,12 +474,12 @@ distillation-dpo-report:
 >   --input $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/datasets \
 >   --holdout-registry $(DISTILLATION_DPO_HOLDOUT_REGISTRY) \
 >   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/coverage.json
-> $(PYTHON) -m slm_synth.manifest_totals normalize --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
 > $(PYTHON) -m slm_synth.distillation_dpo.cli build-dataset-card \
 >   --run-manifest $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/manifests/$(DISTILLATION_DPO_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_DPO_DATASET_NAME)"
 > $(PYTHON) -m slm_synth.cards build --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
+> $(PYTHON) -m slm_synth.manifest_totals normalize --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
 
 distillation-dpo-inspect:
 > @echo "== distillation DPO files =="
