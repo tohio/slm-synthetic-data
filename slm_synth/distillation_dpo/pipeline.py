@@ -798,6 +798,19 @@ Pair-generation role:
 - The intended preference should be about {dimension}, using the dimension guidance above.
 
 Requirements:
+- For code_correctness ONLY:
+  - First construct CHOSEN as an independently correct, complete solution to the
+    user's stated programming contract.
+  - Before constructing REJECTED, internally verify CHOSEN against every explicit
+    requirement, function or API contract, edge case, error path, concurrency or
+    crash behavior, and requested test or demonstration that appears in the task.
+  - Do not treat "better than REJECTED" as sufficient. CHOSEN itself must be
+    suitable as the preferred side of a high-quality code preference pair.
+  - If CHOSEN has a material correctness defect, fix or regenerate CHOSEN before
+    constructing REJECTED.
+  - After CHOSEN passes that check, construct REJECTED as a sincere,
+    complete-looking implementation containing one or a small number of plausible
+    material code-correctness defects.
 - Return exactly {request_count} pairs, one per task, in the same order.
 - Both responses must be standalone assistant responses to the same supplied user task.
 - Keep both responses realistic and user-facing.
@@ -826,6 +839,15 @@ Requirements:
   synthetic-data commentary, or explanations of why one response is better.
 - Do not rewrite the task.
 - The "pairs" array must contain exactly {request_count} objects.
+
+Before returning each pair, internally check:
+1. Does CHOSEN independently satisfy the user's material requirements?
+2. For code_correctness, is CHOSEN materially correct against the stated code
+   contract, edge cases, API behavior, and execution behavior?
+3. Is REJECTED still a plausible sincere answer rather than nonsense or a
+   different task?
+4. Is CHOSEN materially better specifically on {dimension}?
+If any answer is no, regenerate that pair before returning it.
 
 Return exactly:
 {{"pairs":[

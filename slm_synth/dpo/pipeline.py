@@ -608,6 +608,19 @@ Requirements:
 - Return exactly {request_count} pairs.
 - Return one pair per task in the same order.
 - CHOSEN must be a strong, natural response to the task.
+- For code_correctness ONLY:
+  - First construct CHOSEN as an independently correct, complete solution to the
+    user's stated programming contract.
+  - Before constructing REJECTED, internally verify CHOSEN against every explicit
+    requirement, function or API contract, edge case, error path, concurrency or
+    crash behavior, and requested test or demonstration that appears in the task.
+  - Do not treat "better than REJECTED" as sufficient. CHOSEN itself must be
+    suitable as the preferred side of a high-quality code preference pair.
+  - If CHOSEN has a material correctness defect, fix or regenerate CHOSEN before
+    constructing REJECTED.
+  - After CHOSEN passes that check, construct REJECTED as a sincere,
+    complete-looking implementation containing one or a small number of plausible
+    material code-correctness defects.
 - REJECTED must also look like a response a capable but imperfect assistant could
   realistically produce.
 - REJECTED must be locally plausible: most of it should be coherent and relevant,
@@ -634,9 +647,12 @@ Requirements:
 - The "pairs" array must contain exactly {request_count} objects.
 
 Before returning each pair, internally check:
-1. Could a real model plausibly emit REJECTED?
-2. Is CHOSEN materially better specifically on {dimension}?
-3. Would the preference still be meaningful if labels were hidden?
+1. Does CHOSEN independently satisfy the user's material requirements?
+2. For code_correctness, is CHOSEN materially correct against the stated code
+   contract, edge cases, API behavior, and execution behavior?
+3. Could a real model plausibly emit REJECTED?
+4. Is CHOSEN materially better specifically on {dimension}?
+5. Would the preference still be meaningful if labels were hidden?
 If any answer is no, regenerate that pair before returning it.
 
 Return exactly:
@@ -776,6 +792,13 @@ Accept only when:
 - the preference difference is material, not cosmetic;
 - the preference is not backwards;
 - neither response is mismatched to another task.
+
+For code_correctness specifically, CHOSEN must also be acceptable on its own.
+Verify its implementation against the user's explicit code contract, including
+material edge cases, API behavior, error handling, concurrency or crash behavior,
+and requested tests or demonstrations when present. Reject the pair if CHOSEN
+contains a material code defect even when REJECTED is worse. Relative superiority
+alone is not sufficient for code_correctness.
 
 Do not invent stricter requirements.
 Do not reject merely because another chosen answer might be even better.
