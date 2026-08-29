@@ -163,9 +163,13 @@ DERIVATION_SCOPE_GUIDANCE: dict[str, str] = {
     ),
     "code_correctness": (
         "Derivations must describe self-contained programming tasks with a concrete behavioral contract that can "
-        "support materially different correctness outcomes. Require the eventual task to contain all necessary "
-        "function signatures, input/output behavior, constraints, examples, or API assumptions. Avoid derivations "
-        "that depend on missing context or continuation from another task."
+        "support materially different correctness outcomes. Center each derivation on one primary correctness "
+        "behavior or one tightly related group of behaviors, with minimal incidental complexity. Require the "
+        "eventual task to contain the function signatures, input/output behavior, constraints, examples, or API "
+        "assumptions actually needed to solve and judge that behavior, but do not make the contract exhaustive by "
+        "adding independent requirements merely to increase difficulty. Avoid derivations that combine multiple "
+        "largely independent hard subsystems when a narrower task would exercise the same correctness distinction, "
+        "and avoid derivations that depend on missing context or continuation from another task."
     ),
 }
 
@@ -700,6 +704,16 @@ Task requirements:
   response. Do not generate tasks that require asking the user questions and
   waiting for later replies, collecting information over multiple turns, or
   taking a future action before the answer can be completed.
+- For code_correctness ONLY: keep the implementation contract bounded. Center the
+  task on one primary correctness behavior or one tightly related group of
+  behaviors. Include all context needed to solve and judge that behavior, but
+  do not expand self-containment into an exhaustive specification containing
+  independent subsystems or edge-case families that are not needed for the
+  target distinction. Prefer tasks where a capable assistant can reasonably
+  satisfy the complete contract in one response. If the supplied derivation is
+  broader, narrow the concrete task to the coherent subset needed to exercise
+  code_correctness. Self-contained means sufficient context, not maximum
+  specification density.
 - For tool_call_correctness ONLY: every task must define at least one concrete
   callable tool, function, or endpoint contract. Naming a database, API,
   service, application, or external system is not enough by itself. Include
