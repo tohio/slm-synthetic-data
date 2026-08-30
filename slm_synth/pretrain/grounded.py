@@ -374,46 +374,46 @@ class GroundedSignalGenerator:
                 **common,
                 "question": {"type": "string"},
                 "steps": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 5},
-                "answer": {"type": "string"},
-                "verification_expression": {"type": "string"},
+                "answer": {"type": ["string", "null"]},
+                "verification_expression": {"type": ["string", "null"]},
             }
-            required = ["artifact_id", "question", "steps"]
+            required = list(fields)
         elif self.signal == "task_code":
             fields = {
                 **common,
-                "task": {"type": "string"},
+                "task": {"type": ["string", "null"]},
                 "plan": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
-                "code": {"type": "string"},
+                "code": {"type": ["string", "null"]},
             }
-            required = ["artifact_id", "plan"]
+            required = list(fields)
         elif self.signal == "educational_qa_mcq_math":
             fields = {
                 **common,
-                "question": {"type": "string"},
-                "choices": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
-                "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
+                "question": {"type": ["string", "null"]},
+                "choices": {"type": ["array", "null"], "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
+                "correct_index": {"type": ["integer", "null"], "minimum": 0, "maximum": 3},
                 "explanation": {"type": "string"},
-                "verification_expression": {"type": "string"},
-                "verification_answer": {"type": "string"},
+                "verification_expression": {"type": ["string", "null"]},
+                "verification_answer": {"type": ["string", "null"]},
             }
-            required = ["artifact_id", "explanation"]
+            required = list(fields)
         elif self.signal == "educational_qa_mcq_general":
             fields = {
                 **common,
-                "evidence": {"type": "string"},
-                "question": {"type": "string"},
-                "choices": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
-                "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
+                "evidence": {"type": ["string", "null"]},
+                "question": {"type": ["string", "null"]},
+                "choices": {"type": ["array", "null"], "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
+                "correct_index": {"type": ["integer", "null"], "minimum": 0, "maximum": 3},
                 "explanation": {"type": "string"},
             }
-            required = ["artifact_id", "explanation"]
+            required = list(fields)
         else:
             fields = {
                 **common,
-                "question": {"type": "string"},
+                "question": {"type": ["string", "null"]},
                 "safe_answer": {"type": "string"},
             }
-            required = ["artifact_id", "safe_answer"]
+            required = list(fields)
 
         item = {
             "type": "object",
@@ -450,7 +450,9 @@ class GroundedSignalGenerator:
             "For mode=grounded, every grounded artifact is authoritative. For mode=derived, the seed payload is an "
             "archetype only: follow _derivation and create a materially distinct new case in the same family rather "
             "than copying, renaming, renumbering, or lightly paraphrasing the seed. Preserve artifact_id exactly and "
-            "return records in the same order. Return only the JSON object required by the schema.\n\n"
+            "return records in the same order. Every schema property must be present. For mode=grounded, return null for "
+            "derived-only schema fields rather than inventing replacements for authoritative local content. Return only the "
+            "JSON object required by the schema.\n\n"
         )
         instructions = {
             "arithmetic": (
