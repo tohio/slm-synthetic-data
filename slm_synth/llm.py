@@ -945,6 +945,10 @@ class LLMBackend:
                     last_failure_was_rendered_response = True
             finally:
                 self._release_provider_slot()
+            if last_failure_was_rendered_response:
+                # Let the stage retry/isolation layer recover malformed rendered
+                # responses instead of regenerating the same full batch here.
+                break
             assert retry_started is not None
             if not self._can_retry(
                 attempt,
