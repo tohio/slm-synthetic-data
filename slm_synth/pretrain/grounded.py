@@ -17,18 +17,17 @@ from slm_synth.pretrain.artifacts import (
     GroundedArtifact,
     TaskCodeArtifactFactory,
 )
-from slm_synth.pretrain.artifacts.scalable import ScalableArtifactFactory
 from slm_synth.pretrain.artifacts.quality import assert_valid_artifacts
 from slm_synth.pretrain.record_quality import validate_record
 from slm_synth.llm import RetryableProviderExhaustedError, StructuredRenderedResponseError
 
 
 FACTORY_MAP = {
-    "arithmetic": lambda: ScalableArtifactFactory(ArithmeticArtifactFactory()),
-    "task_code": lambda: ScalableArtifactFactory(TaskCodeArtifactFactory()),
-    "educational_qa_mcq_math": lambda: ScalableArtifactFactory(EducationalQAMCQMathArtifactFactory()),
-    "educational_qa_mcq_general": lambda: ScalableArtifactFactory(EducationalQAMCQGeneralArtifactFactory()),
-    "factual_restraint": lambda: ScalableArtifactFactory(FactualRestraintArtifactFactory()),
+    "arithmetic": ArithmeticArtifactFactory,
+    "task_code": TaskCodeArtifactFactory,
+    "educational_qa_mcq_math": EducationalQAMCQMathArtifactFactory,
+    "educational_qa_mcq_general": EducationalQAMCQGeneralArtifactFactory,
+    "factual_restraint": FactualRestraintArtifactFactory,
 }
 
 
@@ -374,45 +373,22 @@ class GroundedSignalGenerator:
                 **common,
                 "question": {"type": "string"},
                 "steps": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 5},
-                "answer": {"type": "string"},
-                "verification_expression": {"type": "string"},
             }
             required = ["artifact_id", "question", "steps"]
         elif self.signal == "task_code":
             fields = {
                 **common,
-                "task": {"type": "string"},
                 "plan": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
-                "code": {"type": "string"},
             }
             required = ["artifact_id", "plan"]
         elif self.signal == "educational_qa_mcq_math":
-            fields = {
-                **common,
-                "question": {"type": "string"},
-                "choices": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
-                "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
-                "explanation": {"type": "string"},
-                "verification_expression": {"type": "string"},
-                "verification_answer": {"type": "string"},
-            }
+            fields = {**common, "explanation": {"type": "string"}}
             required = ["artifact_id", "explanation"]
         elif self.signal == "educational_qa_mcq_general":
-            fields = {
-                **common,
-                "evidence": {"type": "string"},
-                "question": {"type": "string"},
-                "choices": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
-                "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
-                "explanation": {"type": "string"},
-            }
+            fields = {**common, "explanation": {"type": "string"}}
             required = ["artifact_id", "explanation"]
         else:
-            fields = {
-                **common,
-                "question": {"type": "string"},
-                "safe_answer": {"type": "string"},
-            }
+            fields = {**common, "safe_answer": {"type": "string"}}
             required = ["artifact_id", "safe_answer"]
 
         item = {
@@ -437,20 +413,13 @@ class GroundedSignalGenerator:
 
     def build_prompt(self, artifacts: list[GroundedArtifact]) -> str:
         rows = [
-            {
-                "artifact_id": item.artifact_id,
-                "family": item.family,
-                "mode": "derived" if "_derivation" in item.payload else "grounded",
-                "payload": item.payload,
-            }
+            {"artifact_id": item.artifact_id, "family": item.family, "payload": item.payload}
             for item in artifacts
         ]
         common = (
             "Generate one final synthetic PRETRAINING record component for each grounded artifact below. "
-            "For mode=grounded, every grounded artifact is authoritative. For mode=derived, the seed payload is an "
-            "archetype only: follow _derivation and create a materially distinct new case in the same family rather "
-            "than copying, renaming, renumbering, or lightly paraphrasing the seed. Preserve artifact_id exactly and "
-            "return records in the same order. Return only the JSON object required by the schema.\n\n"
+            "Every grounded artifact is authoritative. Preserve artifact_id exactly and return records in the same order. "
+            "Return only the JSON object required by the schema.\n\n"
         )
         instructions = {
             "arithmetic": (
@@ -459,34 +428,24 @@ class GroundedSignalGenerator:
                 "and do not reveal the held answer in the question. When required_text_literals are present, "
                 "preserve each phrase exactly and use the supplied domain, item, source, facts, and reasoning "
                 "family materially; do not reduce contextual artifacts to generic item-count templates. "
-                "The verified answer remains local. For mode=derived, instead create a new self-contained integer "
-                "problem matching the family and derivation profile; return question, steps, answer, and a Python-style "
-                "verification_expression whose integer value exactly equals answer. Use no numeric quantities in the "
-                "question beyond those required by that expression."
+                "The verified answer remains local."
             ),
             "task_code": (
                 "For each valid Python code artifact, generate only a faithful 2-to-4 step implementation plan. "
                 "The public task is authoritative and remains local. The plan must cover the supplied task and code, "
-                "must not mention the held function name, and must not add behavior absent from the artifact. For "
-                "mode=derived, create a materially different Python task and complete implementation in the same broad "
-                "algorithmic family, plus a faithful 2-to-4 step plan. The new task/code must not be a variable rename, "
-                "constant tweak, wrapper, or cosmetic rewrite of the seed."
+                "must not mention the held function name, and must not add behavior absent from the artifact."
             ),
             "educational_qa_mcq_math": (
                 "For each artifact, generate only a concise explanation of why the verified answer follows from "
                 "the authoritative local question and expression. State the numeric answer exactly, show the "
                 "relevant calculation, and do not discuss question generation or the supplied choices. "
-                "Question, choices, and verified answer remain local and must not be changed. For mode=derived, create "
-                "a new self-contained math MCQ in the same relationship family with four distinct choices, correct_index, "
-                "a concise explanation, and a Python-style verification_expression plus verification_answer that agree."
+                "Question, choices, and verified answer remain local and must not be changed."
             ),
             "educational_qa_mcq_general": (
                 "For each artifact, generate only a concise learner-facing explanation showing why the correct "
                 "choice follows from the supplied evidence. Evidence, question, choices, and answer remain local "
                 "and must not be changed. Do not mention an answer key, held answer, supplied answer, artifact, "
-                "prompt, or generation process. For mode=derived, create a materially different self-contained evidence "
-                "case in the same reasoning family, with evidence, question, four distinct choices, correct_index, and "
-                "a concise explanation. The answer must be directly supported by the new evidence."
+                "prompt, or generation process."
             ),
             "factual_restraint": (
                 "For each artifact, generate a concise natural user-facing assistant answer to the supplied question. "
@@ -503,69 +462,6 @@ class GroundedSignalGenerator:
 
     def _finalize(self, artifact: GroundedArtifact, row: dict[str, Any]) -> dict[str, Any]:
         payload = artifact.payload
-        derived = "_derivation" in payload
-
-        if derived:
-            if self.signal == "arithmetic":
-                question = str(row.get("question", "")).strip()
-                expression = str(row.get("verification_expression", "")).strip()
-                answer = str(row.get("answer", "")).strip()
-                record = {
-                    "type": "arithmetic",
-                    "question": question,
-                    "steps": row.get("steps"),
-                    "answer": answer,
-                    "verification_expression": expression,
-                    "verification_answer": answer,
-                }
-                result = validate_record("arithmetic", record, require_arithmetic_verification=True)
-                expression_numbers = self._numeric_literals(expression)
-                question_numbers = self._numeric_literals(question)
-                if Counter(question_numbers) != Counter(expression_numbers):
-                    raise ValueError(
-                        f"Derived arithmetic question/expression numeric facts differ for {artifact.artifact_id}"
-                    )
-            elif self.signal == "task_code":
-                task = str(row.get("task", "")).strip()
-                code = str(row.get("code", "")).strip()
-                if not task.lower().startswith("write a python function that") or "```" in task:
-                    raise ValueError(f"Derived task_code task is not a clean instruction for {artifact.artifact_id}")
-                record = {"type": "task_code", "task": task, "plan": row.get("plan"), "code": code}
-                result = validate_record("task_code", record)
-            elif self.signal == "educational_qa_mcq_math":
-                record = {
-                    "type": "educational_qa_mcq_math",
-                    "question": row.get("question"),
-                    "choices": row.get("choices"),
-                    "correct_index": row.get("correct_index"),
-                    "explanation": row.get("explanation"),
-                    "verification_expression": row.get("verification_expression"),
-                    "verification_answer": row.get("verification_answer"),
-                }
-                result = validate_record("educational_qa_mcq_math", record, require_mcq_verification=True)
-            elif self.signal == "educational_qa_mcq_general":
-                record = {
-                    "type": "educational_qa_mcq_general",
-                    "evidence": row.get("evidence"),
-                    "question": row.get("question"),
-                    "choices": row.get("choices"),
-                    "correct_index": row.get("correct_index"),
-                    "explanation": row.get("explanation"),
-                }
-                result = validate_record("educational_qa_mcq_general", record)
-            else:
-                record = {
-                    "type": "factual_restraint",
-                    "question": row.get("question"),
-                    "safe_answer": row.get("safe_answer"),
-                }
-                result = validate_record("factual_restraint", record)
-
-            if not result.ok:
-                raise ValueError(
-                    f"Rendered derived {self.signal} record failed validation for {artifact.artifact_id}: {result.issues}"
-                )
-            return result.record
 
         if self.signal == "arithmetic":
             question = str(row.get("question", "")).strip()
