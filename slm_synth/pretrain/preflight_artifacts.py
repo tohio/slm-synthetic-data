@@ -34,11 +34,12 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
                 continue
             token_target, requested_rows, planned_rows = _planned_grounded_target_rows(cfg, mix_cfg)
             capacity = mix_cfg.get("max_unique_candidates")
+            seed_capacity = mix_cfg.get("seed_unique_candidates", capacity)
             avg_tokens_per_sample = float(
                 mix_cfg.get("avg_tokens_per_sample", cfg.get("generation", {}).get("avg_tokens_per_sample", 100))
             )
             estimated_capacity_tokens = int(capacity) * avg_tokens_per_sample if capacity is not None else None
-            preflight_rows = int(capacity) if capacity is not None else planned_rows
+            preflight_rows = int(seed_capacity) if seed_capacity is not None else planned_rows
             factory = FACTORY_MAP[name]()
             families = Counter()
             exact_duplicates = 0
@@ -70,6 +71,7 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
                 "requested_rows": requested_rows,
                 "planned_rows": planned_rows,
                 "preflight_rows": preflight_rows,
+                "seed_unique_candidates": seed_capacity,
                 "max_unique_candidates": mix_cfg.get("max_unique_candidates"),
                 "estimated_capacity_tokens": estimated_capacity_tokens,
                 "capacity_covers_target": estimated_capacity_tokens is None or estimated_capacity_tokens >= token_target,

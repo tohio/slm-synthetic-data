@@ -98,6 +98,7 @@ They are not published as separate repositories.
 ## Conventions
 
 - Artifacts must be deterministic and locally inspectable before provider rendering.
+- Finite artifact catalogs are seed archetypes; production candidates beyond those seeds use deterministic derivation profiles and still pass the full validation/judge/reviewer/dedup path.
 - Accepted tokens are counted only after deterministic validation, judge, reviewer, and final dedup.
 - Backfill must pass through the complete quality path.
 - Optional temperature/top-p parameters are omitted by default for generator, judge, and reviewer portability; set generator sampling explicitly only when the chosen model/provider supports it.

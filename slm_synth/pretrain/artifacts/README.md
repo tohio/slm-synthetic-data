@@ -45,4 +45,7 @@ See [Pretraining Package](../README.md).
 - Artifacts should contain enough local information to validate the generated record.
 - Provider-facing prose belongs in `pretrain/grounded.py`, not in the artifact factory.
 - Do not add examples copied from evaluation prompts.
+- The finite catalogs are seed archetypes and preflight coverage, not the full production inventory.
+- Production indexes beyond the seed inventory use deterministic derivation profiles; derived rows must be materially distinct rather than renamed, renumbered, entity-swapped, or cosmetically paraphrased seeds.
+- Deterministic validation plus judge/reviewer acceptance remains mandatory for every derived row.
 - Favor large combinatorial capacity over repeated paraphrase templates.

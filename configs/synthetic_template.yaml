@@ -61,8 +61,8 @@ mix:
   arithmetic:
     architecture: "grounded"
     share: 0.14754098360655737
-    # Finite high-quality source capacity; do not pad arithmetic with operand-only variants.
-    max_unique_candidates: 288
+    seed_unique_candidates: 288
+    max_unique_candidates: 20000
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -70,8 +70,8 @@ mix:
   task_code:
     architecture: "grounded"
     share: 0.39344262295081966
-    # Finite catalog of genuinely different algorithms; do not pad with renamed variants.
-    max_unique_candidates: 200
+    seed_unique_candidates: 200
+    max_unique_candidates: 20000
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -79,8 +79,8 @@ mix:
   educational_qa_mcq_math:
     architecture: "grounded"
     share: 0.14754098360655737
-    # Eleven grounded contexts for each verified relationship provide replacement headroom.
-    max_unique_candidates: 264
+    seed_unique_candidates: 264
+    max_unique_candidates: 20000
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -88,8 +88,8 @@ mix:
   educational_qa_mcq_general:
     architecture: "grounded"
     share: 0.24590163934426230
-    # Nine evidence-document forms for each reasoning family; every candidate remains locally answerable.
-    max_unique_candidates: 216
+    seed_unique_candidates: 216
+    max_unique_candidates: 20000
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -97,8 +97,8 @@ mix:
   factual_restraint:
     architecture: "grounded"
     share: 0.06557377049180328
-    # Four materially different scenarios for each restraint behavior.
-    max_unique_candidates: 128
+    seed_unique_candidates: 128
+    max_unique_candidates: 20000
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
