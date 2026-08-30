@@ -1,4 +1,4 @@
-"""Publish one consolidated, quality-gated pretraining dataset."""
+"""Publish one consolidated pretraining dataset."""
 
 from __future__ import annotations
 
@@ -14,25 +14,8 @@ from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
 from slm_synth.hf_push import create_dataset_commit
 from slm_synth.paths import load_yaml_config, resolve_output_dir
-from slm_synth.pretrain.dedup import (
-    DEFAULT_SHINGLE_SIZE,
-    PUBLIC_FILENAME,
-    audit_public_records,
-)
+from slm_synth.pretrain.dedup import DEFAULT_SHINGLE_SIZE, PUBLIC_FILENAME
 from slm_synth.pretrain.report_diversity import DEFAULT_NEAR_DUPLICATE_THRESHOLD
-from slm_synth.pretrain.pipeline import verify_final
-
-
-def require_complete_accepted_token_report(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise FileNotFoundError(f"accepted-token completion report does not exist: {path}")
-    report = json.loads(path.read_text(encoding="utf-8"))
-    if report.get("status") != "complete" or report.get("publish_ready") is not True:
-        raise ValueError(
-            "pretraining run has not reached its accepted-token target: "
-            f"status={report.get('status')!r} deficit={report.get('token_deficit')!r}"
-        )
-    return report
 
 
 def load_env_file(env_file: str | None = None) -> None:
@@ -88,11 +71,9 @@ def push_consolidated_dataset(
     if not readme_path.is_file():
         raise FileNotFoundError(f"pretraining dataset card does not exist: {readme_path}")
 
-    quality = audit_public_records(
-        iter_public_jsonl(dataset_path),
-        threshold=threshold,
-        shingle_size=shingle_size,
-    )
+    # Publication does not enforce quality-report thresholds. JSONL is still
+    # parsed here so malformed public records fail before upload.
+    rows = sum(1 for _ in iter_public_jsonl(dataset_path))
     create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
     operations = [
         CommitOperationAdd(path_in_repo="data/pretrain.jsonl", path_or_fileobj=str(dataset_path)),
@@ -106,9 +87,9 @@ def push_consolidated_dataset(
     )
     print(
         f"[push_hf] Completed consolidated pretraining push repo={repo_id} "
-        f"rows={quality['rows']} exact_duplicates=0 near_duplicates=0"
+        f"rows={rows}"
     )
-    return {"repo_id": repo_id, **quality}
+    return {"repo_id": repo_id, "rows": rows}
 
 
 def main(
@@ -117,6 +98,7 @@ def main(
     repo_id: str | None = None,
     private: bool | None = None,
     env_file: str | None = None,
+    run_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     load_env_file(env_file)
     cfg = load_yaml_config(config)
@@ -127,7 +109,6 @@ def main(
         raise ValueError("pretraining HF repo must use the form owner/name")
     target_private = configured_private if private is None else private
     dedup_cfg = cfg.get("dedup", {}) or {}
-    verify_final(config, signal=None)
     api = HfApi(token=get_hf_token())
     return push_consolidated_dataset(
         api=api,

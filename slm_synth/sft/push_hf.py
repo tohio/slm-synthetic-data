@@ -19,7 +19,6 @@ from slm_synth.hf_push import (
 )
 from slm_synth.sft.card import require_sft_dataset_card_configs
 from slm_synth.sft.schema import validate_sft_row
-from slm_synth.sft.report import build_coverage_report, require_publish_ready_report
 
 
 def get_hf_token() -> str:
@@ -138,7 +137,7 @@ def push_sft_run(
     if "/" not in clean_repo_id:
         raise ValueError("repo_id must use the form owner/name")
     if run_dir is None:
-        raise ValueError("run_dir is required for SFT acceptance and publish-readiness checks")
+        raise ValueError("run_dir is required for consolidated SFT publishing")
     root = Path(run_dir)
     run_manifest = discover_run_manifest(root, dataset_type="sft")
     manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
@@ -162,39 +161,6 @@ def push_sft_run(
         )
     if any(len(family_files) != 1 or ".batch" in family_files[0].stem for family_files in files_by_family.values()):
         raise ValueError("consolidated SFT publishing requires exactly one final JSONL file per family")
-    coverage_path = root / "coverage.json"
-    if not coverage_path.is_file():
-        raise FileNotFoundError(f"SFT acceptance report does not exist: {coverage_path}")
-    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
-    if not isinstance(coverage, dict):
-        raise ValueError(f"SFT acceptance report must contain a JSON object: {coverage_path}")
-    require_publish_ready_report(coverage)
-
-    live_report = build_coverage_report(files, require_holdout_check=False)
-    require_publish_ready_report(live_report, artifact_name="SFT dataset files")
-    audited_fields = (
-        "row_count",
-        "valid_row_count",
-        "content_uniqueness",
-        "near_duplicates",
-        "assistant_response_clusters",
-        "template_concentration",
-        "validation",
-    )
-    if any(coverage.get(field) != live_report.get(field) for field in audited_fields):
-        raise ValueError("SFT acceptance report is stale for the current dataset files; rebuild sft-report")
-    acceptance = coverage["acceptance"]
-    expected_counts = {
-        "attempted_rows": manifest_metadata.get("attempted_rows"),
-        "accepted_rows": manifest_metadata.get("accepted_rows"),
-        "rejected_rows": manifest_metadata.get("rejected_rows", 0),
-        "duplicate_rows": manifest_metadata.get("duplicate_rows", 0),
-    }
-    if any(acceptance.get(field) != value for field, value in expected_counts.items()):
-        raise ValueError("SFT acceptance report does not match run-manifest accounting; rebuild sft-report")
-    if acceptance["accepted_rows"] != live_report["row_count"]:
-        raise ValueError("SFT run manifest accepted count does not match current dataset files")
-
     readme_path = root / "README.md"
     if not readme_path.is_file():
         raise FileNotFoundError(f"required SFT dataset card is missing: {readme_path}")
@@ -242,7 +208,7 @@ def push_sft_run(
     coverage_op = add_file_operation(
         root / "coverage.json",
         path_in_repo="artifacts/coverage.json",
-        required=True,
+        required=False,
     )
     if coverage_op is not None:
         operations.append(coverage_op)

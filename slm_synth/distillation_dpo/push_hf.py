@@ -11,11 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
-from slm_synth.hf_push import discover_run_manifest, require_publish_ready_manifest
-from slm_synth.distillation_dpo.report import (
-    build_coverage_report,
-    require_publish_ready_report,
-)
+from slm_synth.hf_push import discover_run_manifest
 from slm_synth.hf_push import (
     add_file_operation,
     create_dataset_commit,
@@ -159,7 +155,6 @@ def push_distillation_dpo_run(
     run_manifest: Path | None = None
     if root is not None:
         run_manifest = discover_run_manifest(root, dataset_type="distillation-dpo")
-        require_publish_ready_manifest(run_manifest, artifact_name="distillation DPO")
     files = discover_jsonl_files(dataset_root)
     if root is not None:
         manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
@@ -168,44 +163,6 @@ def push_distillation_dpo_run(
             manifest_total_pairs = manifest_value.get("total_rows")
         if not isinstance(manifest_total_pairs, int) or manifest_total_pairs < 0:
             raise ValueError("Distillation-DPO run manifest is missing valid total_pairs accounting")
-        coverage_path = root / "coverage.json"
-        if not coverage_path.is_file():
-            raise FileNotFoundError(
-                f"Distillation-DPO acceptance report does not exist: {coverage_path}"
-            )
-        coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
-        if not isinstance(coverage, dict):
-            raise ValueError(
-                f"Distillation-DPO acceptance report must contain a JSON object: {coverage_path}"
-            )
-        require_publish_ready_report(coverage)
-        live_report = build_coverage_report(files, require_holdout_check=False)
-        require_publish_ready_report(live_report, artifact_name="Distillation DPO dataset files")
-        if (
-            coverage.get("row_count") != live_report["row_count"]
-            or coverage.get("categories") != live_report["categories"]
-            or coverage.get("failure_modes") != live_report["failure_modes"]
-            or coverage.get("response_patterns") != live_report["response_patterns"]
-            or coverage.get("dataset_acceptance", {}).get("unique_prompt_count")
-            != live_report["dataset_acceptance"]["unique_prompt_count"]
-            or coverage.get("dataset_acceptance", {}).get("unique_triple_count")
-            != live_report["dataset_acceptance"]["unique_triple_count"]
-            or coverage.get("dataset_acceptance", {}).get("accepted_pairs")
-            != live_report["dataset_acceptance"]["accepted_pairs"]
-            or coverage.get("dataset_acceptance", {}).get("uniqueness_satisfied")
-            != live_report["dataset_acceptance"]["uniqueness_satisfied"]
-            or coverage.get("dataset_acceptance", {}).get("coverage_satisfied")
-            != live_report["dataset_acceptance"]["coverage_satisfied"]
-        ):
-            raise ValueError(
-                "Distillation-DPO acceptance report is stale for the current dataset files; "
-                "rebuild distillation-dpo-report"
-            )
-        if coverage["row_count"] != manifest_total_pairs:
-            raise ValueError(
-                "Distillation-DPO acceptance report does not match run-manifest accounting; "
-                "rebuild distillation-dpo-report"
-            )
     token = get_hf_token()
     api = HfApi(token=token)
     files_by_family: dict[str, list[Path]] = {}

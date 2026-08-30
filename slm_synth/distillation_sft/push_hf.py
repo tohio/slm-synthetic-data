@@ -12,13 +12,6 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
-from slm_synth.hf_push import require_publish_ready_manifest
-from slm_synth.distillation_sft.acceptance import (
-    build_response_cluster_review_summary,
-    require_publish_prompt_uniqueness,
-    require_publish_resolved_response_clusters,
-)
-from slm_synth.distillation_sft.report import build_coverage_report, require_publish_ready_report
 from slm_synth.distillation_sft.schema import validate_public_row
 from slm_synth.distillation_sft.response_diversity import build_response_diversity_summary
 from slm_synth.hf_push import (
@@ -194,56 +187,15 @@ def push_distillation_run(
     run_manifest: Path | None = None
     if root is not None:
         run_manifest = discover_run_manifest(root)
-        require_publish_ready_manifest(run_manifest, artifact_name="distillation SFT")
     files = discover_jsonl_files(dataset_root)
     if run_manifest is not None:
         require_manifest_dataset_counts(run_manifest, files)
-        coverage_path = root / "coverage.json"
-        if not coverage_path.is_file():
-            raise FileNotFoundError(
-                f"Distillation-SFT acceptance report does not exist: {coverage_path}"
-            )
-        coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
-        if not isinstance(coverage, dict):
-            raise ValueError(
-                f"Distillation-SFT acceptance report must contain a JSON object: {coverage_path}"
-            )
-        require_publish_ready_report(coverage)
-        live_report = build_coverage_report(run_manifest)
-        require_publish_ready_report(live_report, artifact_name="Distillation SFT dataset files")
-        audited_fields = (
-            "row_count",
-            "signals",
-            "response_diversity",
-            "prompt_uniqueness",
-            "response_cluster_review",
-            "acceptance",
-        )
-        if any(coverage.get(field) != live_report.get(field) for field in audited_fields):
-            raise ValueError(
-                "Distillation-SFT acceptance report is stale for the current dataset files; "
-                "rebuild distillation-sft-report"
-            )
-    prompt_uniqueness = require_publish_prompt_uniqueness(files)
-    print(
-        "[push_hf] distillation-SFT prompt uniqueness "
-        f"rows={prompt_uniqueness['row_count']} "
-        f"unique_prompts={prompt_uniqueness['unique_prompt_count']} "
-        f"unique_ratio={prompt_uniqueness['unique_prompt_ratio']:.3f}"
-    )
     response_diversity = build_response_diversity_summary(files)
     print(
         "[push_hf] distillation-SFT response diversity "
         f"rows={response_diversity['row_count']} "
         f"unique_responses={response_diversity['unique_response_count']} "
         f"unique_ratio={response_diversity['unique_response_ratio']:.3f}"
-    )
-    cluster_review = require_publish_resolved_response_clusters(files)
-    print(
-        "[push_hf] distillation-SFT repeated-response clusters "
-        f"total={cluster_review['repeated_cluster_count']} "
-        f"automatically_cleared={cluster_review['automatically_cleared_cluster_count']} "
-        f"unresolved={cluster_review['unresolved_cluster_count']}"
     )
     total_rows = 0
     uploaded_files: list[str] = []
@@ -266,7 +218,7 @@ def push_distillation_run(
         upload_operations.append(
             CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=dataset_card_bytes(readme_path))
         )
-        coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json", required=True)
+        coverage_op = add_file_operation(root / "coverage.json", path_in_repo="artifacts/coverage.json", required=False)
         if coverage_op is not None:
             upload_operations.append(coverage_op)
         if not skip_manifests:

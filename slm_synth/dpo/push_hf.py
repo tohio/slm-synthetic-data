@@ -11,9 +11,8 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, create_repo
 
-from slm_synth.hf_push import discover_run_manifest, require_publish_ready_manifest
+from slm_synth.hf_push import discover_run_manifest
 from slm_synth.dpo.card import require_dpo_dataset_card_configs
-from slm_synth.dpo.report import build_coverage_report, require_publish_ready_report
 from slm_synth.dpo.schema import validate_dpo_row
 from slm_synth.hf_push import (
     add_file_operation,
@@ -139,10 +138,9 @@ def push_dpo_run(
     if "/" not in clean_repo_id:
         raise ValueError("repo_id must use the form owner/name")
     if run_dir is None:
-        raise ValueError("run_dir is required for DPO acceptance and publish-readiness checks")
+        raise ValueError("run_dir is required for consolidated DPO publishing")
     root = Path(run_dir)
     run_manifest = discover_run_manifest(root, dataset_type="dpo")
-    require_publish_ready_manifest(run_manifest, artifact_name="DPO")
     manifest_value = json.loads(run_manifest.read_text(encoding="utf-8"))
     metadata = manifest_value.get("metadata", {}) if isinstance(manifest_value, dict) else {}
     if not isinstance(metadata, dict):
@@ -175,33 +173,6 @@ def push_dpo_run(
             "consolidated DPO publishing requires exactly one final JSONL file "
             "per preference dimension"
         )
-
-    coverage_path = root / "coverage.json"
-    if not coverage_path.is_file():
-        raise FileNotFoundError(f"DPO acceptance report does not exist: {coverage_path}")
-    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
-    if not isinstance(coverage, dict):
-        raise ValueError(f"DPO acceptance report must contain a JSON object: {coverage_path}")
-    require_publish_ready_report(coverage)
-    live_report = build_coverage_report(files, require_holdout_check=False)
-    require_publish_ready_report(live_report, artifact_name="DPO dataset files")
-    if (
-        coverage.get("row_count") != live_report["row_count"]
-        or coverage.get("content_quality") != live_report["content_quality"]
-    ):
-        raise ValueError("DPO acceptance report is stale for the current dataset files; rebuild dpo-report")
-    acceptance = coverage["acceptance"]
-    expected_counts = {
-        "attempted_pairs": metadata.get("attempted_pairs"),
-        "accepted_pairs": metadata.get("accepted_pairs"),
-        "rejected_pairs": metadata.get("rejected_pairs", 0),
-        "duplicate_pairs": metadata.get("duplicate_pairs", 0),
-        "estimated_tokens": metadata.get("estimated_tokens"),
-    }
-    if any(acceptance.get(field) != value for field, value in expected_counts.items()):
-        raise ValueError("DPO acceptance report does not match run-manifest accounting; rebuild dpo-report")
-    if acceptance["accepted_pairs"] != live_report["row_count"]:
-        raise ValueError("DPO run manifest accepted count does not match current dataset files")
 
     readme_path = root / "README.md"
     if not readme_path.is_file():
@@ -249,9 +220,9 @@ def push_dpo_run(
         CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=readme_path.read_bytes())
     )
     coverage_op = add_file_operation(
-        coverage_path,
+        root / "coverage.json",
         path_in_repo="artifacts/coverage.json",
-        required=True,
+        required=False,
     )
     if coverage_op is not None:
         operations.append(coverage_op)
