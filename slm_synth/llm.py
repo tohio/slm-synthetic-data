@@ -878,6 +878,162 @@ class LLMBackend:
                 merged[key] = value
         return merged
 
+    @staticmethod
+    def _lossless_json_string_transport(candidate: str) -> str:
+        """Normalize only JSON-string transport errors without changing decoded text."""
+        out: list[str] = []
+        in_string = False
+        i = 0
+        hexdigits = frozenset("0123456789abcdefABCDEF")
+        control_escapes = {
+            "\b": "\\b",
+            "\f": "\\f",
+            "\n": "\\n",
+            "\r": "\\r",
+            "\t": "\\t",
+        }
+
+        while i < len(candidate):
+            ch = candidate[i]
+
+            if not in_string:
+                out.append(ch)
+                if ch == '"':
+                    in_string = True
+                i += 1
+                continue
+
+            if ch == "\\":
+                if i + 1 >= len(candidate):
+                    out.append(ch)
+                    i += 1
+                    continue
+
+                nxt = candidate[i + 1]
+                if nxt in '"\\/bfnrt':
+                    out.extend((ch, nxt))
+                    i += 2
+                    continue
+
+                if (
+                    nxt == "u"
+                    and i + 5 < len(candidate)
+                    and all(value in hexdigits for value in candidate[i + 2 : i + 6])
+                ):
+                    out.append(candidate[i : i + 6])
+                    i += 6
+                    continue
+
+                # Preserve the literal backslash by escaping the transport
+                # backslash itself. For example, rendered ``\m`` becomes
+                # legal JSON ``\\m`` and decodes back to literal ``\m``.
+                out.extend(("\\", "\\", nxt))
+                i += 2
+                continue
+
+            if ch == '"':
+                out.append(ch)
+                in_string = False
+                i += 1
+                continue
+
+            if ord(ch) < 0x20:
+                out.append(control_escapes.get(ch, f"\\u{ord(ch):04x}"))
+                i += 1
+                continue
+
+            out.append(ch)
+            i += 1
+
+        return "".join(out)
+
+    @classmethod
+    def _parse_structured_candidate(cls, candidate: str) -> tuple[dict[str, Any], bool]:
+        """Parse JSON, retrying once after lossless string-transport normalization."""
+        try:
+            parsed = json.loads(candidate)
+            repaired = False
+        except json.JSONDecodeError as original:
+            normalized = cls._lossless_json_string_transport(candidate)
+            if normalized == candidate:
+                raise
+            try:
+                parsed = json.loads(normalized)
+            except json.JSONDecodeError:
+                raise original
+            repaired = True
+
+        if not isinstance(parsed, dict):
+            raise ValueError("Expected a structured JSON object response")
+        return parsed, repaired
+
+    @staticmethod
+    def _single_string_array_field(schema: dict[str, Any]) -> str | None:
+        """Return the field name for an exact one-item array-of-string envelope."""
+        if schema.get("type") != "object":
+            return None
+        properties = schema.get("properties")
+        if not isinstance(properties, dict) or len(properties) != 1:
+            return None
+        field, value_schema = next(iter(properties.items()))
+        if not isinstance(value_schema, dict) or value_schema.get("type") != "array":
+            return None
+        if value_schema.get("minItems") != 1 or value_schema.get("maxItems") != 1:
+            return None
+        item_schema = value_schema.get("items")
+        if not isinstance(item_schema, dict) or item_schema.get("type") != "string":
+            return None
+        required = schema.get("required")
+        if isinstance(required, list) and set(required) != {field}:
+            return None
+        return str(field)
+
+    def _recover_single_string_array(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
+        structured_telemetry: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Remove the JSON envelope for an isolated semantic string payload."""
+        field = self._single_string_array_field(schema)
+        if field is None:
+            return None
+
+        recovery_prompt = (
+            prompt
+            + "\n\nTRANSPORT RECOVERY OVERRIDE:\n"
+            + f"Return only the raw semantic content for the single {field} item. "
+            + "Do not wrap it in transport JSON, quotes, an array, a role, metadata, "
+            + "or commentary. If the requested semantic content itself is JSON, code, "
+            + "Markdown, SQL, regex, LaTeX, or another specific format, return that "
+            + "content exactly; only the transport wrapper is removed."
+        )
+        result = self.generate_text_with_metadata(
+            prompt=recovery_prompt,
+            system_prompt=(
+                "Return only the requested semantic content. Do not add a transport "
+                "JSON wrapper, item list, role, metadata, or commentary."
+            ),
+        )
+        if not isinstance(result, dict):
+            return None
+        text = result.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return None
+
+        plain_telemetry = result.get("telemetry")
+        plain_telemetry = dict(plain_telemetry) if isinstance(plain_telemetry, dict) else {}
+        telemetry = dict(structured_telemetry)
+        telemetry["usage"] = self._merge_usage(
+            dict(structured_telemetry.get("usage") or {}),
+            dict(plain_telemetry.get("usage") or {}),
+        )
+        telemetry["structured_plain_fallback"] = True
+        telemetry["structured_plain_fallback_field"] = field
+        telemetry["structured_plain_fallback_provider"] = plain_telemetry.get("provider")
+        return {"data": {field: [text.strip()]}, "telemetry": telemetry}
+
     def generate_structured_object_with_metadata(
         self,
         *,
@@ -921,9 +1077,8 @@ class LLMBackend:
                     adaptive_window_increases += 1
                 try:
                     raw = (response.choices[0].message.content or "").strip()
-                    parsed = json.loads(self._extract_json_candidate(raw))
-                    if not isinstance(parsed, dict):
-                        raise ValueError("Expected a structured JSON object response")
+                    candidate = self._extract_json_candidate(raw)
+                    parsed, transport_repaired = self._parse_structured_candidate(candidate)
                     telemetry = {
                         "model": getattr(response, "model", self.model),
                         "provider": (getattr(response, "model_extra", None) or {}).get("provider"),
@@ -931,6 +1086,7 @@ class LLMBackend:
                         "retry_count": attempt - 1,
                         "retryable_provider_retries": retryable_provider_retries,
                         "retry_sleep_seconds": round(retry_sleep_seconds, 3),
+                        "structured_transport_repair": transport_repaired,
                         **self._routing_metadata(),
                         "adaptive_window_increases": adaptive_window_increases,
                         "adaptive_window_decreases": adaptive_window_decreases,
@@ -991,6 +1147,13 @@ class LLMBackend:
                 telemetry=telemetry,
             ) from last_error
         if last_failure_was_rendered_response:
+            recovered = self._recover_single_string_array(
+                prompt=prompt,
+                schema=schema,
+                structured_telemetry=telemetry,
+            )
+            if recovered is not None:
+                return recovered
             raise StructuredRenderedResponseError(
                 f"Structured rendered response unusable after {attempt} attempts: {last_error}",
                 telemetry=telemetry,

@@ -552,25 +552,29 @@ def generate_answers(
         selected_tasks: Sequence[str],
         prior_answers: Sequence[str],
     ) -> list[str]:
-        _ = prior_answers
-        answers: list[str] = []
+        body = "\n\n".join(
+            f"--- TASK {index} ---\n{task}"
+            for index, task in enumerate(selected_tasks, start=1)
+        )
+        request_count = len(selected_tasks)
 
-        for task in selected_tasks:
-            prompt = f"""
+        prompt = f"""
+EXACT OUTPUT COUNT: {request_count}
+
 You are the teacher-response generator for response-distillation SFT.
 Distillation family: {family}
 
-Answer the task below as a strong assistant would answer the user directly.
+Answer every task below as a strong assistant would answer the user directly.
 
---- TASK ---
-{task}
+{body}
 
 Teacher-response requirements:
+- Return exactly {request_count} answers, one per task in the same order.
 - Answer the actual user request directly and completely.
 - Be factually and logically correct.
 - Follow every explicit instruction, requested format, scope limitation, and
   constraint in the task.
-- Before returning the response, verify internally that every explicit deliverable,
+- Before returning each response, verify internally that every explicit deliverable,
   transformation step, count, length, format, exclusion, ordering rule, and output
   contract has actually been satisfied.
 - Recompute deterministic calculations or transformations when needed and correct
@@ -588,31 +592,30 @@ Teacher-response requirements:
   calculations when needed for the answer.
 - Do not use canned introductions or conclusions merely to make answers look
   different.
+- Write each answer independently for its corresponding task. Never split one
+  task's answer across neighboring array items and never reuse one generic
+  response for unrelated tasks.
 - Do not rewrite the task.
 - Do not emit IDs, roles, metadata, teacher/student language, or synthetic-data
   commentary.
-- Return only the answer content for this task. Do not add a transport wrapper,
-  item list, role, or metadata around it. If the task itself requires JSON or
-  another specific output format, follow the task.
+
+The "answers" array must contain exactly {request_count} non-empty strings.
 """.strip()
 
-            result = backend.generate_text_with_metadata(
-                prompt=prompt,
-                system_prompt=(
-                    "Answer the single supplied task directly. Return only the answer "
-                    "content, with no transport wrapper, item list, role, metadata, or "
-                    "synthetic-data commentary. If the task itself requires JSON or "
-                    "another specific output format, follow the task."
+        parsed, _ = call_structured_object(
+            backend,
+            prompt=prompt,
+            schema=exact_string_list_schema(
+                field="answers",
+                count=request_count,
+                description=(
+                    f"Exactly {request_count} high-quality teacher responses, "
+                    "in the same order as the supplied tasks."
                 ),
-            )
-            if not isinstance(result, Mapping):
-                raise ValueError("teacher plain-text response must be a mapping")
-            answer = result.get("text")
-            if not isinstance(answer, str) or not answer.strip():
-                raise ValueError("teacher plain-text response must be a non-empty string")
-            answers.append(answer.strip())
-
-        return answers
+            ),
+            schema_name="distillation_sft_teacher_responses",
+        )
+        return extract_string_list(parsed, "answers")
 
     initial = request_answers(tasks, ())
 

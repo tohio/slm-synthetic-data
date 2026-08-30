@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Any
 
+from slm_synth.llm import StructuredRenderedResponseError
+
 
 class Progress:
     """Progress reporting shape proven by the finalized one-off pipelines."""
@@ -151,6 +153,36 @@ def run_model_stage_with_isolation(
                         f"items={count} error={exc}"
                     )
 
+                    split = split_batch(batch)
+
+                    # A rendered structured response already consumed a successful
+                    # provider call. Repeating the same multi-item payload tends to
+                    # reproduce the same serialization/truncation failure, so isolate
+                    # it immediately. Provider/transport failures keep normal retries.
+                    if isinstance(exc, StructuredRenderedResponseError) and split is not None:
+                        left, right = split
+                        left_count = item_count(left)
+                        right_count = item_count(right)
+
+                        if left_count < 1 or right_count < 1:
+                            raise RuntimeError(
+                                f"{stage} split produced an empty child batch"
+                            )
+                        if left_count + right_count != count:
+                            raise RuntimeError(
+                                f"{stage} split changed item cardinality: "
+                                f"{count} -> {left_count}+{right_count}"
+                            )
+
+                        progress.split(
+                            original_items=count,
+                            left_items=left_count,
+                            right_items=right_count,
+                        )
+                        next_pending.append((1, left))
+                        next_pending.append((1, right))
+                        continue
+
                     if attempt < max_attempts:
                         print(
                             f"[{stage}] retry batch_items={count} "
@@ -160,7 +192,6 @@ def run_model_stage_with_isolation(
                         next_pending.append((attempt + 1, batch))
                         continue
 
-                    split = split_batch(batch)
                     if split is not None:
                         left, right = split
                         left_count = item_count(left)
