@@ -33,6 +33,7 @@ def _run_curate(
         "slm_synth.pretrain.curate",
         "--config",
         str(config_path),
+        "--allow-shortfall",
     ]
     if signal:
         command.extend(["--signal", signal])
@@ -209,6 +210,7 @@ def _update_accepted_token_report(
     generation_target_tokens: int,
     rounds: int,
     complete: bool,
+    stop_reason: str | None = None,
 ) -> Path:
     path = output_dir / "manifests" / "accepted_token_report.json"
     report: dict[str, Any] = {}
@@ -220,14 +222,17 @@ def _update_accepted_token_report(
     accepted_tokens = int(finalization["accepted_tokens"])
     report.update(
         {
-            "status": "complete" if complete else "underfilled",
+            "status": "complete" if complete else "shortfall",
             "target_tokens": int(target_tokens),
             "accepted_tokens": accepted_tokens,
             "deficit": max(0, int(target_tokens) - accepted_tokens),
             "stop_reason": (
-                "accepted_token_target_reached"
-                if complete
-                else "semantic_quality_backfill_exhausted"
+                stop_reason
+                or (
+                    "accepted_token_target_reached"
+                    if complete
+                    else "semantic_quality_backfill_exhausted"
+                )
             ),
             "semantic_quality": {
                 "stage_order": [
@@ -290,10 +295,14 @@ def verify_final(config_path: str, signal: str | None = None) -> dict[str, Any]:
         )
 
     accepted_tokens = int(report.get("accepted_tokens", 0) or 0)
-    if accepted_tokens < target_tokens:
+    stop_reason = str(report.get("stop_reason") or "")
+    terminal_shortfall = stop_reason == "unique_candidate_inventory_exhausted"
+    if accepted_tokens < target_tokens and not terminal_shortfall:
         raise RuntimeError(
-            "Final post-review pretraining dataset is under target: "
-            f"accepted_tokens={accepted_tokens} target_tokens={target_tokens}"
+            "Final post-review pretraining dataset is under target without a terminal "
+            "finite-inventory reason: "
+            f"accepted_tokens={accepted_tokens} target_tokens={target_tokens} "
+            f"stop_reason={stop_reason!r}"
         )
 
     if signal is not None and signal not in semantic.get("signals", {}):
@@ -359,21 +368,29 @@ def run(args: argparse.Namespace) -> int:
             signal=args.signal,
         )
 
-        if round_number == 0:
-            curate_report_path = (
-                output_dir / "manifests" / "accepted_token_report.json"
+        curate_report_path = (
+            output_dir / "manifests" / "accepted_token_report.json"
+        )
+        curate_report: dict[str, Any] = {}
+        if curate_report_path.exists():
+            loaded_curate_report = json.loads(
+                curate_report_path.read_text(encoding="utf-8")
             )
-            if curate_report_path.exists():
-                curate_report = json.loads(
-                    curate_report_path.read_text(encoding="utf-8")
-                )
-                planned_target = curate_report.get("target_tokens")
-                if (
-                    isinstance(planned_target, int)
-                    and not isinstance(planned_target, bool)
-                    and planned_target > 0
-                ):
-                    target_tokens = planned_target
+            if isinstance(loaded_curate_report, dict):
+                curate_report = loaded_curate_report
+
+        if round_number == 0:
+            planned_target = curate_report.get("target_tokens")
+            if (
+                isinstance(planned_target, int)
+                and not isinstance(planned_target, bool)
+                and planned_target > 0
+            ):
+                target_tokens = planned_target
+
+        inventory_exhausted = (
+            curate_report.get("stop_reason") == "unique_candidate_inventory_exhausted"
+        )
 
         run_quality(
             config_path=str(round_config),
@@ -395,6 +412,11 @@ def run(args: argparse.Namespace) -> int:
             generation_target_tokens=generation_target_tokens,
             rounds=round_number,
             complete=complete,
+            stop_reason=(
+                "unique_candidate_inventory_exhausted"
+                if inventory_exhausted and not complete
+                else None
+            ),
         )
 
         print(
@@ -409,6 +431,15 @@ def run(args: argparse.Namespace) -> int:
             print(
                 f"[pretrain-pipeline] complete report={report_path} "
                 f"dataset={finalization['output']}",
+                flush=True,
+            )
+            return 0
+
+        if inventory_exhausted:
+            print(
+                "[pretrain-pipeline] finite candidate inventory exhausted; "
+                f"keeping post-review dataset accepted_tokens={accepted_tokens}/{target_tokens} "
+                f"report={report_path} dataset={finalization['output']}",
                 flush=True,
             )
             return 0

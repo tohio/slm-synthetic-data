@@ -109,9 +109,14 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
         )
     if any(row["exact_duplicates"] or row["quality_issue_count"] for row in reports):
         raise SystemExit("Preflight failed: artifact duplicates or quality issues were found.")
-    if any(not row["capacity_covers_target"] for row in reports):
-        raise SystemExit(
-            "Preflight failed: configured unique candidate inventory cannot cover the accepted-token target."
+    capacity_shortfalls = [
+        row["signal"] for row in reports if not row["capacity_covers_target"]
+    ]
+    if capacity_shortfalls:
+        print(
+            "[preflight-artifacts] candidate inventory cannot cover the token aspiration "
+            f"for signals={capacity_shortfalls}; generation will exhaust the finite "
+            "inventory and keep the surviving accepted dataset."
         )
     return result
 
