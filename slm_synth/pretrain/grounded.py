@@ -99,6 +99,13 @@ class GroundedBatchStore:
             ranges.append((batch_id, int(payload.get("planned_rows", 0) or 0)))
         return sorted((start, size) for start, size in ranges if size > 0)
 
+    def next_candidate_index(self) -> int:
+        """Return the first never-attempted deterministic candidate index."""
+        ranges = self.terminal_ranges()
+        if not ranges:
+            return 0
+        return max(start + size for start, size in ranges)
+
     def write_completed(
         self,
         *,

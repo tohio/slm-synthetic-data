@@ -519,11 +519,17 @@ def run(args: argparse.Namespace) -> int:
         )
         accepted_tokens = int(finalization["accepted_tokens"])
         final_signal_values = finalization.get("signals", {})
-        complete = all(
-            int(final_signal_values.get(signal, {}).get("estimated_tokens", 0) or 0)
-            >= signal_targets[signal]
+        signal_deficits = {
+            signal: max(
+                0,
+                signal_targets[signal]
+                - int(final_signal_values.get(signal, {}).get("estimated_tokens", 0) or 0),
+            )
             for signal in signals
-        )
+        }
+        allocation_deficit = sum(signal_deficits.values())
+        global_token_deficit = max(0, target_tokens - accepted_tokens)
+        complete = allocation_deficit == 0
 
         report_path = _update_accepted_token_report(
             output_dir=output_dir,
@@ -543,6 +549,9 @@ def run(args: argparse.Namespace) -> int:
             f"[pretrain-pipeline] round={round_number} "
             f"final_records={finalization['records']} "
             f"accepted_tokens={accepted_tokens}/{target_tokens} "
+            f"global_token_deficit={global_token_deficit} "
+            f"allocation_deficit={allocation_deficit} "
+            f"signal_deficits={signal_deficits} "
             f"exact_dropped={finalization['exact_dropped']}",
             flush=True,
         )
@@ -566,14 +575,7 @@ def run(args: argparse.Namespace) -> int:
         if round_number >= args.max_backfill_rounds:
             break
 
-        deficit = sum(
-            max(
-                0,
-                signal_targets[signal]
-                - int(final_signal_values.get(signal, {}).get("estimated_tokens", 0) or 0),
-            )
-            for signal in signals
-        )
+        deficit = allocation_deficit
         survival = min(
             1.0,
             max(
@@ -593,9 +595,20 @@ def run(args: argparse.Namespace) -> int:
             flush=True,
         )
 
+    report_path = output_dir / "manifests" / "accepted_token_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+    signal_reports = report.get("signals", {}) if isinstance(report, Mapping) else {}
+    remaining = {
+        signal: int(signal_reports.get(signal, {}).get("token_deficit", -1))
+        for signal in signals
+        if isinstance(signal_reports, Mapping)
+    }
     raise RuntimeError(
-        "Pretraining semantic-quality backfill exhausted before reaching the "
-        f"accepted-token target after {completed_round} backfill round(s). "
+        "Pretraining semantic-quality backfill exhausted before every per-signal "
+        f"accepted-token allocation was reached after {completed_round} backfill round(s). "
+        f"global_accepted_tokens={report.get('accepted_tokens')} "
+        f"global_target_tokens={report.get('target_tokens')} "
+        f"signal_deficits={remaining}. "
         "Accepted output and quality reports were preserved."
     )
 

@@ -98,17 +98,32 @@ def next_candidate_plan(
     current: int,
     accepted_tokens: int,
     target_tokens: int,
+    accepted_rows: int,
+    attempted_candidates: int,
     avg_tokens_per_sample: float,
     capacity: int | None,
 ) -> int:
-    """Return a strictly larger candidate plan for an accepted-token deficit."""
+    """Return a fresh-candidate attempt budget for an accepted-token deficit."""
+    current = max(int(current), int(attempted_candidates))
     if accepted_tokens >= target_tokens:
         return current
     if avg_tokens_per_sample <= 0:
         raise ValueError("avg_tokens_per_sample must be positive")
-    missing = target_tokens - accepted_tokens
-    additional = max(1, math.ceil(missing / avg_tokens_per_sample))
-    requested = current + additional
+
+    missing_tokens = target_tokens - accepted_tokens
+    missing_accepted_rows = max(1, math.ceil(missing_tokens / avg_tokens_per_sample))
+    observed_survival = min(
+        1.0,
+        max(
+            0.05,
+            accepted_rows / max(1, attempted_candidates),
+        ),
+    )
+    additional_attempts = max(
+        1,
+        math.ceil(missing_accepted_rows / observed_survival),
+    )
+    requested = current + additional_attempts
     if capacity is not None:
         requested = min(requested, capacity)
     return max(current, requested)
@@ -143,7 +158,8 @@ def _write_report(
             "accepted_tokens": accepted,
             "token_deficit": max(0, target - accepted),
             "accepted_rows": int(accepted_rows.get(signal, 0)),
-            "attempted_candidates": plans[signal],
+            "attempted_candidates": GroundedBatchStore(output_dir, signal).next_candidate_index(),
+            "planned_candidate_attempts": plans[signal],
             "candidate_capacity": capacity,
             "candidate_inventory_exhausted": capacity is not None and plans[signal] >= capacity,
         }
@@ -192,10 +208,36 @@ def curate_to_accepted_token_target(
         signal: _candidate_capacity(signal, cfg["mix"][signal])
         for signal in signals
     }
-    plans = {
-        signal: _initial_candidate_plan(cfg, signal, capacity=capacities[signal])
-        for signal in signals
-    }
+    existing_rows, existing_tokens = accepted_counts(
+        output_dir / "deduped" / "pretrain.jsonl",
+        chars_per_token=chars_per_token,
+    )
+    plans: dict[str, int] = {}
+    for signal in signals:
+        store = GroundedBatchStore(output_dir, signal)
+        attempted_candidates = store.next_candidate_index()
+        initial_plan = max(
+            _initial_candidate_plan(cfg, signal, capacity=capacities[signal]),
+            attempted_candidates,
+        )
+        mix_cfg = cfg["mix"][signal]
+        if attempted_candidates == 0:
+            plans[signal] = initial_plan
+        else:
+            plans[signal] = next_candidate_plan(
+                current=initial_plan,
+                accepted_tokens=int(existing_tokens.get(signal, 0)),
+                target_tokens=targets[signal],
+                accepted_rows=int(existing_rows.get(signal, 0)),
+                attempted_candidates=attempted_candidates,
+                avg_tokens_per_sample=float(
+                    mix_cfg.get(
+                        "avg_tokens_per_sample",
+                        generation_cfg.get("avg_tokens_per_sample", 100),
+                    )
+                ),
+                capacity=capacities[signal],
+            )
 
     while True:
         round_cfg = copy.deepcopy(cfg)
@@ -229,11 +271,19 @@ def curate_to_accepted_token_target(
             next_plans: dict[str, int] = {}
             for signal in signals:
                 mix_cfg = cfg["mix"][signal]
+                store = GroundedBatchStore(output_dir, signal)
                 next_plans[signal] = next_candidate_plan(
                     current=plans[signal],
                     accepted_tokens=int(tokens.get(signal, 0)),
                     target_tokens=targets[signal],
-                    avg_tokens_per_sample=float(mix_cfg.get("avg_tokens_per_sample", generation_cfg.get("avg_tokens_per_sample", 100))),
+                    accepted_rows=int(rows.get(signal, 0)),
+                    attempted_candidates=store.next_candidate_index(),
+                    avg_tokens_per_sample=float(
+                        mix_cfg.get(
+                            "avg_tokens_per_sample",
+                            generation_cfg.get("avg_tokens_per_sample", 100),
+                        )
+                    ),
                     capacity=capacities[signal],
                 )
             if next_plans == plans:
