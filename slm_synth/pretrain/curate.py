@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from slm_synth.paths import load_yaml_config, resolve_output_dir
 from slm_synth.pretrain.dedup import run_from_config as deduplicate_from_config
+from slm_synth.pretrain.artifacts.planning import configured_candidate_capacity
 from slm_synth.pretrain.generate import (
     _grounded_token_target,
     _planned_grounded_target_rows,
@@ -69,19 +70,27 @@ def verify_completion_report(output_dir: Path, expected_signals: list[str]) -> d
     return report
 
 
-def _candidate_capacity(mix_cfg: Mapping[str, Any]) -> int | None:
-    value = mix_cfg.get("max_unique_candidates")
-    if value is None:
-        return None
-    capacity = int(value)
-    if capacity <= 0:
-        raise ValueError("max_unique_candidates must be positive")
-    return capacity
+def _candidate_capacity(signal: str, mix_cfg: Mapping[str, Any]) -> int:
+    return configured_candidate_capacity(signal, mix_cfg)
 
 
-def _initial_candidate_plan(cfg: Mapping[str, Any], signal: str) -> int:
+def _initial_candidate_plan(
+    cfg: Mapping[str, Any],
+    signal: str,
+    *,
+    capacity: int | None = None,
+) -> int:
     mix_cfg = cfg["mix"][signal]
-    return _planned_grounded_target_rows(dict(cfg), dict(mix_cfg))[2]
+    resolved_capacity = (
+        _candidate_capacity(signal, mix_cfg)
+        if capacity is None
+        else int(capacity)
+    )
+    return _planned_grounded_target_rows(
+        dict(cfg),
+        dict(mix_cfg),
+        candidate_capacity=resolved_capacity,
+    )[2]
 
 
 def next_candidate_plan(
@@ -179,8 +188,14 @@ def curate_to_accepted_token_target(
     max_cost = generation_cfg.get("max_cost_usd")
     max_cost = float(max_cost) if max_cost is not None else None
     targets = {signal: _grounded_token_target(cfg, cfg["mix"][signal]) for signal in signals}
-    capacities = {signal: _candidate_capacity(cfg["mix"][signal]) for signal in signals}
-    plans = {signal: _initial_candidate_plan(cfg, signal) for signal in signals}
+    capacities = {
+        signal: _candidate_capacity(signal, cfg["mix"][signal])
+        for signal in signals
+    }
+    plans = {
+        signal: _initial_candidate_plan(cfg, signal, capacity=capacities[signal])
+        for signal in signals
+    }
 
     while True:
         round_cfg = copy.deepcopy(cfg)

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
+
+from slm_synth.manifest_totals import load_run_manifest, public_dataset_stats
 
 
 HF_DATA_FILES_YAML = """---
@@ -128,6 +129,7 @@ CARD_SPECS: dict[str, dict[str, str]] = {
   "reasoning": null,
   "response": "string",
   "metadata": {
+    "signal": "string",
     "category": "string",
     "difficulty": 1,
     "template_family": "string",
@@ -155,10 +157,13 @@ CARD_SPECS: dict[str, dict[str, str]] = {
     {"role": "assistant", "content": "string"}
   ],
   "metadata": {
+    "preference_dimension": "string",
     "category": "string",
+    "difficulty": 1,
     "template_family": "string",
     "eval_family": "string | null",
-    "failure_mode": "string"
+    "failure_mode": "string",
+    "failure_mode_source": "generation_intent"
   }
 }""",
         "intended_use": "Use this dataset for DPO-style alignment after response distillation.",
@@ -178,6 +183,7 @@ def build_dataset_card(
     signals: Iterable[str] | None = None,
     teacher_model: str | None = None,
     model_roles: Mapping[str, str] | None = None,
+    distribution: Mapping[str, int] | None = None,
     title: str | None = None,
     language: str = "English",
 ) -> str:
@@ -209,7 +215,7 @@ def build_dataset_card(
     ]
 
     if total is not None:
-        lines.append(f"- {spec['unit_label']}: `{total}`")
+        lines.append(f"- {spec['unit_label']}: `{total:,}`")
     if family:
         lines.append(f"- Family: `{family}`")
     if clean_signals:
@@ -219,6 +225,22 @@ def build_dataset_card(
             "distillation-dpo": "Preference dimensions",
         }.get(kind, "Signals")
         lines.append(f"- {label}: `{', '.join(clean_signals)}`")
+    lines.append(f"- Language: {language}")
+
+    clean_distribution = _clean_distribution(distribution)
+    distribution_total = sum(value for _, value in clean_distribution)
+    if total is not None and clean_distribution and distribution_total != total:
+        raise ValueError(
+            f"dataset-card distribution total {distribution_total} does not match "
+            f"the published total {total} for {kind}"
+        )
+    if clean_distribution:
+        heading, key_label, value_label = _distribution_labels(kind)
+        lines.extend(["", f"### {heading}", "", f"| {key_label} | {value_label} |", "|---|---:|"])
+        for key, value in clean_distribution:
+            lines.append(f"| {key} | {value:,} |")
+        lines.append(f"| **Total** | **{distribution_total:,}** |")
+
     # Generation-model provenance is useful for distillation products because
     # teacher/pair provenance is part of what those datasets represent. Generic
     # SFT/DPO cards describe the dataset artifact itself and intentionally omit
@@ -230,8 +252,7 @@ def build_dataset_card(
         for label, model in clean_model_roles:
             lines.append(f"- {label}: `{model}`")
     elif show_model_provenance and teacher_model:
-        lines.append(f"- Teacher model: `{teacher_model}`")
-    lines.append(f"- Language: {language}")
+        lines.extend(["", "## Generation Models", "", f"- Teacher model: `{teacher_model}`"])
 
     lines.extend(["", "## Schema", "", "```json", spec["schema"], "```"])
     schema_note = spec.get("schema_note")
@@ -264,6 +285,7 @@ def write_dataset_card(
     signals: Iterable[str] | None = None,
     teacher_model: str | None = None,
     model_roles: Mapping[str, str] | None = None,
+    distribution: Mapping[str, int] | None = None,
 ) -> Path:
     """Write README.md into a generation run directory."""
 
@@ -278,6 +300,8 @@ def write_dataset_card(
         teacher_model = metadata.get("teacher_model")
     if model_roles is None:
         model_roles = metadata.get("model_roles")
+    if distribution is None:
+        distribution = metadata.get("distribution")
 
     run_path.mkdir(parents=True, exist_ok=True)
     readme_path = run_path / "README.md"
@@ -290,6 +314,7 @@ def write_dataset_card(
             signals=signals,
             teacher_model=teacher_model,
             model_roles=model_roles,
+            distribution=distribution,
         ),
         encoding="utf-8",
     )
@@ -297,22 +322,98 @@ def write_dataset_card(
 
 
 def _metadata_from_run_dir(*, kind: str, run_dir: Path) -> dict[str, Any]:
-    manifest_path = run_dir / "manifests" / f"{run_dir.name}.manifest.json"
     manifest: dict[str, Any] = {}
-    if manifest_path.is_file():
-        try:
-            value = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            value = {}
-        if isinstance(value, Mapping):
-            manifest = dict(value)
+    try:
+        _, manifest = load_run_manifest(run_dir=run_dir, kind=kind)
+    except FileNotFoundError:
+        pass
+
+    stats = None
+    try:
+        stats = public_dataset_stats(kind=kind, run_dir=run_dir)
+    except FileNotFoundError:
+        pass
+
+    distribution = _distribution_from_manifest(kind=kind, manifest=manifest)
+    total = _total_from_manifest(kind=kind, manifest=manifest)
+    if stats is not None:
+        public_distribution = stats.metadata_counts or stats.file_counts
+        if total is not None and total != stats.total:
+            raise ValueError(
+                f"manifest total {total} does not match public JSONL count "
+                f"{stats.total} for {kind}; normalize manifests before building the card"
+            )
+        if distribution and distribution != public_distribution:
+            raise ValueError(
+                "manifest published distribution does not match public JSONL counts "
+                f"for {kind}; normalize manifests before building the card"
+            )
+        total = stats.total
+        distribution = public_distribution
+
+    signals = _signals_from_manifest(manifest)
+    if not signals and distribution:
+        signals = sorted(distribution)
+    if not signals:
+        signals = (
+            _signals_from_dataset_dir(run_dir / "datasets")
+            or _signals_from_dataset_dir(run_dir / "data")
+        )
 
     return {
-        "total": _total_from_manifest(kind=kind, manifest=manifest),
+        "total": total,
         "teacher_model": _clean_string(manifest.get("teacher_model")),
         "model_roles": _model_roles_from_manifest(kind=kind, manifest=manifest),
-        "signals": _signals_from_manifest(manifest) or _signals_from_dataset_dir(run_dir / "datasets"),
+        "signals": signals,
+        "distribution": distribution,
     }
+
+
+def _distribution_from_manifest(
+    *, kind: str, manifest: Mapping[str, Any]
+) -> dict[str, int]:
+    metadata = manifest.get("metadata")
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    field = {
+        "pretrain": "published_signal_counts",
+        "sft": "published_family_counts",
+        "dpo": "published_dimension_counts",
+        "distillation-sft": "published_signal_counts",
+        "distillation-dpo": "published_dimension_counts",
+    }[kind]
+    value = metadata.get(field)
+    if isinstance(value, Mapping):
+        counts = {
+            str(key).strip(): int(count)
+            for key, count in value.items()
+            if isinstance(key, str)
+            and key.strip()
+            and isinstance(count, int)
+            and not isinstance(count, bool)
+            and count >= 0
+        }
+        if counts:
+            return dict(sorted(counts.items()))
+
+    counts: dict[str, int] = {}
+    entries = manifest.get("datasets")
+    if not isinstance(entries, list):
+        entries = manifest.get("data")
+    if not isinstance(entries, list):
+        return counts
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        key = (
+            _clean_string(entry.get("signal"))
+            or _clean_string(entry.get("family"))
+            or _clean_string(entry.get("preference_dimension"))
+        )
+        count = entry.get("row_count")
+        if key and isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            counts[key] = count
+    return dict(sorted(counts.items()))
 
 
 def _total_from_manifest(*, kind: str, manifest: Mapping[str, Any]) -> int | None:
@@ -341,7 +442,16 @@ def _signals_from_manifest(manifest: Mapping[str, Any]) -> list[str]:
         if values:
             return sorted(set(values))
 
+    for field in ("signals", "families", "preference_dimensions"):
+        raw = manifest.get(field)
+        if isinstance(raw, list):
+            values = [value for value in raw if isinstance(value, str) and value.strip()]
+            if values:
+                return sorted(set(values))
+
     datasets = manifest.get("datasets")
+    if not isinstance(datasets, list):
+        datasets = manifest.get("data")
     if not isinstance(datasets, list):
         return []
 
@@ -402,6 +512,38 @@ def _model_roles_from_manifest(*, kind: str, manifest: Mapping[str, Any]) -> dic
         if value:
             roles["Pair model"] = value
     return roles
+
+
+def _clean_distribution(
+    distribution: Mapping[str, int] | None,
+) -> list[tuple[str, int]]:
+    if not isinstance(distribution, Mapping):
+        return []
+    values: list[tuple[str, int]] = []
+    for key, count in distribution.items():
+        clean_key = _clean_string(key)
+        if (
+            clean_key
+            and isinstance(count, int)
+            and not isinstance(count, bool)
+            and count >= 0
+        ):
+            values.append((clean_key, count))
+    return sorted(values)
+
+
+def _distribution_labels(kind: str) -> tuple[str, str, str]:
+    return {
+        "pretrain": ("Signal Distribution", "Signal", "Records"),
+        "sft": ("Task Family Distribution", "Task family", "Rows"),
+        "dpo": ("Preference Dimension Distribution", "Preference dimension", "Pairs"),
+        "distillation-sft": ("Signal Distribution", "Signal", "Rows"),
+        "distillation-dpo": (
+            "Preference Dimension Distribution",
+            "Preference dimension",
+            "Pairs",
+        ),
+    }[kind]
 
 
 def _clean_model_roles(model_roles: Mapping[str, str] | None) -> list[tuple[str, str]]:

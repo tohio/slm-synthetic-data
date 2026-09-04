@@ -10,7 +10,10 @@ from slm_synth.distillation_sft.signals import validate_signal
 from slm_synth.taxonomy import validate_metadata
 
 
-PUBLIC_METADATA_FIELDS = frozenset({"category", "difficulty", "template_family", "eval_family"})
+BASE_PUBLIC_METADATA_FIELDS = frozenset(
+    {"category", "difficulty", "template_family", "eval_family"}
+)
+PUBLIC_METADATA_FIELDS = frozenset({"signal", *BASE_PUBLIC_METADATA_FIELDS})
 
 _DEFAULT_TEMPLATE_FAMILY = {
     "code": "python_function_generation",
@@ -55,7 +58,7 @@ def build_public_metadata(
         template_family=resolved_template,
     )
     resolved_difficulty = difficulty if difficulty is not None else _DEFAULT_DIFFICULTY.get(normalized_signal, 2)
-    return validate_metadata(
+    validated = validate_metadata(
         {
             "category": category,
             "difficulty": resolved_difficulty,
@@ -63,13 +66,28 @@ def build_public_metadata(
             "eval_family": eval_family,
         }
     )
+    return {"signal": normalized_signal, **validated}
 
 
 def extract_public_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    """Return only the validated training-facing metadata fields."""
+    """Return validated training-facing metadata.
+
+    Legacy rows without ``metadata.signal`` remain readable. Newly generated
+    rows always include the signal so copied or consolidated publication files
+    retain their authoritative family label.
+    """
     if not isinstance(metadata, Mapping):
         raise TypeError("prompt metadata must be an object")
-    return validate_metadata({field: metadata.get(field) for field in PUBLIC_METADATA_FIELDS})
+    extra = sorted(field for field in metadata if field not in PUBLIC_METADATA_FIELDS)
+    if extra:
+        raise ValueError(f"metadata contains unsupported field(s): {extra}")
+
+    validated = validate_metadata(
+        {field: metadata.get(field) for field in BASE_PUBLIC_METADATA_FIELDS}
+    )
+    if "signal" not in metadata:
+        return validated
+    return {"signal": validate_signal(metadata["signal"]), **validated}
 
 
 def _default_template_family(*, signal: str, prompt: str) -> str:

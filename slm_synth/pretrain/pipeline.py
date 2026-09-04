@@ -14,6 +14,7 @@ import yaml
 
 from slm_synth.paths import load_yaml_config, resolve_output_dir
 from slm_synth.pretrain.dedup import build_public_record
+from slm_synth.pretrain.generate import _grounded_token_target
 from slm_synth.pretrain.quality import JUDGE_CRITERIA, run_quality
 from slm_synth.pretrain.record_quality import signal_to_filename
 from slm_synth.runtime import write_json
@@ -205,7 +206,7 @@ def _write_round_config(
 def _update_accepted_token_report(
     *,
     output_dir: Path,
-    target_tokens: int,
+    signal_targets: Mapping[str, int],
     finalization: Mapping[str, Any],
     generation_target_tokens: int,
     rounds: int,
@@ -219,13 +220,50 @@ def _update_accepted_token_report(
         if isinstance(loaded, dict):
             report.update(loaded)
 
-    accepted_tokens = int(finalization["accepted_tokens"])
+    semantic_signals = finalization.get("signals", {})
+    if not isinstance(semantic_signals, Mapping):
+        semantic_signals = {}
+    prior_signals = report.get("signals", {})
+    if not isinstance(prior_signals, Mapping):
+        prior_signals = {}
+
+    final_signal_reports: dict[str, dict[str, Any]] = {}
+    for signal, target in signal_targets.items():
+        prior = prior_signals.get(signal, {})
+        signal_report = dict(prior) if isinstance(prior, Mapping) else {}
+        final_signal = semantic_signals.get(signal, {})
+        if not isinstance(final_signal, Mapping):
+            final_signal = {}
+        accepted = int(final_signal.get("estimated_tokens", 0) or 0)
+        signal_report.update(
+            {
+                "target_accepted_tokens": int(target),
+                "accepted_tokens": accepted,
+                "token_deficit": max(0, int(target) - accepted),
+                "accepted_rows": int(final_signal.get("records", 0) or 0),
+            }
+        )
+        final_signal_reports[signal] = signal_report
+
+    target_tokens = sum(int(value) for value in signal_targets.values())
+    accepted_tokens = sum(
+        int(final_signal_reports[signal]["accepted_tokens"])
+        for signal in signal_targets
+    )
+    deficit = sum(
+        int(final_signal_reports[signal]["token_deficit"])
+        for signal in signal_targets
+    )
     report.update(
         {
+            "schema_version": 2,
             "status": "complete" if complete else "shortfall",
-            "target_tokens": int(target_tokens),
+            "publish_ready": bool(complete),
+            "target_tokens": target_tokens,
+            "target_accepted_tokens": target_tokens,
             "accepted_tokens": accepted_tokens,
-            "deficit": max(0, int(target_tokens) - accepted_tokens),
+            "deficit": deficit,
+            "token_deficit": deficit,
             "stop_reason": (
                 stop_reason
                 or (
@@ -234,6 +272,7 @@ def _update_accepted_token_report(
                     else "semantic_quality_backfill_exhausted"
                 )
             ),
+            "signals": final_signal_reports,
             "semantic_quality": {
                 "stage_order": [
                     "generation",
@@ -277,7 +316,6 @@ def _quality_kwargs(args: argparse.Namespace) -> dict[str, Any]:
 def verify_final(config_path: str, signal: str | None = None) -> dict[str, Any]:
     cfg = load_yaml_config(config_path)
     output_dir = resolve_output_dir(cfg)
-    target_tokens = int(cfg["target_total_tokens"])
     report_path = output_dir / "manifests" / "accepted_token_report.json"
     final_path = output_dir / "deduped" / "pretrain.jsonl"
 
@@ -294,20 +332,74 @@ def verify_final(config_path: str, signal: str | None = None) -> dict[str, Any]:
             "rerun pretrain-smoke or pretrain-generate."
         )
 
-    accepted_tokens = int(report.get("accepted_tokens", 0) or 0)
-    stop_reason = str(report.get("stop_reason") or "")
-    terminal_shortfall = stop_reason == "unique_candidate_inventory_exhausted"
-    if accepted_tokens < target_tokens and not terminal_shortfall:
+    def required_nonnegative_int(value: Any, *, field: str) -> int:
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise RuntimeError(
+                f"Accepted-token report field {field!r} must be a non-negative integer"
+            )
+        return value
+
+    target_value = report.get(
+        "target_tokens",
+        report.get("target_accepted_tokens", cfg["target_total_tokens"]),
+    )
+    target_tokens = required_nonnegative_int(target_value, field="target_tokens")
+    accepted_tokens = required_nonnegative_int(
+        report.get("accepted_tokens"), field="accepted_tokens"
+    )
+    deficit_value = report.get("token_deficit", report.get("deficit"))
+    deficit = required_nonnegative_int(deficit_value, field="token_deficit")
+
+    signal_reports = report.get("signals")
+    semantic_signals = semantic.get("signals")
+    if not isinstance(signal_reports, Mapping) or not isinstance(
+        semantic_signals, Mapping
+    ):
         raise RuntimeError(
-            "Final post-review pretraining dataset is under target without a terminal "
-            "finite-inventory reason: "
-            f"accepted_tokens={accepted_tokens} target_tokens={target_tokens} "
-            f"stop_reason={stop_reason!r}"
+            "Accepted-token report is missing per-signal completion accounting"
         )
 
-    if signal is not None and signal not in semantic.get("signals", {}):
+    configured_mix = cfg.get("mix", {})
+    if not isinstance(configured_mix, Mapping):
+        configured_mix = {}
+    expected_signals = (
+        [signal]
+        if signal is not None
+        else [name for name in configured_mix if name in JUDGE_CRITERIA]
+    )
+    if not expected_signals:
+        raise RuntimeError("No supported pretraining signals are configured for verification")
+
+    missing_signals = sorted(
+        name
+        for name in expected_signals
+        if name not in signal_reports or name not in semantic_signals
+    )
+    signal_deficits: dict[str, int] = {}
+    for name in expected_signals:
+        value = signal_reports.get(name)
+        if not isinstance(value, Mapping):
+            continue
+        signal_deficits[name] = required_nonnegative_int(
+            value.get("token_deficit"),
+            field=f"signals.{name}.token_deficit",
+        )
+
+    if (
+        report.get("status") != "complete"
+        or report.get("publish_ready") is not True
+        or accepted_tokens < target_tokens
+        or deficit != 0
+        or missing_signals
+        or any(value != 0 for value in signal_deficits.values())
+    ):
         raise RuntimeError(
-            f"Final accepted-token report does not contain requested signal {signal!r}"
+            "Final post-review pretraining dataset has not reached every accepted-token allocation: "
+            f"status={report.get('status')!r} publish_ready={report.get('publish_ready')!r} "
+            f"accepted_tokens={accepted_tokens} target_tokens={target_tokens} "
+            f"deficit={deficit} missing_signals={missing_signals} "
+            f"signal_deficits={signal_deficits} "
+            f"stop_reason={report.get('stop_reason')!r}"
         )
 
     print(
@@ -327,9 +419,25 @@ def run(args: argparse.Namespace) -> int:
 
     base_config = load_yaml_config(args.config)
     output_dir = resolve_output_dir(base_config)
-    target_tokens = int(base_config["target_total_tokens"])
+    configured_mix = base_config.get("mix", {})
+    if not isinstance(configured_mix, Mapping) or not configured_mix:
+        raise ValueError("pretraining config must define at least one mix signal")
+    if args.signal:
+        if args.signal not in configured_mix:
+            raise ValueError(f"requested signal {args.signal!r} is not present in the config mix")
+        signals = [args.signal]
+    else:
+        signals = [name for name in configured_mix if name in JUDGE_CRITERIA]
+    if not signals:
+        raise ValueError("pretraining config contains no supported quality signals")
+
+    signal_targets = {
+        signal: _grounded_token_target(base_config, configured_mix[signal])
+        for signal in signals
+    }
+    target_tokens = sum(signal_targets.values())
     if target_tokens < 1:
-        raise ValueError("target_total_tokens must be positive")
+        raise ValueError("accepted-token target must be positive")
 
     chars_per_token = (
         _find_chars_per_token(base_config)
@@ -338,13 +446,7 @@ def run(args: argparse.Namespace) -> int:
     if chars_per_token <= 0:
         raise ValueError("chars_per_token must be positive")
 
-    signals = (
-        [args.signal]
-        if args.signal
-        else list(JUDGE_CRITERIA)
-    )
-
-    generation_target_tokens = target_tokens
+    generation_target_tokens = int(base_config["target_total_tokens"])
     completed_round = 0
 
     for round_number in range(args.max_backfill_rounds + 1):
@@ -380,13 +482,26 @@ def run(args: argparse.Namespace) -> int:
                 curate_report = loaded_curate_report
 
         if round_number == 0:
-            planned_target = curate_report.get("target_tokens")
+            planned_target = curate_report.get("target_accepted_tokens")
             if (
                 isinstance(planned_target, int)
                 and not isinstance(planned_target, bool)
                 and planned_target > 0
             ):
                 target_tokens = planned_target
+            curated_signals = curate_report.get("signals")
+            if isinstance(curated_signals, Mapping):
+                for signal in signals:
+                    value = curated_signals.get(signal)
+                    if isinstance(value, Mapping):
+                        signal_target = value.get("target_accepted_tokens")
+                        if (
+                            isinstance(signal_target, int)
+                            and not isinstance(signal_target, bool)
+                            and signal_target > 0
+                        ):
+                            signal_targets[signal] = signal_target
+                target_tokens = sum(signal_targets.values())
 
         inventory_exhausted = (
             curate_report.get("stop_reason") == "unique_candidate_inventory_exhausted"
@@ -403,11 +518,16 @@ def run(args: argparse.Namespace) -> int:
             chars_per_token=chars_per_token,
         )
         accepted_tokens = int(finalization["accepted_tokens"])
-        complete = accepted_tokens >= target_tokens
+        final_signal_values = finalization.get("signals", {})
+        complete = all(
+            int(final_signal_values.get(signal, {}).get("estimated_tokens", 0) or 0)
+            >= signal_targets[signal]
+            for signal in signals
+        )
 
         report_path = _update_accepted_token_report(
             output_dir=output_dir,
-            target_tokens=target_tokens,
+            signal_targets=signal_targets,
             finalization=finalization,
             generation_target_tokens=generation_target_tokens,
             rounds=round_number,
@@ -436,18 +556,24 @@ def run(args: argparse.Namespace) -> int:
             return 0
 
         if inventory_exhausted:
-            print(
-                "[pretrain-pipeline] finite candidate inventory exhausted; "
-                f"keeping post-review dataset accepted_tokens={accepted_tokens}/{target_tokens} "
-                f"report={report_path} dataset={finalization['output']}",
-                flush=True,
+            raise RuntimeError(
+                "Pretraining candidate inventory exhausted before every post-review "
+                "accepted-token allocation was reached: "
+                f"accepted_tokens={accepted_tokens}/{target_tokens} "
+                f"report={report_path} dataset={finalization['output']}"
             )
-            return 0
 
         if round_number >= args.max_backfill_rounds:
             break
 
-        deficit = target_tokens - accepted_tokens
+        deficit = sum(
+            max(
+                0,
+                signal_targets[signal]
+                - int(final_signal_values.get(signal, {}).get("estimated_tokens", 0) or 0),
+            )
+            for signal in signals
+        )
         survival = min(
             1.0,
             max(

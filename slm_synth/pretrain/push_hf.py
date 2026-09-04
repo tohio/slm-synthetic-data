@@ -56,6 +56,51 @@ def iter_public_jsonl(path: Path) -> Iterator[dict[str, Any]]:
             yield row
 
 
+
+def require_complete_accepted_token_report(path: Path) -> dict[str, Any]:
+    """Fail closed unless final post-review accepted-token accounting is complete."""
+
+    if not path.is_file():
+        raise ValueError(f"Missing accepted-token completion report: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid accepted-token completion report: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Accepted-token completion report must be an object: {path}")
+
+    deficit = payload.get("token_deficit", payload.get("deficit"))
+    signal_values = payload.get("signals", {})
+    signal_deficits: dict[str, Any] = {}
+    if isinstance(signal_values, Mapping):
+        signal_deficits = {
+            name: value.get("token_deficit")
+            for name, value in signal_values.items()
+            if isinstance(name, str) and isinstance(value, Mapping)
+        }
+
+    complete = (
+        payload.get("status") == "complete"
+        and payload.get("publish_ready") is True
+        and isinstance(deficit, int)
+        and not isinstance(deficit, bool)
+        and deficit == 0
+        and all(
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and value == 0
+            for value in signal_deficits.values()
+        )
+    )
+    if not complete:
+        raise ValueError(
+            "Pretraining dataset has not reached every final accepted-token "
+            f"allocation: status={payload.get('status')!r} "
+            f"publish_ready={payload.get('publish_ready')!r} "
+            f"token_deficit={deficit!r} signal_deficits={signal_deficits}"
+        )
+    return payload
+
 def push_consolidated_dataset(
     *,
     api: HfApi,
@@ -109,6 +154,9 @@ def main(
         raise ValueError("pretraining HF repo must use the form owner/name")
     target_private = configured_private if private is None else private
     dedup_cfg = cfg.get("dedup", {}) or {}
+    require_complete_accepted_token_report(
+        output_dir / "manifests" / "accepted_token_report.json"
+    )
     api = HfApi(token=get_hf_token())
     return push_consolidated_dataset(
         api=api,

@@ -311,8 +311,8 @@ pretrain-report:
 >   --sample-size $(PRETRAIN_DIVERSITY_SAMPLE_SIZE) \
 >   --near-duplicate-threshold $(PRETRAIN_DIVERSITY_THRESHOLD) \
 >   --require-clean
-> @test -z "$(PRETRAIN_REPORT_RUN)" || $(PYTHON) -m slm_synth.cards build --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN)
 > @if [ -n "$(PRETRAIN_REPORT_RUN)" ]; then $(PYTHON) -m slm_synth.manifest_totals normalize --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN); fi
+> @test -z "$(PRETRAIN_REPORT_RUN)" || $(PYTHON) -m slm_synth.cards build --kind pretrain --run-dir data/runs/$(PRETRAIN_REPORT_RUN)
 
 pretrain-inspect:
 > @echo "== pretraining files =="
@@ -394,8 +394,8 @@ distillation-sft-report:
 >   --run-manifest $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/manifests/$(DISTILLATION_SFT_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_SFT_RUN_ROOT)/$(DISTILLATION_SFT_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_SFT_DATASET_NAME)"
-> $(PYTHON) -m slm_synth.cards build --kind distillation-sft --run-dir data/distillation/runs/$(DISTILLATION_SFT_REPORT_RUN)
 > $(PYTHON) -m slm_synth.manifest_totals normalize --kind distillation-sft --run-dir data/distillation/runs/$(DISTILLATION_SFT_REPORT_RUN)
+> $(PYTHON) -m slm_synth.cards build --kind distillation-sft --run-dir data/distillation/runs/$(DISTILLATION_SFT_REPORT_RUN)
 
 distillation-sft-inspect:
 > @echo "== distillation files =="
@@ -479,8 +479,8 @@ distillation-dpo-report:
 >   --run-manifest $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/manifests/$(DISTILLATION_DPO_REPORT_RUN).manifest.json \
 >   --output $(DISTILLATION_DPO_RUN_ROOT)/$(DISTILLATION_DPO_REPORT_RUN)/README.md \
 >   --dataset-name "$(DISTILLATION_DPO_DATASET_NAME)"
-> $(PYTHON) -m slm_synth.cards build --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
 > $(PYTHON) -m slm_synth.manifest_totals normalize --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
+> $(PYTHON) -m slm_synth.cards build --kind distillation-dpo --run-dir data/distillation-dpo/runs/$(DISTILLATION_DPO_REPORT_RUN)
 
 distillation-dpo-inspect:
 > @echo "== distillation DPO files =="
@@ -563,8 +563,8 @@ sft-report:
 >   --run-manifest $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/manifests/$(SFT_REPORT_RUN).manifest.json \
 >   --holdout-registry $(SFT_HOLDOUT_REGISTRY) \
 >   --output $(SFT_RUN_ROOT)/$(SFT_REPORT_RUN)/coverage.json
-> $(PYTHON) -m slm_synth.cards build --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)
 > $(PYTHON) -m slm_synth.manifest_totals normalize --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)
+> $(PYTHON) -m slm_synth.cards build --kind sft --run-dir data/sft/runs/$(SFT_REPORT_RUN)
 
 sft-inspect:
 > @echo "== SFT files =="
@@ -643,8 +643,8 @@ dpo-report:
 >   --holdout-registry $(DPO_HOLDOUT_REGISTRY) \
 >   --run-manifest $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/manifests/$(DPO_REPORT_RUN).manifest.json \
 >   --output $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)/coverage.json
-> $(PYTHON) -m slm_synth.cards build --kind dpo --run-dir $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)
 > $(PYTHON) -m slm_synth.manifest_totals normalize --kind dpo --run-dir $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)
+> $(PYTHON) -m slm_synth.cards build --kind dpo --run-dir $(DPO_RUN_ROOT)/$(DPO_REPORT_RUN)
 
 dpo-inspect:
 > @echo "== DPO files =="

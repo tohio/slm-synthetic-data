@@ -13,6 +13,10 @@ from dotenv import load_dotenv
 from slm_synth.adaptive_batch import AdaptiveBatchSizeController
 from slm_synth.llm import LLMBackend
 from slm_synth.pretrain.writer import JSONLWriter
+from slm_synth.pretrain.artifacts.planning import (
+    build_artifact_factory,
+    configured_candidate_capacity,
+)
 from slm_synth.pretrain.grounded import (
     GroundedBatchStore,
     GroundedRenderedBatchError,
@@ -125,15 +129,24 @@ def _uncapped_grounded_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any])
     return max(1, math.ceil(token_target / avg_tokens))
 
 
-def _planned_grounded_target_rows(cfg: Dict[str, Any], mix_cfg: Dict[str, Any]) -> tuple[int, int, int]:
+def _planned_grounded_target_rows(
+    cfg: Dict[str, Any],
+    mix_cfg: Dict[str, Any],
+    *,
+    candidate_capacity: int | None = None,
+) -> tuple[int, int, int]:
     token_target = _grounded_token_target(cfg, mix_cfg)
     requested_rows = _uncapped_grounded_target_rows(cfg, mix_cfg)
     planned_rows = requested_rows
-    capacity = mix_cfg.get("max_unique_candidates")
+    capacity = (
+        candidate_capacity
+        if candidate_capacity is not None
+        else mix_cfg.get("max_unique_candidates")
+    )
     if capacity is not None:
         capacity = int(capacity)
         if capacity <= 0:
-            raise ValueError("max_unique_candidates must be positive")
+            raise ValueError("candidate capacity must be positive")
         planned_rows = min(planned_rows, capacity)
     return token_target, requested_rows, planned_rows
 
@@ -204,8 +217,17 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     if not MIN_GROUNDED_BATCH_SIZE <= min_batch_size <= batch_size:
         raise ValueError("Grounded generation min_batch_size must be between 1 and batch_size")
 
-    token_target, requested_rows, planned_rows = _planned_grounded_target_rows(cfg, mix_cfg)
-    candidate_capacity = mix_cfg.get("max_unique_candidates")
+    factory = build_artifact_factory(name, mix_cfg)
+    candidate_capacity = configured_candidate_capacity(
+        name,
+        mix_cfg,
+        factory=factory,
+    )
+    token_target, requested_rows, planned_rows = _planned_grounded_target_rows(
+        cfg,
+        mix_cfg,
+        candidate_capacity=candidate_capacity,
+    )
     parallel_requests = int(
         mix_cfg.get(
             "parallel_requests",
@@ -221,7 +243,12 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
     renderer = build_llm(backend_cfg, mix_cfg, role="renderer")
     if renderer.provider != "openrouter":
         raise ValueError("Grounded generation requires backend.provider=openrouter")
-    generator = GroundedSignalGenerator(name, renderer, batch_size=batch_size)
+    generator = GroundedSignalGenerator(
+        name,
+        renderer,
+        batch_size=batch_size,
+        factory=factory,
+    )
     batch_controller = AdaptiveBatchSizeController(
         maximum=batch_size,
         minimum=min_batch_size,
@@ -237,7 +264,7 @@ def run_grounded_signal(name: str, cfg: Dict[str, Any], output_dir: Path) -> Non
         f"[generate] Starting grounded signal: {name} "
         f"(target_tokens_estimate={token_target}, requested_rows={requested_rows}, "
         f"planned_rows={planned_rows}, existing_rows={existing_rows}, "
-        f"candidate_capacity={candidate_capacity or 'unbounded'}, "
+        f"candidate_capacity={candidate_capacity}, "
         f"batch_size={batch_size}, min_batch_size={min_batch_size}, "
         f"parallel_requests={parallel_requests}, model={renderer.model})"
     )

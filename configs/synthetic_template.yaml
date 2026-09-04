@@ -61,8 +61,9 @@ mix:
   arithmetic:
     architecture: "grounded"
     share: 0.14754098360655737
-    # Finite high-quality source capacity; do not pad arithmetic with operand-only variants.
-    max_unique_candidates: 288
+    # Preserve the finite verified catalog as capability anchors, then derive
+    # fresh profile-guided records when the token target needs more inventory.
+    candidate_planner: "scalable"
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -70,8 +71,9 @@ mix:
   task_code:
     architecture: "grounded"
     share: 0.39344262295081966
-    # Finite catalog of genuinely different algorithms; do not pad with renamed variants.
-    max_unique_candidates: 200
+    # Preserve the finite verified algorithm catalog as capability anchors,
+    # then derive fresh task/code records under deterministic semantic profiles.
+    candidate_planner: "scalable"
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -79,8 +81,9 @@ mix:
   educational_qa_mcq_math:
     architecture: "grounded"
     share: 0.14754098360655737
-    # Eleven grounded contexts for each verified relationship provide replacement headroom.
-    max_unique_candidates: 264
+    # Preserve the finite verified math catalog as capability anchors, then
+    # derive fresh machine-verifiable questions under semantic profiles.
+    candidate_planner: "scalable"
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -88,8 +91,9 @@ mix:
   educational_qa_mcq_general:
     architecture: "grounded"
     share: 0.24590163934426230
-    # Nine evidence-document forms for each reasoning family; every candidate remains locally answerable.
-    max_unique_candidates: 216
+    # Preserve the finite evidence catalog as capability anchors, then derive
+    # fresh locally answerable evidence/question records under semantic profiles.
+    candidate_planner: "scalable"
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -97,8 +101,9 @@ mix:
   factual_restraint:
     architecture: "grounded"
     share: 0.06557377049180328
-    # Four materially different scenarios for each restraint behavior.
-    max_unique_candidates: 128
+    # Preserve the finite behavior catalog as capability anchors, then derive
+    # fresh concrete scenarios under deterministic semantic profiles.
+    candidate_planner: "scalable"
     renderer_model: "__MODEL__"
     batch_size: __BATCH_SIZE__
     max_tokens: __MAX_TOKENS__
@@ -127,6 +132,9 @@ generation:
   parallel_requests: __CONCURRENCY__
   avg_tokens_per_sample: 100
   chars_per_token: 4.0
+  # Large scalable plans validate every finite anchor plus this deterministic
+  # sample of derived profiles before paid rendering.
+  preflight_max_artifacts: 10000
   # Optional hard generation-cost stop. Omit for no cost ceiling.
   # max_cost_usd: 10.0
   # Candidate rounds use estimated record counts and complete request batches;

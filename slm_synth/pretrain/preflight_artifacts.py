@@ -8,9 +8,61 @@ from collections import Counter
 from pathlib import Path
 
 from slm_synth.pretrain.artifacts.quality import artifact_fingerprint, artifact_structure_fingerprint, validate_artifact
-from slm_synth.pretrain.grounded import FACTORY_MAP
+from slm_synth.pretrain.artifacts.planning import (
+    ScalableGroundedArtifactFactory,
+    build_artifact_factory,
+    configured_candidate_capacity,
+)
 from slm_synth.pretrain.generate import _planned_grounded_target_rows
 from slm_synth.paths import load_yaml_config, resolve_output_dir
+
+
+def _sampled_plan_indices(
+    *,
+    factory: object,
+    planned_rows: int,
+    max_rows: int,
+) -> tuple[list[int], str]:
+    """Return a deterministic full or sampled preflight plan.
+
+    Finite plans remain fully enumerated. Large scalable plans validate every
+    finite capability anchor plus an evenly distributed sample of derived
+    profiles, while capacity coverage is checked analytically.
+    """
+
+    if planned_rows < 0:
+        raise ValueError("planned_rows must be non-negative")
+    if max_rows < 1:
+        raise ValueError("preflight_max_artifacts must be positive")
+    if planned_rows <= max_rows or not isinstance(
+        factory, ScalableGroundedArtifactFactory
+    ):
+        return list(range(planned_rows)), "full"
+
+    anchor_rows = min(factory.base_capacity, planned_rows)
+    indices = list(range(anchor_rows))
+    derived_budget = max_rows - anchor_rows
+    if derived_budget < 1:
+        raise ValueError(
+            "preflight_max_artifacts must exceed the finite capability-anchor "
+            f"count ({anchor_rows}) for scalable plans"
+        )
+
+    derived_start = anchor_rows
+    derived_count = planned_rows - derived_start
+    if derived_count <= derived_budget:
+        indices.extend(range(derived_start, planned_rows))
+        return indices, "full"
+
+    if derived_budget == 1:
+        indices.append(derived_start)
+    else:
+        span = derived_count - 1
+        indices.extend(
+            derived_start + (slot * span) // (derived_budget - 1)
+            for slot in range(derived_budget)
+        )
+    return indices, "sampled"
 
 
 def scan_plan(config: str, signal: str | None = None) -> dict:
@@ -32,18 +84,40 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             mix_cfg = cfg["mix"][name]
             if mix_cfg.get("architecture") != "grounded":
                 continue
-            token_target, requested_rows, planned_rows = _planned_grounded_target_rows(cfg, mix_cfg)
-            capacity = mix_cfg.get("max_unique_candidates")
+            factory = build_artifact_factory(name, mix_cfg)
+            capacity = configured_candidate_capacity(
+                name,
+                mix_cfg,
+                factory=factory,
+            )
+            token_target, requested_rows, planned_rows = _planned_grounded_target_rows(
+                cfg,
+                mix_cfg,
+                candidate_capacity=capacity,
+            )
             avg_tokens_per_sample = float(
                 mix_cfg.get("avg_tokens_per_sample", cfg.get("generation", {}).get("avg_tokens_per_sample", 100))
             )
-            estimated_capacity_tokens = int(capacity) * avg_tokens_per_sample if capacity is not None else None
-            preflight_rows = int(capacity) if capacity is not None else planned_rows
-            factory = FACTORY_MAP[name]()
+            estimated_capacity_tokens = capacity * avg_tokens_per_sample
+            generation_cfg = cfg.get("generation", {})
+            if not isinstance(generation_cfg, dict):
+                generation_cfg = {}
+            preflight_max_artifacts = int(
+                generation_cfg.get(
+                    "preflight_max_artifacts",
+                    cfg.get("preflight_max_artifacts", 10_000),
+                )
+            )
+            preflight_indices, preflight_mode = _sampled_plan_indices(
+                factory=factory,
+                planned_rows=planned_rows,
+                max_rows=preflight_max_artifacts,
+            )
+            preflight_rows = len(preflight_indices)
             families = Counter()
             exact_duplicates = 0
             quality_issues = []
-            for index in range(preflight_rows):
+            for index in preflight_indices:
                 artifact = factory.build(index)
                 families[artifact.family] += 1
                 issues = validate_artifact(artifact)
@@ -70,7 +144,16 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
                 "requested_rows": requested_rows,
                 "planned_rows": planned_rows,
                 "preflight_rows": preflight_rows,
-                "max_unique_candidates": mix_cfg.get("max_unique_candidates"),
+                "preflight_mode": preflight_mode,
+                "preflight_max_artifacts": preflight_max_artifacts,
+                "candidate_planner": str(mix_cfg.get("candidate_planner", "finite")),
+                "base_candidate_capacity": int(
+                    getattr(factory, "base_capacity", capacity)
+                ),
+                "derivation_profile_count": int(
+                    getattr(factory, "profile_count", 0)
+                ),
+                "max_unique_candidates": capacity,
                 "estimated_capacity_tokens": estimated_capacity_tokens,
                 "capacity_covers_target": estimated_capacity_tokens is None or estimated_capacity_tokens >= token_target,
                 "capacity_limited": planned_rows < requested_rows,
@@ -82,7 +165,9 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
             }
             reports.append(report)
             print(
-                f"[preflight-artifacts] {name}: planned_rows={planned_rows}, preflight_rows={preflight_rows}, exact_duplicates={exact_duplicates}, "
+                f"[preflight-artifacts] {name}: planned_rows={planned_rows}, "
+                f"preflight_rows={preflight_rows}, mode={preflight_mode}, "
+                f"exact_duplicates={exact_duplicates}, "
                 f"structures={unique_structures}, quality_issues={len(quality_issues)}"
             )
     finally:
@@ -113,10 +198,9 @@ def scan_plan(config: str, signal: str | None = None) -> dict:
         row["signal"] for row in reports if not row["capacity_covers_target"]
     ]
     if capacity_shortfalls:
-        print(
-            "[preflight-artifacts] candidate inventory cannot cover the token aspiration "
-            f"for signals={capacity_shortfalls}; generation will exhaust the finite "
-            "inventory and keep the surviving accepted dataset."
+        raise SystemExit(
+            "Preflight failed: candidate inventory cannot cover the accepted-token target "
+            f"for signals={capacity_shortfalls}."
         )
     return result
 

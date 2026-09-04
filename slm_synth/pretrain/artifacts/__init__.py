@@ -6,6 +6,13 @@ from slm_synth.pretrain.artifacts.task_code import TaskCodeArtifactFactory
 from slm_synth.pretrain.artifacts.educational_qa_mcq_math import EducationalQAMCQMathArtifactFactory
 from slm_synth.pretrain.artifacts.educational_qa_mcq_general import EducationalQAMCQGeneralArtifactFactory
 from slm_synth.pretrain.artifacts.factual_restraint import FactualRestraintArtifactFactory
+from slm_synth.pretrain.artifacts.planning import (
+    BASE_FACTORY_MAP,
+    ScalableGroundedArtifactFactory,
+    build_artifact_factory,
+    configured_candidate_capacity,
+    is_derived_artifact,
+)
 
 __all__ = [
     "GroundedArtifact",
@@ -14,4 +21,9 @@ __all__ = [
     "EducationalQAMCQMathArtifactFactory",
     "EducationalQAMCQGeneralArtifactFactory",
     "FactualRestraintArtifactFactory",
+    "BASE_FACTORY_MAP",
+    "ScalableGroundedArtifactFactory",
+    "build_artifact_factory",
+    "configured_candidate_capacity",
+    "is_derived_artifact",
 ]

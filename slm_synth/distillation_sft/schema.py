@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from slm_synth.taxonomy import validate_metadata
+from slm_synth.corruption import require_no_high_confidence_corruption
+from slm_synth.distillation_sft.public_metadata import extract_public_metadata
 
 
 PUBLIC_ROW_FIELDS = frozenset({"id", "prompt", "reasoning", "response", "metadata"})
@@ -56,10 +57,16 @@ def validate_public_row(row: Mapping[str, Any]) -> dict[str, Any]:
     if reasoning is not None:
         raise ValueError("public distillation row field 'reasoning' must be null")
 
+    require_no_high_confidence_corruption(
+        row["prompt"],
+        row["response"],
+        artifact_name="public distillation-SFT row",
+    )
+
     return {
         "id": row["id"],
         "prompt": row["prompt"],
         "reasoning": None,
         "response": row["response"],
-        "metadata": validate_metadata(row["metadata"]),
+        "metadata": extract_public_metadata(row["metadata"]),
     }
